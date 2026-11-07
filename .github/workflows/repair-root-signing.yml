@@ -1,0 +1,132 @@
+name: Repair iumrah Root Apple signing certificate
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  signing-repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Recover a CSR from the CURRENT GitHub signing key
+        shell: bash
+        env:
+          ROOT_DISTRIBUTION_KEY_B64: ${{ secrets.ROOT_DISTRIBUTION_KEY_B64 }}
+          ROOT_IOS_PROFILE_B64: ${{ secrets.ROOT_IOS_PROFILE_B64 }}
+          IOS_SIGNING_KEY_PASSWORD: ${{ secrets.IOS_SIGNING_KEY_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p signing-repair-output
+          python3 - <<'PY'
+          import base64
+          import binascii
+          import os
+          from pathlib import Path
+          for name, target in (
+              ('ROOT_DISTRIBUTION_KEY_B64', 'current-key.enc'),
+              ('ROOT_IOS_PROFILE_B64', 'current-profile.mobileprovision'),
+          ):
+              value = os.environ.get(name, '').strip()
+              if not value:
+                  raise SystemExit(f'Missing GitHub secret: {name}')
+              try:
+                  content = base64.b64decode(''.join(value.split()), validate=True)
+              except (binascii.Error, ValueError) as exc:
+                  raise SystemExit(f'{name} is invalid base64: {exc}')
+              if len(content) < 100:
+                  raise SystemExit(f'{name} is too short')
+              Path(os.environ['RUNNER_TEMP'], target).write_bytes(content)
+          for name in ('IOS_SIGNING_KEY_PASSWORD', 'APPLE_TEAM_ID'):
+              if not os.environ.get(name):
+                  raise SystemExit(f'Missing GitHub secret: {name}')
+          PY
+
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+            -in "$RUNNER_TEMP/current-key.enc" \
+            -out "$RUNNER_TEMP/current-key.pem" \
+            -pass env:IOS_SIGNING_KEY_PASSWORD
+          openssl pkey -in "$RUNNER_TEMP/current-key.pem" -noout >/dev/null
+
+          openssl req -new -sha256 \
+            -key "$RUNNER_TEMP/current-key.pem" \
+            -out signing-repair-output/iumrah-root-CURRENT-KEY.certSigningRequest \
+            -subj '/CN=iumrah Root Distribution/C=UZ'
+
+          openssl cms -verify -noverify -inform DER \
+            -in "$RUNNER_TEMP/current-profile.mobileprovision" \
+            -out "$RUNNER_TEMP/current-profile.plist" 2>/dev/null
+
+          python3 - <<'PY'
+          import os
+          import plistlib
+          from pathlib import Path
+          p = plistlib.loads(Path(os.environ['RUNNER_TEMP'], 'current-profile.plist').read_bytes())
+          team = p['TeamIdentifier'][0]
+          bundle = p['Entitlements']['application-identifier']
+          expected_team = os.environ['APPLE_TEAM_ID']
+          if team != expected_team:
+              raise SystemExit(f'Profile team {team} differs from APPLE_TEAM_ID {expected_team}')
+          if bundle != expected_team + '.com.iumrah.root':
+              raise SystemExit(f'Wrong provisioning profile: {bundle}')
+          certs = p.get('DeveloperCertificates', [])
+          if not certs:
+              raise SystemExit('Provisioning profile has no distribution certificate')
+          certdir = Path(os.environ['RUNNER_TEMP'], 'profile-certs')
+          certdir.mkdir()
+          for i, cert in enumerate(certs):
+              (certdir / f'{i}.der').write_bytes(cert)
+          print(f'Profile team and bundle verified: {bundle}')
+          PY
+
+          CURRENT_KEY_HASH=$(openssl pkey -in "$RUNNER_TEMP/current-key.pem" -pubout -outform DER | openssl dgst -sha256 | awk '{print $NF}')
+          printf 'GitHub signing key public fingerprint: %s\n' "$CURRENT_KEY_HASH"
+          MATCH=0
+          for cert in "$RUNNER_TEMP"/profile-certs/*.der; do
+            CERT_HASH=$(openssl x509 -inform DER -in "$cert" -pubkey -noout | openssl pkey -pubin -outform DER | openssl dgst -sha256 | awk '{print $NF}')
+            echo "Certificate public fingerprint: $CERT_HASH"
+            if [[ "$CURRENT_KEY_HASH" == "$CERT_HASH" ]]; then
+              MATCH=1
+            fi
+          done
+          if [[ "$MATCH" == 1 ]]; then
+            echo 'MATCH: Current GitHub encrypted key and profile certificate DO match.'
+            echo 'If the previous TestFlight run failed, check that you reran it AFTER updating the secrets.'
+          else
+            echo 'MISMATCH CONFIRMED: Profile certificate does not match the current GitHub encrypted private key.'
+            echo 'Download the CSR artifact, create a NEW Apple Distribution certificate from it, and recreate the iOS App Store Connect provisioning profile selecting that NEW certificate.'
+          fi
+
+          cat > signing-repair-output/NEXT_STEPS_RU.txt <<'TXT'
+          iumrah Root: исправление сертификата подписи
+
+          Этот CSR создан из ДЕЙСТВУЮЩЕГО GitHub Secret ROOT_DISTRIBUTION_KEY_B64.
+          Приватный ключ НЕ сохраняется в артефакте и НЕ меняется.
+
+          1. Apple Developer > Certificates > + > Apple Distribution.
+          2. Загрузить iumrah-root-CURRENT-KEY.certSigningRequest из ЭТОГО артефакта.
+          3. Скачать новый Apple Distribution .cer.
+          4. Apple Developer > Profiles > + > App Store Connect.
+          5. App ID: com.iumrah.root.
+          6. Сертификат: ВЫБРАТЬ ТОЛЬКО ЧТО СОЗДАННЫЙ сертификат.
+          7. Generate > Download новый .mobileprovision.
+          8. GitHub > Secrets: обновить ТОЛЬКО ROOT_IOS_PROFILE_B64,
+             кодируя скачанный новый профиль через base64.
+          9. НЕ менять ROOT_DISTRIBUTION_KEY_B64 и IOS_SIGNING_KEY_PASSWORD.
+          10. Запустить iumrah Root — iOS TestFlight (new Team).
+
+          Если Apple ограничивает создание новых Distribution сертификатов,
+          старый сертификат можно отозвать только после проверки, что
+          он не используется другими приложениями в этом Apple Team.
+          TXT
+
+      - name: Downloadable CSR from current secret (NO private key)
+        uses: actions/upload-artifact@v4
+        with:
+          name: iumrah-root-CSR-matches-current-GitHub-key
+          path: signing-repair-output/
+          retention-days: 7
