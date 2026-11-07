@@ -1,0 +1,150 @@
+name: iumrah - Move old Cloudflare D1 (no hotel catalog)
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'dry-run = inspect locally only; import = restore into EMPTY new account databases, no traffic switch'
+        type: choice
+        options:
+          - dry-run
+          - import
+          - copy-r2
+        default: dry-run
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: iumrah-cross-account-d1
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      OLD_CLOUDFLARE_ACCOUNT_ID: ${{ secrets.OLD_CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
+      OLD_CLOUDFLARE_API_TOKEN: ${{ secrets.OLD_CLOUDFLARE_API_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}
+      NEW_CLOUDFLARE_ACCOUNT_ID: ${{ secrets.NEW_CLOUDFLARE_ACCOUNT_ID }}
+      NEW_CLOUDFLARE_API_TOKEN: ${{ secrets.NEW_CLOUDFLARE_API_TOKEN }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Validate old credentials and distinguish accounts
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$OLD_CLOUDFLARE_ACCOUNT_ID" || { echo 'Missing OLD_CLOUDFLARE_ACCOUNT_ID / CLOUDFLARE_ACCOUNT_ID'; exit 1; }
+          test -n "$OLD_CLOUDFLARE_API_TOKEN" || { echo 'Missing OLD_CLOUDFLARE_API_TOKEN / CLOUDFLARE_API_TOKEN'; exit 1; }
+          if [ "${{ inputs.mode }}" != 'dry-run' ]; then
+            test -n "$NEW_CLOUDFLARE_ACCOUNT_ID" || { echo 'Missing NEW_CLOUDFLARE_ACCOUNT_ID'; exit 1; }
+            test -n "$NEW_CLOUDFLARE_API_TOKEN" || { echo 'Missing NEW_CLOUDFLARE_API_TOKEN'; exit 1; }
+            test "$OLD_CLOUDFLARE_ACCOUNT_ID" != "$NEW_CLOUDFLARE_ACCOUNT_ID" || { echo 'Refusing same-account migration'; exit 1; }
+          fi
+          test -f Backend/CloudflareMigration/policy.json
+          test -f Backend/CloudflareMigration/prepare.py
+          test -f Backend/CloudflareMigration/cloudflare.py
+          mkdir -p "$RUNNER_TEMP/iumrah-private-old" "$RUNNER_TEMP/iumrah-private-new"
+
+      - name: Install Wrangler CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install -g wrangler@4 >/dev/null
+          wrangler --version
+
+      - name: Export all five OLD D1 databases to ephemeral runner disk
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in $(python3 -c 'import json; print(" ".join(json.load(open("Backend/CloudflareMigration/policy.json"))["databases"].keys()))'); do
+            echo "Exporting database: $name (data stays on private runner disk)"
+            CLOUDFLARE_ACCOUNT_ID="$OLD_CLOUDFLARE_ACCOUNT_ID" \
+            CLOUDFLARE_API_TOKEN="$OLD_CLOUDFLARE_API_TOKEN" \
+            wrangler d1 export "$name" --remote --skip-confirmation \
+              --output="$RUNNER_TEMP/iumrah-private-old/$name.sql" \
+              > "$RUNNER_TEMP/d1-export.log" 2>&1 || {
+                echo "Export failed: $name. Check old D1 Read permission and name. No data was altered."
+                exit 1
+              }
+          done
+
+      - name: Validate and prepare filtered D1 restoration SQL
+        shell: bash
+        run: |
+          set -euo pipefail
+          TZ=Asia/Tashkent date '+%Y-%m-%d' > "$RUNNER_TEMP/migration-date.txt"
+          python3 Backend/CloudflareMigration/prepare.py \
+            --policy Backend/CloudflareMigration/policy.json \
+            --exports "$RUNNER_TEMP/iumrah-private-old" \
+            --stage "$RUNNER_TEMP/iumrah-private-new" \
+            --report "$RUNNER_TEMP/iumrah-migration-counts.json" \
+            --cutoff "$(cat "$RUNNER_TEMP/migration-date.txt")"
+
+      - name: Count referenced non-hotel R2 objects (no object transfer)
+        shell: bash
+        run: |
+          python3 Backend/CloudflareMigration/r2_objects.py \
+            --core-sql "$RUNNER_TEMP/iumrah-private-new/iumrah-core.sql" --mode count
+
+      - name: Copy and verify referenced non-hotel R2 objects (copy-r2 only)
+        if: ${{ inputs.mode == 'copy-r2' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 Backend/CloudflareMigration/r2_objects.py \
+            --core-sql "$RUNNER_TEMP/iumrah-private-new/iumrah-core.sql" --mode copy
+
+      - name: Preflight and create empty NEW D1 databases (import only)
+        if: ${{ inputs.mode == 'import' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 Backend/CloudflareMigration/cloudflare.py preflight \
+            --report "$RUNNER_TEMP/iumrah-migration-counts.json" \
+            --allow-create \
+            --output "$RUNNER_TEMP/target-database-ids.json"
+
+      - name: Import filtered SQL into NEW account (import only)
+        if: ${{ inputs.mode == 'import' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in $(python3 -c 'import json; p=json.load(open("Backend/CloudflareMigration/policy.json")); print(" ".join(x["target"] for x in p["databases"].values()))'); do
+            echo "Importing into empty new D1: $name"
+            CLOUDFLARE_ACCOUNT_ID="$NEW_CLOUDFLARE_ACCOUNT_ID" \
+            CLOUDFLARE_API_TOKEN="$NEW_CLOUDFLARE_API_TOKEN" \
+            wrangler d1 execute "$name" --remote --yes \
+              --file="$RUNNER_TEMP/iumrah-private-new/$name.sql" \
+              > "$RUNNER_TEMP/d1-import.log" 2>&1 || {
+                echo "Import failed: $name. Old account is intact; no traffic switch occurred."
+                echo 'Do NOT retry against a partially populated target without reviewing it.'
+                exit 1
+              }
+          done
+
+      - name: Verify every imported row count and foreign keys (import only)
+        if: ${{ inputs.mode == 'import' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 Backend/CloudflareMigration/cloudflare.py verify \
+            --report "$RUNNER_TEMP/iumrah-migration-counts.json"
+          echo 'D1 copy verified. Workers, domains, KV and R2 are NOT switched by this workflow.'
+
+      - name: Upload ONLY non-sensitive row counts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: iumrah-cross-account-d1-counts
+          path: ${{ runner.temp }}/iumrah-migration-counts.json
+          if-no-files-found: ignore
+          retention-days: 3
