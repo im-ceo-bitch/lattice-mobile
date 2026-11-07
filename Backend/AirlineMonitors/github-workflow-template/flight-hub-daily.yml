@@ -1,0 +1,44 @@
+name: iumrah — Airline fare monitors
+on:
+  schedule:
+    - cron: '0 3 * * *' # 08:00 Asia/Tashkent
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check-airlines:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        provider: [centrum, uzbekistan, flynas]
+    defaults:
+      run:
+        working-directory: Backend/AirlineMonitors
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Derive service key and resolve Worker URL automatically
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.NEW_CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.NEW_CLOUDFLARE_API_TOKEN }}
+        working-directory: Backend/FlightHubWorker
+        run: |
+          node scripts/write-ci-service-keys.mjs
+          node scripts/find-worker-url.mjs
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - run: python -m playwright install --with-deps chromium
+      - name: Check existing flights from new D1 catalog
+        run: python -m monitor.cli --provider '${{ matrix.provider }}' --limit 14
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: flight-monitor-${{ matrix.provider }}-${{ github.run_number }}
+          path: Backend/AirlineMonitors/output/${{ matrix.provider }}/
+          retention-days: 7

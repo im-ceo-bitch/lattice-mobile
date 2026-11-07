@@ -37,6 +37,7 @@ struct FlightCurationView: View {
         case bulk
         case charter
         case published
+        case monitor
 
         var id: String { rawValue }
 
@@ -46,6 +47,7 @@ struct FlightCurationView: View {
             case .bulk: return "Массовый"
             case .charter: return "Чартеры"
             case .published: return "Опубликованные"
+            case .monitor: return "Мониторинг"
             }
         }
     }
@@ -348,7 +350,9 @@ struct FlightCurationView: View {
 
     @ViewBuilder
     private var workspaceContent: some View {
-        if layout.supportsTwoPaneWorkspace && workspace != .published {
+        if workspace == .monitor {
+            FlightHubMonitorView()
+        } else if layout.supportsTwoPaneWorkspace && workspace != .published {
             HStack(alignment: .top, spacing: 18) {
                 VStack(alignment: .leading, spacing: 18) {
                     workspaceControls
@@ -382,7 +386,7 @@ struct FlightCurationView: View {
             airlineFilters
         case .charter:
             charterImportCard
-        case .published:
+        case .published, .monitor:
             EmptyView()
         }
     }
@@ -435,6 +439,8 @@ struct FlightCurationView: View {
             }
         case .published:
             publishedSection
+        case .monitor:
+            EmptyView()
         }
     }
 
@@ -452,29 +458,30 @@ struct FlightCurationView: View {
     }
 
     private var workspacePicker: some View {
-        HStack(spacing: 0) {
-            ForEach(SearchWorkspace.allCases) { item in
-                Button {
-                    withAnimation(.easeInOut(duration: 0.18)) { workspace = item }
-                } label: {
-                    Text(item.title)
-                        .font(.system(size: 13, weight: workspace == item ? .semibold : .medium))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.68)
-                        .foregroundStyle(.primary)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 38)
-                        .background(
-                            workspace == item ? BusinessDesign.card : Color.clear,
-                            in: RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        )
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 2) {
+                ForEach(SearchWorkspace.allCases) { item in
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.18)) { workspace = item }
+                    } label: {
+                        Text(item.title)
+                            .font(.system(size: 13, weight: workspace == item ? .semibold : .medium))
+                            .foregroundStyle(.primary)
+                            .fixedSize(horizontal: true, vertical: false)
+                            .padding(.horizontal, 14)
+                            .frame(minWidth: 85, minHeight: 38)
+                            .background(
+                                workspace == item ? BusinessDesign.card : Color.clear,
+                                in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            )
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
+            .padding(4)
         }
-        .padding(4)
-        .background(BusinessDesign.secondarySurface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(BusinessDesign.line, lineWidth: 0.8))
+        .background(BusinessDesign.secondarySurface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(BusinessDesign.line, lineWidth: 0.8))
     }
 
     private var bulkSearchCard: some View {

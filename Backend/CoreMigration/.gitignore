@@ -1,0 +1,9 @@
+*.sql
+!migrations/*.sql
+*.sqlite
+*.sqlite3
+*.db
+exports/
+backups/
+reports/
+__pycache__/

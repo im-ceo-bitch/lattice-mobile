@@ -1,0 +1,15 @@
+name = "iumrah-flight-hub"
+main = "src/index.js"
+compatibility_date = "2026-11-07"
+workers_dev = true
+# Can add a route to this worker AFTER migration of the domain/zone.
+# Avoid claiming current iumrah.app routing until your new account is provisioned.
+
+[[d1_databases]]
+binding = "FLIGHTS_DB"
+database_name = "iumrah-flights"
+database_id = "REPLACE_WITH_NEW_D1_ID"
+migrations_dir = "migrations"
+
+[triggers]
+crons = ["15 1 * * *"] # 06:15 Asia/Tashkent: cleanup only; bots run via Actions.
