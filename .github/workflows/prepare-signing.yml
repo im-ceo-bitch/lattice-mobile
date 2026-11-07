@@ -1,205 +1,89 @@
-name: Prepare iOS + Mac Signing
+name: Prepare new iumrah Root Apple signing requests
 
 on:
   workflow_dispatch:
-    inputs:
-      mode:
-        description: 'Signing package to prepare'
-        required: true
-        type: choice
-        default: mac-catalyst-add-on
-        options:
-          - mac-catalyst-add-on
-          - full-new-signing-set
 
 permissions:
   contents: read
 
 jobs:
-  prepare:
-    runs-on: ubuntu-latest
+  signing-request:
+    runs-on: macos-26
+    timeout-minutes: 10
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Check required secrets
+      - name: Verify GitHub secrets for new Apple Developer account
         env:
           APPLE_ID_EMAIL: ${{ secrets.APPLE_ID_EMAIL }}
           IOS_SIGNING_KEY_PASSWORD: ${{ secrets.IOS_SIGNING_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          test -n "$APPLE_ID_EMAIL" || { echo "Missing secret: APPLE_ID_EMAIL"; exit 1; }
-          test -n "$IOS_SIGNING_KEY_PASSWORD" || { echo "Missing secret: IOS_SIGNING_KEY_PASSWORD"; exit 1; }
+          test -n "$APPLE_ID_EMAIL" || { echo 'Missing secret APPLE_ID_EMAIL'; exit 1; }
+          test -n "$IOS_SIGNING_KEY_PASSWORD" || { echo 'Missing secret IOS_SIGNING_KEY_PASSWORD'; exit 1; }
 
-      - name: Identify the current iOS Apple Distribution certificate
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p signing-output/current-ios-certs
-
-          PROFILE='Signing/iumrah-business.mobileprovision'
-          if [ ! -f "$PROFILE" ]; then
-            cat > signing-output/CURRENT-IOS-SIGNING.txt <<'TXT'
-          Existing Signing/iumrah-business.mobileprovision was not found.
-          The Mac Catalyst App Store Connect profile must be created with the same
-          Apple Distribution certificate as the active iOS App Store profile.
-          TXT
-            exit 0
-          fi
-
-          openssl smime -inform der -verify -noverify \
-            -in "$PROFILE" \
-            -out signing-output/current-ios-profile.plist >/dev/null 2>&1
-
-          PROFILE_PLIST='signing-output/current-ios-profile.plist' \
-          CERT_DIR='signing-output/current-ios-certs' \
-          python3 - <<'PYCODE'
-          import os, plistlib
-          from pathlib import Path
-
-          profile_path = Path(os.environ['PROFILE_PLIST'])
-          cert_dir = Path(os.environ['CERT_DIR'])
-          with profile_path.open('rb') as f:
-              profile = plistlib.load(f)
-
-          certs = profile.get('DeveloperCertificates') or []
-          for index, cert in enumerate(certs):
-              (cert_dir / f'certificate-{index}.der').write_bytes(cert)
-
-          app_id = (profile.get('Entitlements') or {}).get('application-identifier', '')
-          aps = (profile.get('Entitlements') or {}).get('aps-environment', '')
-          lines = [
-              'CURRENT IUMRAH BUSINESS iOS SIGNING PROFILE',
-              f"Profile name: {profile.get('Name', '')}",
-              f"UUID: {profile.get('UUID', '')}",
-              f"Team: {(profile.get('TeamIdentifier') or [''])[0]}",
-              f"Application identifier: {app_id}",
-              f"APNs: {aps}",
-              f"Distribution certificates in profile: {len(certs)}",
-              '',
-              'When creating the Mac App Store Connect profile, select the Apple',
-              'Distribution certificate whose fingerprint below matches.',
-              '',
-          ]
-          Path('signing-output/CURRENT-IOS-SIGNING.txt').write_text('\n'.join(lines), encoding='utf-8')
-          PYCODE
-
-          for cert in signing-output/current-ios-certs/*.der; do
-            [ -e "$cert" ] || continue
-            pem="${cert%.der}.pem"
-            openssl x509 -inform DER -in "$cert" -out "$pem"
-            {
-              echo "Certificate: $(basename "$cert")"
-              openssl x509 -in "$pem" -noout -subject -serial -dates -fingerprint -sha256
-              echo
-            } >> signing-output/CURRENT-IOS-SIGNING.txt
-          done
-
-          cat signing-output/CURRENT-IOS-SIGNING.txt
-
-      - name: Generate Mac Catalyst installer signing CSR
+      - name: Generate fresh Apple Distribution and Mac Installer CSRs
         env:
           APPLE_ID_EMAIL: ${{ secrets.APPLE_ID_EMAIL }}
           IOS_SIGNING_KEY_PASSWORD: ${{ secrets.IOS_SIGNING_KEY_PASSWORD }}
         run: |
           set -euo pipefail
+          umask 077
           mkdir -p signing-output
 
-          openssl genrsa -out signing-output/mac-installer-private-key.pem 2048
-          openssl req \
-            -new \
-            -sha256 \
-            -key signing-output/mac-installer-private-key.pem \
-            -out signing-output/iumrah-business-mac-installer.certSigningRequest \
-            -subj "/emailAddress=${APPLE_ID_EMAIL}/CN=iumrah Business Mac Installer/C=UZ"
-
-          openssl enc \
-            -aes-256-cbc \
-            -salt \
-            -pbkdf2 \
-            -iter 200000 \
-            -in signing-output/mac-installer-private-key.pem \
-            -out signing-output/mac-installer-private-key.enc \
+          openssl genrsa -out "$RUNNER_TEMP/root-distribution-private-key.pem" 2048
+          openssl req -new -sha256 \
+            -key "$RUNNER_TEMP/root-distribution-private-key.pem" \
+            -out signing-output/iumrah-root-distribution.certSigningRequest \
+            -subj "/emailAddress=${APPLE_ID_EMAIL}/CN=iumrah Root Distribution/C=UZ"
+          openssl enc -aes-256-cbc -salt -pbkdf2 -iter 200000 \
+            -in "$RUNNER_TEMP/root-distribution-private-key.pem" \
+            -out signing-output/root-distribution-private-key.enc \
             -pass env:IOS_SIGNING_KEY_PASSWORD
 
-          rm -f signing-output/mac-installer-private-key.pem
-
-      - name: Generate a full replacement Apple Distribution signing set
-        if: ${{ inputs.mode == 'full-new-signing-set' }}
-        env:
-          APPLE_ID_EMAIL: ${{ secrets.APPLE_ID_EMAIL }}
-          IOS_SIGNING_KEY_PASSWORD: ${{ secrets.IOS_SIGNING_KEY_PASSWORD }}
-        run: |
-          set -euo pipefail
-
-          openssl genrsa -out signing-output/distribution-private-key.pem 2048
-          openssl req \
-            -new \
-            -sha256 \
-            -key signing-output/distribution-private-key.pem \
-            -out signing-output/iumrah-business.certSigningRequest \
-            -subj "/emailAddress=${APPLE_ID_EMAIL}/CN=iumrah Business Distribution/C=UZ"
-
-          openssl enc \
-            -aes-256-cbc \
-            -salt \
-            -pbkdf2 \
-            -iter 200000 \
-            -in signing-output/distribution-private-key.pem \
-            -out signing-output/distribution-private-key.enc \
+          openssl genrsa -out "$RUNNER_TEMP/root-mac-installer-private-key.pem" 2048
+          openssl req -new -sha256 \
+            -key "$RUNNER_TEMP/root-mac-installer-private-key.pem" \
+            -out signing-output/iumrah-root-mac-installer.certSigningRequest \
+            -subj "/emailAddress=${APPLE_ID_EMAIL}/CN=iumrah Root Mac Installer/C=UZ"
+          openssl enc -aes-256-cbc -salt -pbkdf2 -iter 200000 \
+            -in "$RUNNER_TEMP/root-mac-installer-private-key.pem" \
+            -out signing-output/root-mac-installer-private-key.enc \
             -pass env:IOS_SIGNING_KEY_PASSWORD
+          rm -f "$RUNNER_TEMP/root-distribution-private-key.pem" "$RUNNER_TEMP/root-mac-installer-private-key.pem"
 
-          rm -f signing-output/distribution-private-key.pem
-
-      - name: Write exact next steps
-        shell: bash
+      - name: Write signing instructions
         run: |
-          set -euo pipefail
           cat > signing-output/NEXT-STEPS.txt <<'TXT'
-          IUMRAH BUSINESS — UNIVERSAL TESTFLIGHT SIGNING
+          IUMRAH ROOT / NEW APPLE DEVELOPER TEAM
 
-          DEFAULT / RECOMMENDED: mac-catalyst-add-on
-          This keeps the current iOS Apple Distribution key/profile unchanged.
+          1. Apple Developer > Certificates: upload
+             iumrah-root-distribution.certSigningRequest (Apple Distribution).
+          2. Enable Push Notifications for App ID com.iumrah.root.
+          3. Create an App Store Connect iOS distribution profile for this
+             App ID with the NEW Apple Distribution certificate. Save its raw
+             bytes as iumrah-root.mobileprovision.
+          4. For Mac Catalyst, upload
+             iumrah-root-mac-installer.certSigningRequest as a Mac Installer
+             Distribution certificate. Download as iumrah-root-mac-installer.cer.
+          5. Create Mac App Store Connect provisioning profile for
+             com.iumrah.root using the SAME Apple Distribution certificate
+             as step 3. Save as iumrah-root-mac.provisionprofile.
+          6. Add the five raw files as base64 GitHub Actions secrets:
+             ROOT_DISTRIBUTION_KEY_B64 (root-distribution-private-key.enc)
+             ROOT_IOS_PROFILE_B64 (iumrah-root.mobileprovision)
+             ROOT_MAC_INSTALLER_KEY_B64 (root-mac-installer-private-key.enc)
+             ROOT_MAC_INSTALLER_CERT_B64 (iumrah-root-mac-installer.cer)
+             ROOT_MAC_PROFILE_B64 (iumrah-root-mac.provisionprofile)
+          7. Do NOT commit these files. Set APPLE_TEAM_ID to the NEW team.
+          8. See APPLE_ROOT_SETUP_RU.md for full instructions.
 
-          1. developer.apple.com → Certificates → + → Mac Installer Distribution.
-          2. Upload iumrah-business-mac-installer.certSigningRequest.
-          3. Download the generated certificate and rename it exactly:
-             iumrah-business-mac-installer.cer
-          4. developer.apple.com → Profiles → + → Mac App Store Connect.
-          5. Select the App ID for com.iumrah.business.
-          6. IMPORTANT: choose the SAME Apple Distribution certificate already used by
-             Signing/iumrah-business.mobileprovision. The artifact includes
-             CURRENT-IOS-SIGNING.txt with the current certificate fingerprint.
-          7. Download the Mac Catalyst profile and rename it exactly:
-             iumrah-business-mac.provisionprofile
-          8. Add these three new files to lattice-mobile/Signing/:
-             - mac-installer-private-key.enc
-             - iumrah-business-mac-installer.cer
-             - iumrah-business-mac.provisionprofile
-          9. Keep the existing files too:
-             - distribution-private-key.enc
-             - iumrah-business.mobileprovision
-          10. Run "Build iumrah Business / Universal TestFlight — iPhone + iPad + Mac"
-              first with upload_to_testflight=false. After compile preflight passes,
-              run it again with upload_to_testflight=true.
-
-          If mode full-new-signing-set was selected, the artifact also contains a NEW
-          distribution-private-key.enc + iumrah-business.certSigningRequest. Do not
-          replace the existing distribution key unless you intentionally create a new
-          Apple Distribution certificate and regenerate BOTH the iOS and Mac Catalyst
-          App Store Connect provisioning profiles with that new certificate.
+          IMPORTANT: This run generates NEW private keys. Keep the downloaded
+          artifact safe. Never regenerate without replacing all associated
+          certificates and profiles.
           TXT
 
-          ls -lah signing-output
-
-      - name: Remove temporary decoded profile/certificate files
-        if: ${{ always() }}
-        run: |
-          rm -rf signing-output/current-ios-certs signing-output/current-ios-profile.plist
-
-      - name: Upload signing preparation package
+      - name: Upload encrypted private keys and CSR bundle
         uses: actions/upload-artifact@v4
         with:
-          name: iumrah-business-universal-signing-${{ inputs.mode }}
+          name: iumrah-root-new-team-signing-requests
           path: signing-output/
-          retention-days: 90
+          retention-days: 7
