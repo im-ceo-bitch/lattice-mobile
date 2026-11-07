@@ -14,3 +14,13 @@ Backend/HotelsWorker/.wrangler/
 # these patterns prevent them from being re-added accidentally.
 *_APPLIED.txt
 mobile-update.zip
+
+# New Apple Developer Team: signing assets must be held in GitHub Secrets only.
+Signing/*.enc
+Signing/*.mobileprovision
+Signing/*.provisionprofile
+Signing/*.cer
+Signing/*.pem
+Signing/*.certSigningRequest
+Signing/setup/
+lattice-mobile-main-esim-store-*.zip

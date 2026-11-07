@@ -9,7 +9,7 @@ struct BusinessInstallationIdentity {
 }
 
 enum BusinessSessionVault {
-    private static let service = "com.iumrah.business.device-security"
+    private static let service = "com.iumrah.root.device-security"
     private static let installationIDAccount = "installation-id-v1"
     private static let installationSecretAccount = "installation-secret-v1"
     private static let sessionTokenAccount = "business-session-token-v1"

@@ -64,7 +64,7 @@
     }
   ],
   "vars": {
-    "APPLE_TEAM_ID": "2DQ678JTNG",
+    "APPLE_TEAM_ID": "HVT4U96286",
     "IGNAV_MONTHLY_REQUEST_BUDGET": "6000",
     "AUTH_SESSION_URL": "https://iumrah.app/api/auth/staff/session",
     "BOOKINGS_ADMIN_URL": "https://iumrah.app/api/admin/bookings",

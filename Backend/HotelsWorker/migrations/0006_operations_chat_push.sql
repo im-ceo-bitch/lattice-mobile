@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS business_push_devices (
   staff_login TEXT,
   platform TEXT NOT NULL DEFAULT 'ios',
   environment TEXT NOT NULL DEFAULT 'production',
-  app_bundle_id TEXT NOT NULL DEFAULT 'com.iumrah.business',
+  app_bundle_id TEXT NOT NULL DEFAULT 'com.iumrah.root',
   enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0,1)),
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),

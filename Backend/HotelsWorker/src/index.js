@@ -12,7 +12,7 @@ const PUBLIC_CACHE_HEADERS = {
   'cache-control': 'public, max-age=60, s-maxage=300'
 };
 
-const BUSINESS_APP_BUNDLE_ID = 'com.iumrah.business';
+const BUSINESS_APP_BUNDLE_ID = 'com.iumrah.root';
 const CLIENT_APP_BUNDLE_ID = 'com.iumrah.app';
 
 export default {
@@ -297,11 +297,11 @@ async function handleBusinessPush(request, env, parts, user, businessSession = n
     const now = new Date().toISOString();
     await env.HOTELS_DB.prepare(`
       INSERT INTO business_push_devices (device_token, staff_login, environment, app_bundle_id, enabled, created_at, updated_at, last_error, installation_id)
-      VALUES (?, ?, ?, 'com.iumrah.business', 1, ?, ?, NULL, ?)
+      VALUES (?, ?, ?, ?, 1, ?, ?, NULL, ?)
       ON CONFLICT(device_token) DO UPDATE SET staff_login=excluded.staff_login, environment=excluded.environment,
         app_bundle_id=excluded.app_bundle_id, enabled=1, updated_at=excluded.updated_at, last_error=NULL,
         installation_id=excluded.installation_id
-    `).bind(token, cleanText(user?.login, 180), environment, now, now, businessSession?.installation_id || null).run();
+    `).bind(token, cleanText(user?.login, 180), environment, BUSINESS_APP_BUNDLE_ID, now, now, businessSession?.installation_id || null).run();
     return json({ ok: true, ready: apnsConfigured(env) });
   }
   if (parts.length === 1 && parts[0] === 'status' && request.method === 'GET') {
@@ -758,7 +758,7 @@ async function handleBusinessSecurity(request, env, parts, user, currentSession)
 async function sendBusinessSecurityPush(env, staffLogin, excludedInstallationID, title, body, data = {}) {
   if (!apnsConfigured(env)) return { ok: false, skipped: 'APNS_NOT_CONFIGURED' };
   const devices = await env.HOTELS_DB.prepare(`
-    SELECT device_token, environment, COALESCE(NULLIF(app_bundle_id,''), 'com.iumrah.business') AS app_bundle_id
+    SELECT device_token, environment, COALESCE(NULLIF(app_bundle_id,''), 'com.iumrah.root') AS app_bundle_id
     FROM business_push_devices
     WHERE enabled=1 AND LOWER(COALESCE(staff_login,''))=?
       AND (installation_id IS NULL OR installation_id<>?)
@@ -783,7 +783,7 @@ function apnsConfigured(env) {
 async function sendStaffPush(env, title, body, data = {}) {
   if (!apnsConfigured(env)) return { ok: false, skipped: 'APNS_NOT_CONFIGURED' };
   const devices = await env.HOTELS_DB.prepare(`
-    SELECT device_token, environment, COALESCE(NULLIF(app_bundle_id,''), 'com.iumrah.business') AS app_bundle_id
+    SELECT device_token, environment, COALESCE(NULLIF(app_bundle_id,''), 'com.iumrah.root') AS app_bundle_id
     FROM business_push_devices WHERE enabled=1 LIMIT 100
   `).all();
   return sendAPNsToRows(env, devices.results || [], title, body, data, async (device, result) => {
