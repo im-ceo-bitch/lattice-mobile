@@ -1,0 +1,9 @@
+{
+  "version": "2026-11-09",
+  "scope": "flight catalog + 3 airline price monitors",
+  "archive_type": "cumulative",
+  "live_fares_verified": false,
+  "cloudflare_deployed": false,
+  "xcode_archive_verified": false,
+  "notes": "Read FLIGHT_HUB_CUMULATIVE_20261109.md. GitHub workflow requires one-time manual replacement."
+}

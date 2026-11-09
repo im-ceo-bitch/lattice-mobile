@@ -60,10 +60,21 @@ def parse_offer_card(text,*,airline_code,provider,origin,destination,date,adults
  brands={b.lower():b for b in re.findall(r'\b(Base|Optimal|Comfort|Economy|Value|Light|Classic|Flex|Premium)\b',text,re.I)}
  if len(brands)>1: return None
  brand=next(iter(brands.values()),None)
- baggage=re.search(r'(?:(\d{1,2})\s*kg\s*(?:checked|baggage|багаж)|(?:багаж|checked baggage)\s*(\d{1,2})\s*к?г)',text,re.I)
+ # Weight and remaining availability are extracted ONLY if the site explicitly
+ # attributes them to the displayed fare. Never infer baggage from airline rules.
+ baggage=re.search(r'(?:checked\s*baggage|регистрируемый\s*багаж|багаж)\s*(?:до\s*)?(\d{1,2})\s*(?:kg|кг)|(?:checked\s*baggage|багаж)\s*[:：-]?\s*(\d{1,2})\s*(?:kg|кг)',text,re.I)
+ if not baggage:
+  baggage=re.search(r'(\d{1,2})\s*(?:kg|кг)\s*(?:checked\s*baggage|багаж)',text,re.I)
+ cabin=re.search(r'(?:cabin\s*bag(?:gage)?|hand\s*luggage|ручн(?:ая|ой)\s*клад(?:ь|и))\s*[:：-]?\s*(?:до\s*)?(\d{1,2})\s*(?:kg|кг)',text,re.I)
+ left=re.search(r'(?:only|осталось|осталось\s*всего)\s*(\d{1,2})\s*(?:seats?|мест[ао]?)\s*(?:left|available|доступно)?',text,re.I)
+ seats=int(left.group(1)) if left else None
+ # A generic seat count is not live inventory. Only an explicit fare scarcity
+ # statement counts. Values of 10+ are often API caps and not exact counts.
+ if seats is not None and seats>9: seats=None
  return {'airline_code':expected,'flight_number':next(iter(codes)),'origin':origin,'destination':destination,
   'departure_date':date,'fare_brand':brand or '', 'amount_minor':amount_minor,
   'currency':currency,'adults':adults,'children':0,'infants':0,'observed_at':datetime.now(timezone.utc).isoformat(),
   'price_scope':'site_displayed_not_checkout_verified','source_url':source_url,
-  'baggage_checked_kg':int(baggage.group(1) or baggage.group(2)) if baggage else None,
-  'seats_left':None}
+  'baggage_checked_kg':int(next(v for v in baggage.groups() if v)) if baggage else None,
+  'baggage_cabin_kg':int(cabin.group(1)) if cabin else None,
+  'seats_left':seats}

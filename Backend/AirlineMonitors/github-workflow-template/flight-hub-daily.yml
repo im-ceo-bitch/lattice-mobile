@@ -1,7 +1,7 @@
 name: iumrah — Airline fare monitors
 on:
   schedule:
-    - cron: '0 3 * * *' # 08:00 Asia/Tashkent
+    - cron: '0 3,15 * * *' # 08:00 and 20:00 Asia/Tashkent
   workflow_dispatch:
 permissions:
   contents: read
@@ -35,7 +35,7 @@ jobs:
       - run: pip install -r requirements.txt
       - run: python -m playwright install --with-deps chromium
       - name: Check existing flights from new D1 catalog
-        run: python -m monitor.cli --provider '${{ matrix.provider }}' --limit 14
+        run: python -m monitor.cli --provider '${{ matrix.provider }}' --limit 20
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -13,13 +13,11 @@ enum BusinessWorkspaceSection: String, Identifiable, CaseIterable, Hashable {
     case overview
     case bookings
     case chats
-    case hotels
     case flights
     case profile
     case sessions
     case employees
     case archive
-    case primaryHotels
     case payments
     case ziyarats
     case notifications
@@ -32,13 +30,11 @@ enum BusinessWorkspaceSection: String, Identifiable, CaseIterable, Hashable {
         case .overview: return "Обзор"
         case .bookings: return "Бронирования"
         case .chats: return "Чаты"
-        case .hotels: return "Отели"
         case .flights: return "Авиабилеты"
         case .profile: return "Мой профиль"
         case .sessions: return "Устройства и сеансы"
         case .employees: return "Сотрудники"
         case .archive: return "Архив клиентов"
-        case .primaryHotels: return "Primary Hotels"
         case .payments: return "Payments"
         case .ziyarats: return "Ziyarats"
         case .notifications: return "Создать уведомление"
@@ -51,13 +47,11 @@ enum BusinessWorkspaceSection: String, Identifiable, CaseIterable, Hashable {
         case .overview: return "square.grid.2x2.fill"
         case .bookings: return "suitcase.rolling.fill"
         case .chats: return "message.fill"
-        case .hotels: return "building.2.fill"
         case .flights: return "airplane"
         case .profile: return "person.crop.circle"
         case .sessions: return "lock.shield"
         case .employees: return "person.2"
         case .archive: return "archivebox"
-        case .primaryHotels: return "building.2.crop.circle"
         case .payments: return "creditcard.and.123"
         case .ziyarats: return "map.fill"
         case .notifications: return "bell.badge.fill"
@@ -66,11 +60,11 @@ enum BusinessWorkspaceSection: String, Identifiable, CaseIterable, Hashable {
     }
 
     static let primary: [BusinessWorkspaceSection] = [
-        .overview, .bookings, .chats, .hotels, .flights
+        .overview, .bookings, .chats, .flights
     ]
 
     static let administration: [BusinessWorkspaceSection] = [
-        .profile, .sessions, .employees, .archive, .primaryHotels, .payments, .ziyarats, .notifications
+        .profile, .sessions, .employees, .archive, .payments, .ziyarats, .notifications
     ]
 }
 
@@ -105,9 +99,6 @@ private struct BusinessCompactTabView: View {
                 NavigationStack { ChatsView() }
                     .tag(BusinessWorkspaceSection.chats)
                     .tabItem { Label("Чаты", systemImage: "message.fill") }
-                NavigationStack { HotelsView() }
-                    .tag(BusinessWorkspaceSection.hotels)
-                    .tabItem { Label("Отели", systemImage: "building.2.fill") }
                 NavigationStack { FlightCurationView(tabMode: true) }
                     .tag(BusinessWorkspaceSection.flights)
                     .tabItem { Label("Авиабилеты", systemImage: "airplane") }
@@ -199,13 +190,11 @@ private struct BusinessWorkspaceView: View {
         case .overview: OverviewView()
         case .bookings: BookingsView()
         case .chats: ChatsView()
-        case .hotels: HotelsView()
         case .flights: FlightCurationView(tabMode: true)
         case .profile: ProfileView()
         case .sessions: BusinessSessionsView()
         case .employees: EmployeesView()
         case .archive: ClientArchiveView()
-        case .primaryHotels: PrimaryHotelsView(tabMode: true)
         case .payments: PaymentsView()
         case .ziyarats: ZiyaratsView()
         case .notifications: NotificationsComposerView()
@@ -225,10 +214,8 @@ struct BusinessNavigationCommands: Commands {
                 .keyboardShortcut("2", modifiers: .command)
             Button("Chats") { navigation.navigate(to: .chats) }
                 .keyboardShortcut("3", modifiers: .command)
-            Button("Hotels") { navigation.navigate(to: .hotels) }
-                .keyboardShortcut("4", modifiers: .command)
             Button("Flights") { navigation.navigate(to: .flights) }
-                .keyboardShortcut("5", modifiers: .command)
+                .keyboardShortcut("4", modifiers: .command)
 
             Divider()
 

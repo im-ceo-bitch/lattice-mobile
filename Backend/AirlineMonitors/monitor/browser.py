@@ -4,10 +4,11 @@ Selectors require live airline-by-airline verification. Missing UI => failure re
 from pathlib import Path
 import re
 from datetime import date
-from .extract import parse_offer_card
+from .extract import parse_offer_card,AIRPORTS
 
 class SiteChanged(RuntimeError): pass
 class AccessBlocked(RuntimeError): pass
+class NoFareAvailable(RuntimeError): pass
 BLOCK_TERMS=('captcha','verify you are human','robot verification','access denied','too many requests','подтвердите, что вы не робот','проверка безопасности')
 
 def first_visible(page,candidates,timeout=1500):
@@ -29,21 +30,27 @@ def select_airport(page,candidates,iata):
   options=control.locator('option')
   for k in range(options.count()):
    opt=options.nth(k)
-   if iata in (opt.inner_text()+' '+(opt.get_attribute('value') or '')).upper():
-    control.select_option(value=opt.get_attribute('value'));return
+   name=(opt.inner_text()+' '+(opt.get_attribute('value') or '')).casefold()
+   if iata.casefold() in name or any(city.casefold() in name for city in AIRPORTS.get(iata,())):
+    control.select_option(index=k);return
   raise SiteChanged(f'No matching select option {iata}')
  control.click()
  if tag=='button':
-  field=first_visible(page,['input[placeholder*="Origin"]','input[placeholder*="Destination"]',
+  field=first_visible(page,['input:focus','[role="dialog"] input','input[placeholder*="Origin"]','input[placeholder*="Destination"]',
     'input[placeholder*="From"]','input[placeholder*="To"]','input[placeholder*="Откуда"]','input[placeholder*="Куда"]',
     '[role="dialog"] input','input:focus'])
  else:field=control
- try:field.fill(iata)
- except Exception as exc:raise SiteChanged(f'Cannot type airport {iata}') from exc
- page.wait_for_timeout(700)
- options=[f'[role="option"]:has-text("{iata}")',f'li:has-text("{iata}")',f'[class*="option"]:has-text("{iata}")',
-  f'[class*="Option"]:has-text("{iata}")',f'[class*="airport"]:has-text("{iata}")']
- first_visible(page,options).click()
+ for query in [iata,*AIRPORTS.get(iata,())[:1]]:
+  try: field.fill(query)
+  except Exception as exc: raise SiteChanged(f'Cannot type airport {iata}') from exc
+  page.wait_for_timeout(700)
+  terms=[iata,*AIRPORTS.get(iata,())[:1]]
+  selectors=[f'[role="option"]:has-text("{term}")' for term in terms]+[f'li:has-text("{term}")' for term in terms]+[
+   f'[class*="Option"]:has-text("{term}")' for term in terms]
+  try:
+   first_visible(page,selectors,timeout=500).click();return
+  except SiteChanged: pass
+ raise SiteChanged(f'Airport selector did not expose option for {iata}')
 
 def select_departure_date(page,candidates,target):
  field=first_visible(page,candidates)
@@ -79,7 +86,12 @@ def search_one(page,settings,task,diagnostics):
     if loc.nth(i).is_visible(): text_cards.append(loc.nth(i).inner_text(timeout=2500))
    if text_cards:break
   except Exception:continue
- if not text_cards:raise SiteChanged('No readable itinerary price cards')
+ if not text_cards:
+  visible=page.locator('body').inner_text(timeout=7000).lower()
+  no_fares=('нет рейсов','рейсы не найдены','билетов нет','no flights','no results','no fares available','no available flights')
+  if any(t in visible for t in no_fares):
+   raise NoFareAvailable('Airline shows no available fares for requested itinerary')
+  raise SiteChanged('No readable itinerary price cards; selectors require site calibration')
  records=[]
  for body in text_cards:
   offer=parse_offer_card(body,airline_code=settings['airline_code'],provider=settings['provider'],origin=task['origin'],

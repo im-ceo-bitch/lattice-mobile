@@ -2,6 +2,7 @@
 export const AIRLINES = Object.freeze({ C6: 'centrum', HY: 'uzbekistan', XY: 'flynas' });
 export const PROVIDERS = new Set(['ignav', 'aerodatabox', 'centrum', 'uzbekistan', 'flynas', 'legacy_import']);
 export const BOT_PROVIDERS = new Set(['centrum', 'uzbekistan', 'flynas']);
+export const LIVE_PROVIDERS = new Set(['centrum','uzbekistan','flynas','ignav']);
 const CODE = /^[A-Z0-9]{2}$/;
 const IATA = /^[A-Z]{3}$/;
 const FLIGHT_NUMBER = /^[A-Z0-9]{2}\d{1,5}[A-Z]?$/;
@@ -12,6 +13,24 @@ export function validDay(day) {
   if (!DATE.test(day || '')) return false;
   const parsed = new Date(day + 'T00:00:00Z');
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === day;
+}
+export function tashkentDay(now = new Date()) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Tashkent', year: 'numeric', month: '2-digit', day: '2-digit'
+  }).formatToParts(now).map(x => [x.type, x.value]));
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+export function eligibleFlightDay(day, now = new Date()) {
+  if (!validDay(day)) return false;
+  const today = tashkentDay(now);
+  const max = new Date(`${today}T00:00:00Z`);
+  max.setUTCDate(max.getUTCDate() + 30);
+  return day >= today && day <= max.toISOString().slice(0, 10);
+}
+export function isPriceAnomaly(current, next) {
+  if (current == null || !Number.isFinite(Number(current)) || Number(current) <= 0) return false;
+  const ratio = Number(next) / Number(current);
+  return ratio < 0.5 || ratio > 2;
 }
 export function normaliseFlight(raw, provider) {
   if (!PROVIDERS.has(provider)) throw Error('UNKNOWN_PROVIDER');
@@ -46,7 +65,9 @@ export function normaliseOffer(raw, provider, now) {
   const infants = raw.infants == null ? 0 : Number(raw.infants);
   if (![adults, children, infants].every(Number.isSafeInteger) || adults < 1 || adults > 9 || children < 0 || children > 9 || infants < 0 || infants > adults) throw Error('INVALID_PASSENGERS');
   const fare_brand = String(raw.fare_brand ?? '').trim().slice(0, 64);
-  const price_scope = String(raw.price_scope || (provider === 'ignav' ? 'api_observed_not_bookable' : 'site_displayed_not_checkout_verified')).slice(0, 90);
+  const price_scope = provider === 'ignav' ? 'api_observed_not_bookable' :
+    BOT_PROVIDERS.has(provider) ? 'site_displayed_not_checkout_verified' :
+    String(raw.price_scope || 'unverified').slice(0, 90);
   const checked_at = String(raw.observed_at || raw.checked_at || now);
   if (Number.isNaN(Date.parse(checked_at))) throw Error('INVALID_OBSERVATION_DATE');
   const drift = Date.parse(now) - Date.parse(checked_at);
@@ -63,7 +84,11 @@ export function normaliseOffer(raw, provider, now) {
 export function allowCreateFlight(provider) { return provider === 'ignav' || provider === 'aerodatabox' || provider === 'legacy_import'; }
 export function needsPrice(provider) { return provider !== 'aerodatabox' && provider !== 'legacy_import'; }
 export function publicOfferIsFresh(offer, now = Date.now()) {
-  const hours = offer.provider === 'ignav' ? 4 : offer.provider === 'legacy_import' ? 0 : 24;
-  return Date.parse(offer.checked_at) > now - hours * 3600000;
+  const checked = Date.parse(offer.checked_at);
+  if (!Number.isFinite(checked) || checked > now + 300000) return false;
+  if (offer.expires_at && Date.parse(offer.expires_at) <= now) return false;
+  if (offer.provider === 'legacy_import') return false;
+  const hours = offer.provider === 'ignav' ? 4 : 24;
+  return checked >= now - hours * 3600000;
 }
 export function sanitiseError(error) { return String(error?.message || error || 'UNKNOWN').slice(0, 140); }

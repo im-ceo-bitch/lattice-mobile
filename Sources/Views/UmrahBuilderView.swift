@@ -400,7 +400,7 @@ private struct UmrahStayEditor: View {
                         }.foregroundStyle(BusinessDesign.ink)
                     }
                 }
-                .overlay { if hotels.isEmpty { ContentUnavailableView("Нет отелей в каталоге", systemImage: "building.2", description: Text("Добавьте отель в разделе «Отели» и обновите конфигуратор.")) } }
+                .overlay { if hotels.isEmpty { ContentUnavailableView("Нет отелей в каталоге", systemImage: "building.2", description: Text("Нет доступных отелей. Проверьте подключение нового гостиничного API или выберите существующее размещение.")) } }
                 .searchable(text: $search, prompt: "Название отеля")
                 .navigationTitle("Отели · \(title)")
                 .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Закрыть") { picker = false } } }
