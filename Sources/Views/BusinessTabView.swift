@@ -79,13 +79,24 @@ enum BusinessWorkspaceSection: String, Identifiable, CaseIterable, Hashable {
 /// - iPad regular/wide: persistent product sidebar.
 /// - Mac Catalyst: desktop sidebar at every supported window size.
 struct BusinessTabView: View {
+    @EnvironmentObject private var navigation: BusinessNavigationStore
     @Environment(\.businessAdaptiveLayout) private var layout
 
     var body: some View {
-        if layout.usesWorkspaceNavigation {
-            BusinessWorkspaceView()
-        } else {
-            BusinessCompactTabView()
+        Group {
+            if layout.usesWorkspaceNavigation {
+                BusinessWorkspaceView()
+            } else {
+                BusinessCompactTabView()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .iumrahBusinessFlightPriceOpen)) { _ in
+            navigation.navigate(to: .flights)
+        }
+        .onAppear {
+            if UserDefaults.standard.string(forKey: "iumrah.price.pendingFlightKey") != nil {
+                navigation.navigate(to: .flights)
+            }
         }
     }
 }

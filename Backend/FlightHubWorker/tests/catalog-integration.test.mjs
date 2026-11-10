@@ -8,7 +8,7 @@ import {eligibleFlightDay,tashkentDay,isPriceAnomaly} from '../src/core.js';
 function makeDB() {
   const db=new DatabaseSync(':memory:');
   db.exec('PRAGMA foreign_keys=ON;');
-  for (const file of ['0001_flight_hub.sql','0002_fare_reconciliation.sql']) {
+  for (const file of ['0001_flight_hub.sql','0002_fare_reconciliation.sql','0003_monitor_task_checks.sql','0004_itinerary_catalog.sql','0005_catalog_sources.sql']) {
     db.exec(fs.readFileSync(new URL('../migrations/'+file,import.meta.url),'utf8'));
   }
   return {
@@ -100,7 +100,7 @@ test('bot is read-only for master flight list, rejects expired offers and unauth
  db.raw.close();
 });
 
-test('scheduled cleanup deletes past inventory and history but preserves active flights',async()=>{
+test('scheduled cleanup preserves historical flight audit while retaining active flights',async()=>{
  const db=makeDB();const env={FLIGHTS_DB:db,ADMIN_TOKEN:'admin',BOT_INGEST_TOKEN:'bot'};
  const seed=await call(env,'/v1/ingest/legacy_import','POST',
    {records:[{...record(),amount_minor:undefined}],status:'ok'},'admin');
@@ -112,7 +112,7 @@ test('scheduled cleanup deletes past inventory and history but preserves active 
  db.raw.prepare("INSERT INTO price_history(id,offer_id,amount_minor,currency,observed_at,provider) VALUES(?,?,?,?,?,?)")
    .run('old-history','old-offer',25000,'USD','2001-01-01','centrum');
  await worker.scheduled({},env);
- assert.equal(db.raw.prepare('SELECT COUNT(*) n FROM flights').get().n,1);
- assert.equal(db.raw.prepare('SELECT COUNT(*) n FROM price_history').get().n,0);
+ assert.equal(db.raw.prepare('SELECT COUNT(*) n FROM flights').get().n,2);
+ assert.equal(db.raw.prepare('SELECT COUNT(*) n FROM price_history').get().n,1);
  db.raw.close();
 });

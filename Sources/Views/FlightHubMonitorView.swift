@@ -72,6 +72,8 @@ private struct FlightHubCatalog: Decodable {
 }
 
 struct FlightHubMonitorView: View {
+    private struct HistoryTarget: Identifiable { let id: String }
+    @State private var historyTarget: HistoryTarget?
     @State private var status: FlightHubStatus?
     @State private var flights: [FlightHubCatalog.Flight] = []
     @State private var loading = false
@@ -201,7 +203,22 @@ struct FlightHubMonitorView: View {
                     .font(.caption2).foregroundStyle(.secondary)
             }
         }
-        .task { if lastLoaded == nil { await reload() } }
+        .sheet(item: $historyTarget) { target in
+            FlightHubPriceHistoryView(flightKey: target.id)
+        }
+        .task {
+            if lastLoaded == nil { await reload() }
+            openPendingHistory()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .iumrahBusinessFlightPriceOpen)) { notification in
+            if let key = notification.object as? String { historyTarget = HistoryTarget(id: key) }
+        }
+    }
+
+    private func openPendingHistory() {
+        guard let key = UserDefaults.standard.string(forKey: "iumrah.price.pendingFlightKey"), !key.isEmpty else { return }
+        UserDefaults.standard.removeObject(forKey: "iumrah.price.pendingFlightKey")
+        historyTarget = HistoryTarget(id: key)
     }
 
     private func metric(_ title: String, value: Int) -> some View {
@@ -266,6 +283,17 @@ struct FlightHubMonitorView: View {
                 }
             }
             Divider()
+            HStack {
+                Spacer()
+                Button {
+                    historyTarget = HistoryTarget(id: flight.flight_key)
+                } label: {
+                    Label("История цен", systemImage: "chart.xyaxis.line")
+                        .font(.caption.weight(.semibold))
+                }
+                .buttonStyle(.bordered)
+                .clipShape(Capsule())
+            }
             if flight.offers.isEmpty {
                 Label("Ожидается первое обновление цены", systemImage: "clock.arrow.circlepath")
                     .font(.caption).foregroundStyle(.secondary)

@@ -319,7 +319,13 @@ struct FlightCurationView: View {
                 }
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .iumrahBusinessFlightPriceOpen)) { _ in
+            workspace = .monitor
+        }
         .task {
+            if UserDefaults.standard.string(forKey: "iumrah.price.pendingFlightKey") != nil {
+                workspace = .monitor
+            }
             flightSyncURL = BusinessSessionVault.flightSyncAccessURL
             await restoreFlightSyncAccess()
             await loadPublished()

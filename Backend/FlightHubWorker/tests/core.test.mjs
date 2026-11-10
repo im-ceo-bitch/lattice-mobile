@@ -9,7 +9,7 @@ test('master flight stable key and strict validation',()=>{
 });
 test('bot cannot create master flights',()=>{
   assert.equal(allowCreateFlight('centrum'),false); assert.equal(allowCreateFlight('ignav'),true);
-  assert.equal(allowCreateFlight('aerodatabox'),true);
+  assert.equal(allowCreateFlight('aerodatabox'),false);
 });
 test('offers are validated and missing seats remain unknown',()=>{
  const date=new Date().toISOString();

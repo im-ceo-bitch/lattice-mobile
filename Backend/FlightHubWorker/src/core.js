@@ -49,7 +49,8 @@ export function normaliseFlight(raw, provider) {
     if (item != null && (typeof item !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(item) ||
       !/[Zz]|[+-]\d{2}:\d{2}$/.test(item) || Number.isNaN(Date.parse(item)))) throw Error('INVALID_SCHEDULE_TIMESTAMP');
   }
-  if (dt && dt.slice(0, 10) !== departure_date) throw Error('DEPARTURE_DATE_MISMATCH');
+  // departure_date is the origin AIRPORT-LOCAL calendar day; RFC3339 timestamps
+  // can have a different UTC date (e.g. TAS 00:30 = previous day UTC).
   return { airline_code, flight_number, origin, destination, departure_date,
     departure_at: dt, arrival_at: at,
     key: [airline_code, flight_number, origin, destination, departure_date].join('|') };
@@ -81,7 +82,7 @@ export function normaliseOffer(raw, provider, now) {
     baggage_checked_kg: optionalNumber(raw.baggage_checked_kg, 100),
     baggage_cabin_kg: optionalNumber(raw.baggage_cabin_kg, 50), seats_left, source_url };
 }
-export function allowCreateFlight(provider) { return provider === 'ignav' || provider === 'aerodatabox' || provider === 'legacy_import'; }
+export function allowCreateFlight(provider) { return provider === 'ignav' || provider === 'legacy_import'; }
 export function needsPrice(provider) { return provider !== 'aerodatabox' && provider !== 'legacy_import'; }
 export function publicOfferIsFresh(offer, now = Date.now()) {
   const checked = Date.parse(offer.checked_at);

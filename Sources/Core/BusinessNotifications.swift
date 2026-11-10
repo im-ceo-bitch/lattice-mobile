@@ -7,6 +7,7 @@ import UserNotifications
 extension Notification.Name {
     static let iumrahBusinessSessionInvalidated = Notification.Name("iumrah.business.sessionInvalidated")
     static let iumrahBusinessSecurityNewSession = Notification.Name("iumrah.business.securityNewSession")
+    static let iumrahBusinessFlightPriceOpen = Notification.Name("iumrah.business.flightPriceOpen")
 }
 
 @MainActor
@@ -47,7 +48,15 @@ final class BusinessAppDelegate: NSObject, UIApplicationDelegate, UNUserNotifica
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
         handleSecurityNotification(response.notification.request.content.userInfo)
+        handleFlightPriceNotification(response.notification.request.content.userInfo)
         completionHandler()
+    }
+
+    private func handleFlightPriceNotification(_ userInfo: [AnyHashable: Any]) {
+        guard (userInfo["type"] as? String) == "flight_price_changed",
+              let key = userInfo["flightKey"] as? String, key.count < 180 else { return }
+        UserDefaults.standard.set(key, forKey: "iumrah.price.pendingFlightKey")
+        NotificationCenter.default.post(name: .iumrahBusinessFlightPriceOpen, object: key)
     }
 
     private func handleSecurityNotification(_ userInfo: [AnyHashable: Any]) {

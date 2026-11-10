@@ -1,6 +1,5 @@
 import { obtainHotelPrice, propertyKey, safePropertyKey } from './hotel-price-source.js';
 import { intelligenceAdmin, intelligenceIngest, runIntelligenceReport } from './intelligence.js';
-import { verifyIntelligenceBusinessSession } from './intelligence-business-auth.js';
 import { WorkflowEntrypoint } from 'cloudflare:workers';
 import { handleZiyaratAdmin, handleZiyaratCatalog } from './ziyarats.js';
 import { HOTEL_PRICE_TTL_MS, HOTEL_PRICE_RETRY_MS, normalizeImportedHotelPriceSnapshot, hotelPriceMoveNeedsConfirmation, hotelPriceCandidatesMatch, extractHotelPriceFromHTML, quoteContextFromProbeURL } from './hotel-price.js';
@@ -50,10 +49,7 @@ export default {
       if (url.pathname.startsWith('/api/admin/hotels')) {
         const registrationPath = url.pathname.replace(/\/+$/, '') === '/api/admin/hotels/security/sessions/register'
           && request.method === 'POST';
-        const staff = await requireStaff(request, env, {
-          allowSessionRegistration: registrationPath,
-          intelligenceAuthority: url.pathname.startsWith('/api/admin/hotels/intelligence')
-        });
+        const staff = await requireStaff(request, env, { allowSessionRegistration: registrationPath });
         if (!staff.ok) return staff.response;
         return withCors(await handleAdmin(request, env, url, staff.user, staff.businessSession), request);
       }
@@ -6788,13 +6784,6 @@ async function requireStaff(request, env, options = {}) {
   if (options.allowSessionRegistration === true) {
     return { ok: true, user, businessSession: null };
   }
-  if (options.intelligenceAuthority === true) {
-    // Staff role is already validated by iumrah.app above. Reuse the SAME
-    // authority for the device token; local HOTELS_DB may be a different D1.
-    const verified = await verifyIntelligenceBusinessSession(request, env);
-    if (!verified.ok) return {ok: false, response: json({ok: false, error: verified.error}, verified.status)};
-    return {ok: true, user, businessSession: verified.session};
-  }
   const business = await requireBusinessSession(request, env, user);
   if (!business.ok) return business;
   return { ok: true, user, businessSession: business.session || null };
@@ -10335,3 +10324,6 @@ function withCors(response, request) {
     headers
   });
 }
+
+// Reused by the unified Flight Hub outbox; same APNs tokens, team ID and Business device table.
+export { sendStaffPush };

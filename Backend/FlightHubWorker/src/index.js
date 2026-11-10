@@ -1,6 +1,8 @@
 import { AIRLINES, BOT_PROVIDERS, normaliseFlight, normaliseOffer, allowCreateFlight, needsPrice, publicOfferIsFresh, sanitiseError, eligibleFlightDay, isPriceAnomaly } from './core.js';
 import { fetchAeroCandidate } from './aerodatabox.js';
-import { listItineraries, getItinerary } from './itineraries.js';
+import { listItineraries, getItinerary, listDiscoveries } from './itineraries.js';
+import { importIgnavPayload, importAviasalesPayload, searchIgnav, searchAviasales, scheduledIgnavSweep } from './source-api.js';
+import { recordPriceChange, priceHistory, deliverPendingPriceEvents } from './price-events.js';
 
 const json = (body, code = 200) => new Response(JSON.stringify(body), { status: code, headers: {
   'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
@@ -62,6 +64,7 @@ async function importRecord(db, raw, provider, checkedAt) {
       VALUES(?,?,?,?,?,?,?,?,?)`).bind(uid(),row.id,offer.id,provider,offer.amount_minor,fare.amount_minor,fare.currency,'PRICE_JUMP_OVER_2X_OR_UNDER_HALF',fare.checked_at).run();
     return 'review';
   }
+  const unchanged=offer?.amount_minor === fare.amount_minor;
   if (!offer) {
     await db.prepare(`INSERT OR IGNORE INTO flight_offers(id,flight_id,provider,fare_brand,adults,children,infants,amount_minor,currency,price_scope,checked_at,expires_at,baggage_checked_kg,baggage_cabin_kg,seats_left,source_url,created_at,updated_at)
        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(uid(),row.id,provider,fare.fare_brand,fare.adults,fare.children,fare.infants,
@@ -72,6 +75,7 @@ async function importRecord(db, raw, provider, checkedAt) {
     await db.prepare('INSERT INTO price_history(id,offer_id,amount_minor,currency,observed_at,provider) VALUES(?,?,?,?,?,?)')
       .bind(uid(),offer.id,fare.amount_minor,fare.currency,fare.checked_at,provider).run();
   } else {
+    const originalAmount = offer.amount_minor;
     if (offer.amount_minor !== fare.amount_minor) {
       await db.prepare('INSERT INTO price_history(id,offer_id,amount_minor,currency,observed_at,provider) VALUES(?,?,?,?,?,?)')
         .bind(uid(),offer.id,fare.amount_minor,fare.currency,fare.checked_at,provider).run();
@@ -79,11 +83,15 @@ async function importRecord(db, raw, provider, checkedAt) {
     await db.prepare(`UPDATE flight_offers SET amount_minor=?,price_scope=?,checked_at=?,baggage_checked_kg=?,baggage_cabin_kg=?,seats_left=?,source_url=?,updated_at=? WHERE id=?`)
       .bind(fare.amount_minor,fare.price_scope,fare.checked_at,fare.baggage_checked_kg,fare.baggage_cabin_kg,
         fare.seats_left,fare.source_url,checkedAt,offer.id).run();
+    if (originalAmount !== fare.amount_minor) {
+      await recordPriceChange(db,{offerID:offer.id,previous:originalAmount,next:fare.amount_minor,
+        currency:fare.currency,source:provider,observedAt:fare.checked_at});
+    }
   }
-  return 'accepted';
+  return BOT_PROVIDERS.has(provider) && unchanged ? 'unchanged' : 'accepted';
 }
 
-async function ingest(request, env, provider) {
+async function ingest(request, env, provider, ctx) {
   if (!tokenFor(provider,env)) return json({ok:false,error:'SOURCE_NOT_CONFIGURED'},503);
   if (!bearer(request,tokenFor(provider,env))) return json({ok:false,error:'UNAUTHORIZED'},401);
   if (Number(request.headers.get('Content-Length') || 0) > 1000000) return json({ok:false,error:'REQUEST_TOO_LARGE'},413);
@@ -94,20 +102,31 @@ async function ingest(request, env, provider) {
     return json({ok:false,error:'INVALID_RECORDS'},400);
   }
   const date = nowISO();
-  let accepted=0, unmatched=0, rejected=0, review=0;
-  const errors=[];
+  let accepted=0, unchanged=0, unmatched=0, rejected=0, review=0;
+  const errors=[];const unchangedKeys=new Set();
   for (const entry of payload.records) {
     try {
       const outcome = await importRecord(env.FLIGHTS_DB,entry,provider,date);
-      if (outcome === 'accepted') accepted++; else if (outcome === 'review') review++; else unmatched++;
+      if (outcome === 'accepted') accepted++; else if (outcome === 'unchanged') {accepted++;unchanged++;unchangedKeys.add(normaliseFlight(entry,provider).key);} else if (outcome === 'review') review++; else unmatched++;
     } catch (e) { rejected++; if (errors.length < 5) errors.push(sanitiseError(e)); }
   }
   const status = ['blocked','failed','site_changed','no_verified_fares','no_tasks'].includes(payload.status) ? payload.status :
     (rejected || unmatched || review || payload.status === 'partial') ? 'partial' : 'ok';
+  if(BOT_PROVIDERS.has(provider)&&Array.isArray(payload.attempts)) {
+    for(const attempt of payload.attempts.slice(0,250)) {
+      const o=String(attempt?.outcome||'');
+      const key=String(attempt?.flight_key||'');
+      if(!['verified','unchanged','no_fares','blocked','site_changed','failed'].includes(o)||
+         !/^[A-Z0-9]{2}\|[A-Z0-9]+\|[A-Z]{3}\|[A-Z]{3}\|\d{4}-\d{2}-\d{2}$/.test(key))continue;
+      await env.FLIGHTS_DB.prepare('INSERT INTO flight_monitor_attempts(id,provider,flight_key,attempted_at,outcome,message,run_id) VALUES(?,?,?,?,?,?,?)')
+        .bind(uid(),provider,key,date,(o==='verified'&&unchangedKeys.has(key))?'unchanged':o,preview(attempt.message,180),preview(payload.run_id,100)).run();
+    }
+  }
   await env.FLIGHTS_DB.prepare('INSERT INTO monitor_runs(id,provider,checked_at,status,accepted,unmatched,rejected,message) VALUES(?,?,?,?,?,?,?,?)')
     .bind(uid(),provider,date,status,accepted,unmatched,rejected,
       preview(`${payload.message || ''} · review=${review} · ${errors.join('; ')}`,280)).run();
-  return json({ok:rejected===0,provider,accepted,unmatched,rejected,review,errors,status},rejected?207:200);
+  if (ctx?.waitUntil && accepted>0) ctx.waitUntil(deliverPendingPriceEvents(env).catch(e=>console.error('price-push',sanitiseError(e))));
+  return json({ok:rejected===0,provider,accepted,unchanged,unmatched,rejected,review,errors,status},rejected?207:200);
 }
 async function tasks(request, env) {
   if (!env.BOT_INGEST_TOKEN) return json({ok:false,error:'NOT_CONFIGURED'},503);
@@ -117,6 +136,9 @@ async function tasks(request, env) {
   const code = Object.keys(AIRLINES).find(k => AIRLINES[k]===provider);
   if (!code) return json({ok:false,error:'INVALID_AIRLINE'},400);
   const limit = Math.min(40,Math.max(1,Number.parseInt(url.searchParams.get('limit') || '20',10) || 20));
+  // Optional run start allows a single execution to paginate the WHOLE catalog.
+  const since=url.searchParams.get('since')||'';
+  if(since&&(!/^\d{4}-\d\d-\d\dT/.test(since)||!Number.isFinite(Date.parse(since))||Math.abs(Date.now()-Date.parse(since))>46*60*1000))return json({ok:false,error:'INVALID_RUN_START'},400);
   // Fair round-robin dispatch: no-fare flights must not monopolize the first
   // N tasks forever. Requests are authenticated and mark dispatches only,
   // never invent a price or change the master flight inventory.
@@ -129,10 +151,11 @@ async function tasks(request, env) {
       WHERE f.airline_code=? AND f.departure_date >= date('now','+5 hours') AND f.departure_date <= date('now','+5 hours','+30 days')
       AND ((f.origin IN ('TAS','FEG','NMA','AZN','SKD','BHK','KSQ','TMJ','UGC') AND f.destination IN ('JED','MED','TIF'))
        OR (f.destination IN ('TAS','FEG','NMA','AZN','SKD','BHK','KSQ','TMJ','UGC') AND f.origin IN ('JED','MED','TIF')))
+      ${since?'AND (m.last_requested_at IS NULL OR julianday(m.last_requested_at)<julianday(?))':''}
       GROUP BY f.id
       ORDER BY COALESCE(m.last_requested_at,'') ASC,COALESCE(last_price_check,'') ASC,f.departure_date ASC
       LIMIT ?`;
-  const result = await env.FLIGHTS_DB.prepare(sql).bind(provider,provider,code,limit).all();
+  const result = await env.FLIGHTS_DB.prepare(sql).bind(...(since?[provider,provider,code,since,limit]:[provider,provider,code,limit])).all();
   const selected=result.results || [];
   const dispatchedAt=nowISO();
   for (const flight of selected) {
@@ -141,7 +164,7 @@ async function tasks(request, env) {
       .bind(provider,flight.internal_id,dispatchedAt).run();
   }
   const records=selected.map(({internal_id,last_task_check,...record})=>record);
-  return json({ok:true,provider,tasks:records,count:records.length});
+  return json({ok:true,provider,tasks:records,count:records.length,has_more:records.length===limit});
 }
 async function publicStatus(env) {
   const counts = await env.FLIGHTS_DB.prepare(`SELECT
@@ -214,7 +237,7 @@ async function refreshAeroDataBox(request,env) {
       const candidate=await fetchAeroCandidate(flight,env.AERODATABOX_RAPIDAPI_KEY);
       if (!candidate) {results.push({flight_number:flight.flight_number,match:false});continue;}
       const result=await importRecord(env.FLIGHTS_DB,candidate,'aerodatabox',nowISO());
-      results.push({flight_number:flight.flight_number,match:true,result});
+      results.push({flight_number:flight.flight_number,match:result==='accepted',result});
     } catch (error) {results.push({flight_number:flight.flight_number,error:sanitiseError(error)});}
   }
   await env.FLIGHTS_DB.prepare('INSERT INTO monitor_runs(id,provider,checked_at,status,accepted,unmatched,rejected,message) VALUES(?,?,?,?,?,?,?,?)')
@@ -246,7 +269,7 @@ function addCORS(request, response) {
 }
 
 export default {
-  async fetch(request,env) {
+  async fetch(request,env,ctx) {
     if (request.method==='OPTIONS') {
       const origin = request.headers.get('Origin');
       if (!origin || !ALLOWED_PUBLIC_ORIGINS.has(origin)) return new Response(null,{status:403});
@@ -261,26 +284,44 @@ export default {
       if (path==='/v1/public/status' && request.method==='GET') response=await publicStatus(env);
       else if (path==='/v1/public/flights' && request.method==='GET') response=await publicFlights(request,env);
       else if (path==='/v1/public/itineraries' && request.method==='GET') response=await listItineraries(request,env);
+      else if (path==='/v1/public/discoveries' && request.method==='GET') response=await listDiscoveries(request,env);
+      else if (path==='/v1/public/price-history' && request.method==='GET') response=await priceHistory(request,env);
       else if (path.startsWith('/v1/public/itineraries/') && request.method==='GET') response=await getItinerary(request,env,decodeURIComponent(path.slice('/v1/public/itineraries/'.length)));
       else if (path==='/v1/admin/unmatched' && request.method==='GET') response=await adminStats(request,env);
       else if (path==='/v1/admin/aerodatabox/refresh' && request.method==='POST') response=await refreshAeroDataBox(request,env);
       else if (path==='/v1/monitor/tasks' && request.method==='GET') response=await tasks(request,env);
+      else if (path==='/v1/ingest/ignav/response' && request.method==='POST') {
+        response= bearer(request,env.IGNAV_INGEST_TOKEN) ? await importIgnavPayload(request,env,importRecord) : json({ok:false,error:'UNAUTHORIZED'},401);
+        if (ctx?.waitUntil && response.ok) ctx.waitUntil(deliverPendingPriceEvents(env).catch(e=>console.error('price-push',sanitiseError(e))));
+      } else if (path==='/v1/ingest/aviasales-cache' && request.method==='POST') {
+        response= bearer(request,env.ADMIN_TOKEN) ? await importAviasalesPayload(request,env) : json({ok:false,error:'UNAUTHORIZED'},401);
+      } else if (path==='/v1/admin/ignav/search' && request.method==='POST') {
+        response= bearer(request,env.ADMIN_TOKEN) ? await searchIgnav(request,env,importRecord) : json({ok:false,error:'UNAUTHORIZED'},401);
+        if (ctx?.waitUntil && response.ok) ctx.waitUntil(deliverPendingPriceEvents(env).catch(e=>console.error('price-push',sanitiseError(e))));
+      } else if (path==='/v1/admin/aviasales/sync' && request.method==='POST') {
+        response= bearer(request,env.ADMIN_TOKEN) ? await searchAviasales(request,env) : json({ok:false,error:'UNAUTHORIZED'},401);
+      } else if (path==='/v1/admin/price-events/deliver' && request.method==='POST') {
+        response=bearer(request,env.ADMIN_TOKEN) ? json({ok:true,...await deliverPendingPriceEvents(env)}) : json({ok:false,error:'UNAUTHORIZED'},401);
+      }
       else {
         const ing=path.match(/^\/v1\/ingest\/(ignav|aerodatabox|centrum|uzbekistan|flynas|legacy_import)$/);
-        response=ing && request.method==='POST' ? await ingest(request,env,ing[1]) : json({ok:false,error:'NOT_FOUND'},404);
+        response=ing && request.method==='POST' ? await ingest(request,env,ing[1],ctx) : json({ok:false,error:'NOT_FOUND'},404);
       }
       return addCORS(request,response);
     } catch (error) { console.error('flight-hub',sanitiseError(error)); return addCORS(request,json({ok:false,error:'SERVER_ERROR'},500)); }
   },
-  async scheduled(_,env) {
+  async scheduled(_,env,ctx) {
     if (!env.FLIGHTS_DB) return;
     // Historical booking snapshots live in Core D1. Flight Hub holds only active inventory.
-    await env.FLIGHTS_DB.prepare(`DELETE FROM price_history WHERE offer_id IN (
-      SELECT o.id FROM flight_offers o JOIN flights f ON f.id=o.flight_id
-      WHERE f.departure_date < date('now','+5 hours'))`).run();
-    await env.FLIGHTS_DB.prepare(`DELETE FROM flights WHERE departure_date < date('now','+5 hours')`).run();
+    // Price history and past flight identities are permanent financial audit data.
+    // Do not cascade-delete an expired flight; public queries already limit the rolling window.
     await env.FLIGHTS_DB.prepare(`DELETE FROM unmatched_observations WHERE observed_at < datetime('now','-30 days')`).run();
     await env.FLIGHTS_DB.prepare(`DELETE FROM monitor_runs WHERE checked_at < datetime('now','-90 days')`).run();
     await env.FLIGHTS_DB.prepare(`DELETE FROM fare_review_queue WHERE observed_at < datetime('now','-60 days')`).run();
+    await env.FLIGHTS_DB.prepare(`DELETE FROM flight_discovery_cache WHERE expires_at < datetime('now','-7 days')`).run();
+    if(ctx?.waitUntil){
+      ctx.waitUntil(deliverPendingPriceEvents(env).catch(e=>console.error('price-outbox',sanitiseError(e))));
+      if(env.IGNAV_API_KEY)ctx.waitUntil(scheduledIgnavSweep(env,importRecord).then(x=>console.log('IGNAV_SCHEDULED_SWEEP',JSON.stringify(x))).catch(e=>console.error('ignav-sweep',sanitiseError(e))));
+    }
   }
 };
