@@ -18,8 +18,8 @@ export function buildConfig(env = process.env) {
   }
   const ids = dbs.map(([,key])=>env[key].toLowerCase());
   if (new Set(ids).size !== ids.length) throw Error('D1 database bindings must be three DISTINCT UUIDs');
-  const bucket = env.HOTELS_MEDIA_BUCKET || 'iumrah-hotels-media';
-  if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(bucket)) throw Error('HOTELS_MEDIA_BUCKET_INVALID');
+  const bucket = env.HOTELS_MEDIA_BUCKET || 'none';
+  if (bucket !== 'none' && !/^[a-z0-9][a-z0-9-]{0,62}$/.test(bucket)) throw Error('HOTELS_MEDIA_BUCKET_INVALID');
   const routesEnabled = truthy(env.IUMRAH_ENABLE_ROUTE_CUTOVER);
   const cronEnabled = truthy(env.IUMRAH_ENABLE_SCHEDULED_JOBS);
   if (routesEnabled && !/^[a-f0-9]{32}$/i.test(env.CLOUDFLARE_ZONE_ID || '')) throw Error('CLOUDFLARE_ZONE_ID_REQUIRED_FOR_CUTOVER');
@@ -42,7 +42,7 @@ export function buildConfig(env = process.env) {
     routes: routesEnabled ? patterns.map(pattern=>({pattern,zone_id:zoneID})) : [],
     triggers:{crons:cronEnabled ? ['15 1 * * *','0 3 * * *'] : []},
     d1_databases: dbs.map(([binding,key,database_name,migrations_dir])=>({binding,database_name,database_id:env[key],...(binding==='BOOKINGS_DB'?{}:{migrations_dir})})),
-    r2_buckets:[{binding:'HOTELS_MEDIA',bucket_name:bucket}],
+    r2_buckets:bucket==='none'?[]:[{binding:'HOTELS_MEDIA',bucket_name:bucket}],
     ai:{binding:'AI'},
     browser:{binding:'BROWSER'},
     images:{binding:'IMAGES'},

@@ -18,6 +18,10 @@ test('rejects missing, duplicate and malformed production database IDs',()=>{
   assert.throws(()=>buildConfig({...IDs,FLIGHTS_DB_ID:IDs.HOTELS_DB_ID}),/DISTINCT/);
   assert.throws(()=>buildConfig({...IDs,BOOKINGS_DB_NAME:'bad database'}),/BOOKINGS_DB_NAME/);
 });
+test('missing media bucket is supported for staging without R2 binding',()=>{
+  const cfg=buildConfig({...IDs,HOTELS_MEDIA_BUCKET:'none'});
+  assert.equal(cfg.r2_buckets.length,0);
+});
 test('route cutover requires zone ID; crons remain explicit opt in',()=>{
   assert.throws(()=>buildConfig({...IDs,IUMRAH_ENABLE_ROUTE_CUTOVER:'1'}),/CLOUDFLARE_ZONE_ID/);
   const cfg=buildConfig({...IDs,IUMRAH_ENABLE_ROUTE_CUTOVER:'1',CLOUDFLARE_ZONE_ID:'a'.repeat(32),IUMRAH_ENABLE_SCHEDULED_JOBS:'1'});

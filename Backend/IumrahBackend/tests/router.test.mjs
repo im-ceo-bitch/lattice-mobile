@@ -27,6 +27,9 @@ test('health distinguishes presence of bindings from actual DB health',async()=>
   assert.equal((await missing.json()).kind,'binding-presence-only');
   const ready=await router.fetch(new Request('https://example.com/__iumrah/health'),{HOTELS_DB:{},BOOKINGS_DB:{},FLIGHTS_DB:{},HOTELS_MEDIA:{}});
   assert.equal(ready.status,200);
+  const degraded=await router.fetch(new Request('https://example.com/__iumrah/health'),{HOTELS_DB:{},BOOKINGS_DB:{},FLIGHTS_DB:{}});
+  assert.equal(degraded.status,200);
+  assert.equal((await degraded.json()).status,'degraded');
 });
 test('cron executes exactly one relevant subsystem',async()=>{
   const seen=[];

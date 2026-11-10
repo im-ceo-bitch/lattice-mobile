@@ -37,8 +37,9 @@ export function createBackendRouter({hotels, flights}) {
           FLIGHTS_DB: !!env.FLIGHTS_DB,
           HOTELS_MEDIA: !!env.HOTELS_MEDIA
         };
-        const ok = Object.values(bindings).every(Boolean);
-        return json({ok,service:'iumrah-backend',bindings,kind:'binding-presence-only'},ok?200:503);
+        const coreReady = bindings.HOTELS_DB && bindings.BOOKINGS_DB && bindings.FLIGHTS_DB;
+        const fullyConfigured = coreReady && bindings.HOTELS_MEDIA;
+        return json({ok:!!coreReady,status:fullyConfigured?'configured':'degraded',fullyConfigured:!!fullyConfigured,service:'iumrah-backend',bindings,kind:'binding-presence-only'},coreReady?200:503);
       }
       return json({ok:false,error:'NOT_FOUND'},404);
     },

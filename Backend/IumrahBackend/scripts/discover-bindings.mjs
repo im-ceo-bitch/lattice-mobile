@@ -1,12 +1,13 @@
-// Read-only discovery of existing Cloudflare D1 databases and R2 buckets.
-// IDs are public resource metadata, NOT repository secrets. Never create resources.
+// Discover existing Cloudflare resources without provisioning or mutating them.
+// Prefer exact D1 names over table-based guessing: modern deployments may have
+// different schemas. Schema compatibility is reported separately by preflight.
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 
 const targets = [
-  {binding:'HOTELS_DB',id:'HOTELS_DB_ID',name:'HOTELS_DB_NAME',candidates:['iumrah-hotels','iumrah-core'],tables:['hotels']},
-  {binding:'BOOKINGS_DB',id:'BOOKINGS_DB_ID',name:'BOOKINGS_DB_NAME',candidates:['iumrah-web-db','iumrah-core'],tables:['bookings']},
-  {binding:'FLIGHTS_DB',id:'FLIGHTS_DB_ID',name:'FLIGHTS_DB_NAME',candidates:['iumrah-flights'],tables:['flights','flight_offers']}
+  {binding:'HOTELS_DB',id:'HOTELS_DB_ID',name:'HOTELS_DB_NAME',defaultName:'iumrah-hotels'},
+  {binding:'BOOKINGS_DB',id:'BOOKINGS_DB_ID',name:'BOOKINGS_DB_NAME',defaultName:'iumrah-core'},
+  {binding:'FLIGHTS_DB',id:'FLIGHTS_DB_ID',name:'FLIGHTS_DB_NAME',defaultName:'iumrah-flights'}
 ];
 const uuid = s => /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i.test(s || '');
 const nameOK = s => /^[a-z0-9][a-z0-9-]{0,62}$/.test(s || '');
@@ -18,10 +19,10 @@ export async function discover(env=process.env, fetcher=fetch) {
   const origin=`https://api.cloudflare.com/client/v4/accounts/${accountID}`;
   const headers={Authorization:`Bearer ${token}`};
   const get=async(url,options={})=>{
-    const response=await fetcher(url,{headers, ...options,headers:{...headers,...(options.headers||{})}});
-    if (!response.ok) throw Error(`Cloudflare API HTTP ${response.status} while reading metadata (check account/permissions)`);
+    const response=await fetcher(url,{...options,headers:{...headers,...(options.headers||{})}});
+    if (!response.ok) throw Error(`Cloudflare API HTTP ${response.status} while reading resources (check account/permissions)`);
     const body=await response.json();
-    if (!body.success) throw Error('Cloudflare rejected read-only metadata lookup');
+    if (!body.success) throw Error('Cloudflare rejected read-only resource lookup');
     return body;
   };
   const databases=[];
@@ -30,61 +31,51 @@ export async function discover(env=process.env, fetcher=fetch) {
     if (!Array.isArray(body.result)) throw Error('Unexpected Cloudflare D1 list response');
     databases.push(...body.result);
     if (body.result.length<100 || (body.result_info?.total_pages && page>=body.result_info.total_pages)) break;
-    if (page===100) throw Error('Too many Cloudflare D1 pages; safe discovery aborted');
+    if (page===100) throw Error('Too many Cloudflare D1 pages; discovery stopped');
   }
   const outputs={}; const used=new Set();
   const available=databases.filter(db=>nameOK(db.name) && uuid(db.uuid));
-  const schemaCache=new Map();
-  async function tablesOf(db) {
-    if (!schemaCache.has(db.uuid)) {
-      const body=await get(`${origin}/d1/database/${encodeURIComponent(db.uuid)}/query`,{
-        method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({sql:"SELECT name FROM sqlite_master WHERE type='table'"})
-      });
-      schemaCache.set(db.uuid,new Set((body.result?.[0]?.results||[]).map(row=>String(row.name||''))));
-    }
-    return schemaCache.get(db.uuid);
-  }
   for (const target of targets) {
-    const configuredName=env[target.name];
-    if (configuredName && !nameOK(configuredName)) throw Error(`Invalid ${target.name}`);
-    const candidates=configuredName ? [configuredName] : target.candidates;
-    const matches=[];
-    for (const db of available.filter(x=>candidates.includes(x.name) && !used.has(x.uuid))) {
-      const schema=await tablesOf(db);
-      if (target.tables.every(t=>schema.has(t))) matches.push(db);
-    }
+    const requested=String(env[target.name]||target.defaultName);
+    if (!nameOK(requested)) throw Error(`Invalid ${target.name}`);
+    const matches=available.filter(db=>db.name===requested);
     if (matches.length!==1) {
-      const names=available.map(db=>db.name).join(', ') || '(no D1 databases)';
-      throw Error(`${target.binding}: expected exactly ONE matching existing D1, found ${matches.length}. Account databases: ${names}. No resources modified.`);
+      const names=available.map(db=>db.name).join(', ') || '(none)';
+      throw Error(`${target.binding}: expected exactly one existing D1 named "${requested}"; found ${matches.length}. Available: ${names}. No databases created or changed.`);
     }
-    const db=matches[0]; used.add(db.uuid);
+    const db=matches[0];
+    if (used.has(db.uuid)) throw Error('The same existing D1 cannot be assigned to multiple bindings');
+    used.add(db.uuid);
     outputs[target.id]=db.uuid;
     outputs[target.name]=db.name;
   }
-  // Prefer the bucket used by the existing HotelsWorker, fall back to the known operations bucket.
+
+  // A missing R2 media bucket must not prevent a staging Worker from being
+  // deployed. Its media endpoints will remain unavailable until connected.
   const bucketCandidates=env.HOTELS_MEDIA_BUCKET ? [env.HOTELS_MEDIA_BUCKET] : ['iumrah-hotels-media','iumrah-operations-media'];
   for (const bucket of bucketCandidates) if (!nameOK(bucket)) throw Error('Invalid R2 bucket name');
-  let selectedBucket;
+  let selectedBucket='';
   for (const bucket of bucketCandidates) {
     const response=await fetcher(`${origin}/r2/buckets/${encodeURIComponent(bucket)}`,{headers});
     if (response.status===404) continue;
-    if (!response.ok) throw Error(`R2 bucket check returned HTTP ${response.status}`);
+    if (response.status===403) {
+      console.error('Warning: Cloudflare token cannot read R2; deploying without HOTELS_MEDIA binding.');
+      break;
+    }
+    if (!response.ok) throw Error(`R2 lookup returned HTTP ${response.status}`);
     const body=await response.json();
-    if (!body.success) throw Error('R2 bucket check failed');
+    if (!body.success) throw Error('R2 bucket lookup failed');
     if (body.result?.name!==bucket) throw Error('R2 bucket name mismatch');
     selectedBucket=bucket; break;
   }
-  if (!selectedBucket) throw Error('No existing hotel R2 bucket found in this account; no new bucket was created');
-  outputs.HOTELS_MEDIA_BUCKET=selectedBucket;
+  outputs.HOTELS_MEDIA_BUCKET=selectedBucket||'none';
   return outputs;
 }
 
 if (process.argv[1] && path.resolve(process.argv[1])===fileURLToPath(import.meta.url)) {
   try {
     const outputs=await discover();
-    // stdout goes straight to GITHUB_ENV; never print tokens or other secrets.
     for (const [key,value] of Object.entries(outputs)) console.log(`${key}=${value}`);
-    console.error(`Discovery OK: ${outputs.HOTELS_DB_NAME}, ${outputs.BOOKINGS_DB_NAME}, ${outputs.FLIGHTS_DB_NAME}; R2 ${outputs.HOTELS_MEDIA_BUCKET}. No resources modified.`);
+    console.error(`D1 found: ${outputs.HOTELS_DB_NAME}, ${outputs.BOOKINGS_DB_NAME}, ${outputs.FLIGHTS_DB_NAME}. R2: ${outputs.HOTELS_MEDIA_BUCKET}. No resources modified.`);
   } catch(error){ console.error('DISCOVERY_BLOCKED:',error.message);process.exitCode=1; }
 }

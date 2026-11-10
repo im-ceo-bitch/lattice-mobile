@@ -1,21 +1,26 @@
-# iumrah Backend · Единый Worker
+# iumrah Backend — один Worker и один деплой
 
-Название Cloudflare Worker: `iumrah-backend` (в интерфейсе: iumrah Backend).
-Общий репозиторий: iumrah Business. Два существующих серверных модуля HotelsWorker и FlightHubWorker подключены к одному Cloudflare Worker, сохраняя текущие маршруты.
+Cloudflare Worker: `iumrah-backend`. Репозиторий остаётся прежним — iumrah Business.
 
-**Следующий шаг:** после распаковки ZIP скопируйте `INSTALL_UNIFIED_BACKEND/deploy-iumrah-backend.yml` в `.github/workflows/deploy-iumrah-backend.yml` вручную. Распаковщик защищает `.github/workflows` от обновления из ZIP.
+## Установка
 
-ПОЛНАЯ ИНСТРУКЦИЯ: `Backend/IumrahBackend/README_RU.md`.
+1. Загрузите `iumrah-business-update.zip` в **корень** Business-репозитория и дождитесь успешного `Apply iumrah Business ZIP update`.
+2. Поскольку распаковщик защищает `.github/workflows`, один раз замените `.github/workflows/deploy-iumrah-backend.yml` файлом `INSTALL_UNIFIED_BACKEND/deploy-iumrah-backend.yml` (тот же файл доступен отдельно для скачивания).
+3. GitHub → Actions → **Deploy iumrah backend** → **Run workflow**. Никаких вариантов `validate` / `stage` больше нет: проверка, сборка и публикация входят в один запуск.
+4. В Cloudflare → Workers & Pages появится `iumrah-backend`. Откройте его `workers.dev`-адрес и проверьте `/__iumrah/health`.
 
-GitHub Secrets: ID существующих D1 (автоматическое обнаружение, без GitHub Secrets), существующие Cloudflare credentials и `GEMINI_API_KEY`. Переменная GitHub `IUMRAH_BOOKINGS_DB_NAME` — фактическое имя production BOOKING D1.
+## Секреты
 
-Далее Actions → Deploy unified iumrah Backend (manual) → validate. Если зелёный — stage. Этап stage создаёт только `iumrah-backend` на workers.dev, НЕ переключает production маршруты и cron.
+Новые D1 Secrets **не нужны**. Скрипт получает UUID существующих баз по их точным именам: `iumrah-hotels`, `iumrah-core`, `iumrah-flights`. Используется уже настроенная пара Cloudflare Account ID / API Token. Ранее настроенный `GEMINI_API_KEY` передаётся новому Worker. Остальные уже существующие секреты сервисов подставляются, если есть; добавлять новые не требуется.
 
-**Особенно важно:** По скриншоту в выбранном аккаунте не видно HotelsWorker. Программа остановится, если D1/R2 находятся в другом аккаунте; не создавать пустые новые базы взамен. Миграции D1 не выполняются автоматически. Не удалять существующий flight hub.
+## Если схема D1 отличается
 
-Cлужба бронирований `/api/bookings` и авторизация `/api/auth/staff/session` обслуживаются кодом вне присланного архива. Они остаются на своих текущих URL и не маршрутизируются на новый Worker; для полного переноса нужен их backend-код.
+Прежняя ошибка `HOTELS_DB ... found 0` возникала при поиске по **наличию таблицы** вместо имени базы. Теперь существующие D1 находятся по точному имени. Отсутствующие старые таблицы выводятся как предупреждение: публикация тестового Worker допустима, но соответствующие API до приведения схемы в порядок могут не работать.
 
-Готовый пакет накопительный: в нём также прежнее обновление iumrah Intelligence + Gemini для Business.
+Если R2-бакет отелей не найден, новый Worker публикуется без `HOTELS_MEDIA`. Эндпоинт `__iumrah/health` покажет статус `degraded`, а загрузка и выдача файлов будет недоступна до подключения R2. Ничего автоматически не создаётся.
 
+## Что единый деплой пока НЕ делает
 
-**Упрощение от 10.11.2026:** три GitHub Secrets `IUMRAH_*_DB_ID` больше не нужны. `Deploy unified iumrah Backend` находит базы автоматически по именам и таблицам через Cloudflare API. Используются существующие Cloudflare account/token и `GEMINI_API_KEY`. При несоответствии названий/схем публикация блокируется без создания новых ресурсов.
+Он **не** переносит данные, не создаёт новую базу, не запускает массовые миграции, не меняет домен `iumrah.app` и не удаляет текущий `iumrah-flight-hub`. Новый Worker публикуется по `workers.dev` для безопасной проверки. Автоматический Gemini cron пока выключен, чтобы не дублировать плановые задачи до переключения трафика. Для полного переноса `/api/bookings` и `/api/auth/staff/session` необходимо получить серверный код этих маршрутов: в присланном Business ZIP он отсутствует.
+
+Это не два шага `validate` и `stage` — **одна кнопка деплоя с обязательными встроенными проверками**. Если аккаунт Cloudflare или D1 отсутствуют, публикация безопасно останавливается.
