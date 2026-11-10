@@ -1,0 +1,720 @@
+{
+  "version": 1,
+  "generated_at_utc": "2026-11-10T08:37:03.749992+00:00",
+  "scope": "public_flight_identities_only",
+  "range_start": "2026-11-10",
+  "range_end": "2026-12-10",
+  "records": [
+    {
+      "airline_code": "C6",
+      "flight_number": "C6323",
+      "origin": "FEG",
+      "destination": "JED",
+      "departure_date": "2026-11-10",
+      "departure_at": "2026-11-10T08:15:00Z",
+      "arrival_at": "2026-11-10T15:55:00Z"
+    },
+    {
+      "airline_code": "C6",
+      "flight_number": "C6326",
+      "origin": "JED",
+      "destination": "NMA",
+      "departure_date": "2026-11-10",
+      "departure_at": "2026-11-10T17:25:00Z",
+      "arrival_at": "2026-11-11T00:35:00Z"
+    },
+    {
+      "airline_code": "HY",
+      "flight_number": "HY336",
+      "origin": "JED",
+      "destination": "TAS",
+      "departure_date": "2026-11-10",
+      "departure_at": "2026-11-10T20:30:00Z",
+      "arrival_at": "2026-11-11T02:30:00Z"
+    },
+    {
+      "airline_code": "XY",
+      "flight_number": "XY633",
+      "origin": "JED",
+      "destination": "TAS",
+      "departure_date": "2026-11-10",
+      "departure_at": "2026-11-10T03:50:00Z",
+      "arrival_at": "2026-11-10T10:00:00Z"
+    },
+    {
+      "airline_code": "XY",
+      "flight_number": "XY634",
+      "origin": "TAS",
+      "destination": "JED",
+      "departure_date": "2026-11-10",
+      "departure_at": "2026-11-10T11:20:00Z",
+      "arrival_at": "2026-11-10T18:05:00Z"
+    },
+    {
+      "airline_code": "C6",
+      "flight_number": "C6325",
+      "origin": "NMA",
+      "destination": "JED",
+      "departure_date": "2026-11-11",
+      "departure_at": "2026-11-11T19:30:00Z",
+      "arrival_at": "2026-11-12T03:10:00Z"
+    },
+    {
+      "airline_code": "C6",
+      "flight_number": "C6324",
+      "origin": "JED",
+      "destination": "FEG",
+      "departure_date": "2026-11-12",
+      "departure_at": "2026-11-12T04:40:00Z",
+      "arrival_at": "2026-11-12T11:50:00Z"
+    },
+    {
+      "airline_code": "XY",
+      "flight_number": "XY633",
+      "origin": "JED",
+      "destination": "TAS",
+      "departure_date": "2026-11-12",
+      "departure_at": "2026-11-12T03:10:00Z",
+      "arrival_at": "2026-11-12T09:20:00Z"
+    },
+    {
+      "airline_code": "XY",
+      "flight_number": "XY634",
+      "origin": "TAS",
+      "destination": "JED",
+      "departure_date": "2026-11-12",
+      "departure_at": "2026-11-12T10:40:00Z",
+      "arrival_at": "2026-11-12T17:25:00Z"
+    },
+    {
+      "airline_code": "C6",
+      "flight_number": "C6321",
+      "origin": "TAS",
+      "destination": "JED",
+      "departure_date": "2026-11-14",
+      "departure_at": "2026-11-14T13:00:00Z",
+      "arrival_at": "2026-11-14T19:45:00Z"
+    },
+    {
+      "airline_code": "XY",
+      "flight_number": "XY633",
+      "origin": "JED",
+      "destination": "TAS",
+      "departure_date": "2026-11-14",
+      "departure_at": "2026-11-14T03:50:00Z",
+      "arrival_at": "2026-11-14T10:00:00Z"
+    },
+    {
+      "airline_code": "C6",
+      "flight_number": "C6322",
+      "origin": "JED",
+      "destination": "TAS",
+      "departure_date": "2026-11-15",
+      "departure_at": "2026-11-15T13:35:00Z",
+      "arrival_at": "2026-11-15T20:10:00Z"
+    },
+    {
+      "airline_code": "C6",
+      "flight_number": "C6321",
+      "origin": "TAS",
+      "destination": "JED",
+      "departure_date": "2026-11-16",
+      "departure_at": "2026-11-16T23:20:00Z",
+      "arrival_at": "2026-11-17T06:40:00Z"
+    },
+    {
+      "airline_code": "HY",
+      "flight_number": "HY338",
+      "origin": "JED",
+      "destination": "TAS",
+      "departure_date": "2026-11-16",
+      "departure_at": "2026-11-16T11:10:00Z",
+      "arrival_at": "2026-11-16T17:10:00Z"
+    },
+    {
+      "airline_code": "XY",
+      "flight_number": "XY633",
+      "origin": "JED",
+      "destination": "TAS",
+      "departure_date": "2026-11-16",
+      "departure_at": "2026-11-16T02:20:00Z",
+      "arrival_at": "2026-11-16T08:30:00Z"
+    },
+    {
+      "airline_code": "XY",
+      "flight_number": "XY634",
+      "origin": "TAS",
+      "destination": "JED",
+      "departure_date": "2026-11-16",
+      "departure_at": "2026-11-16T09:50:00Z",
+      "arrival_at": "2026-11-16T16:35:00Z"
+    },
+    {
+      "airline_code": "C6",
+      "flight_number": "C6323",
+      "origin": "FEG",
+      "destination": "JED",
+      "departure_date": "2026-11-17",
+      "departure_at": "2026-11-17T08:15:00Z",
+      "arrival_at": "2026-11-17T15:55:00Z"
+    },
+    {
+      "airline_code": "C6",
+      "flight_number": "C6326",
+      "origin": "JED",
+      "destination": "NMA",
+      "departure_date": "2026-11-17",
+      "departure_at": "2026-11-17T17:25:00Z",
+      "arrival_at": "2026-11-18T00:35:00Z"
+    },
+    {
+      "airline_code": "HY",
+      "flight_number": "HY335",
+      "origin": "TAS",
+      "destination": "JED",
+      "departure_date": "2026-11-17",
+      "departure_at": "2026-11-17T12:00:00Z",
+      "arrival_at": "2026-11-17T19:00:00Z"
+    },
+    {
+      "airline_code": "XY",
+      "flight_number": "XY633",
+      "origin": "JED",
+      "destination": "TAS",
+      "departure_date": "2026-11-17",
+      "departure_at": "2026-11-17T03:50:00Z",
+      "arrival_at": "2026-11-17T10:00:00Z"
+    },
+    {
+      "airline_code": "XY",
+      "flight_number": "XY634",
+      "origin": "TAS",
+      "destination": "JED",
+      "departure_date": "2026-11-17",
+      "departure_at": "2026-11-17T11:20:00Z",
+      "arrival_at": "2026-11-17T18:05:00Z"
+    },
+    {
+      "airline_code": "C6",
+      "flight_number": "C6325",
+      "origin": "NMA",
+      "destination": "JED",
+      "departure_date": "2026-11-18",
+      "departure_at": "2026-11-18T19:30:00Z",
+      "arrival_at": "2026-11-19T03:10:00Z"
+    },
+    {
+      "airline_code": "C6",
+      "flight_number": "C6324",
+      "origin": "JED",
+      "destination": "FEG",
+      "departure_date": "2026-11-19",
+      "departure_at": "2026-11-19T04:40:00Z",
+      "arrival_at": "2026-11-19T11:50:00Z"
+    },
+    {
+      "airline_code": "C6",
+      "flight_number": "C6331",
+      "origin": "TAS",
+      "destination": "MED",
+      "departure_date": "2026-11-19",
+      "departure_at": "2026-11-19T07:10:00Z",
+      "arrival_at": "2026-11-19T14:05:00Z"
+    },
+    {
+      "airline_code": "XY",
+      "flight_number": "XY633",
+      "origin": "JED",
+      "destination": "TAS",
+      "departure_date": "2026-11-19",
+      "departure_at": "2026-11-19T03:10:00Z",
+      "arrival_at": "2026-11-19T09:20:00Z"
+    },
+    {
+      "airline_code": "XY",
+      "flight_number": "XY634",
+      "origin": "TAS",
+      "destination": "JED",
+      "departure_date": "2026-11-19",
+      "departure_at": "2026-11-19T10:40:00Z",
+      "arrival_at": "2026-11-19T17:25:00Z"
+    },
+    {
+      "airline_code": "C6",
+      "flight_number": "C6321",
+      "origin": "TAS",
+      "destination": "JED",
+      "departure_date": "2026-11-21",
+      "departure_at": "2026-11-21T13:00:00Z",
+      "arrival_at": "2026-11-21T19:45:00Z"
+    },
+    {
+      "airline_code": "HY",
+      "flight_number": "HY335",
+      "origin": "TAS",
+      "destination": "JED",
+      "departure_date": "2026-11-21",
+      "departure_at": "2026-11-21T12:15:00Z",
+      "arrival_at": "2026-11-21T19:15:00Z"
+    },
+    {
+      "airline_code": "HY",
+      "flight_number": "HY336",
+      "origin": "JED",
+      "destination": "TAS",
+      "departure_date": "2026-11-21",
+      "departure_at": "2026-11-21T20:45:00Z",
+      "arrival_at": "2026-11-22T02:45:00Z"
+    },
+    {
+      "airline_code": "HY",
+      "flight_number": "HY337",
+      "origin": "TAS",
+      "destination": "JED",
+      "departure_date": "2026-11-21",
+      "departure_at": "2026-11-21T02:50:00Z",
+      "arrival_at": "2026-11-21T09:40:00Z"
+    },
+    {
+      "airline_code": "HY",
+      "flight_number": "HY338",
+      "origin": "JED",
+      "destination": "TAS",
+      "departure_date": "2026-11-21",
+      "departure_at": "2026-11-21T11:10:00Z",
+      "arrival_at": "2026-11-21T17:10:00Z"
+    },
+    {
+      "airline_code": "XY",
+      "flight_number": "XY633",
+      "origin": "JED",
+      "destination": "TAS",
+      "departure_date": "2026-11-21",
+      "departure_at": "2026-11-21T03:50:00Z",
+      "arrival_at": "2026-11-21T10:00:00Z"
+    },
+    {
+      "airline_code": "XY",
+      "flight_number": "XY634",
+      "origin": "TAS",
+      "destination": "JED",
+      "departure_date": "2026-11-21",
+      "departure_at": "2026-11-21T11:20:00Z",
+      "arrival_at": "2026-11-21T18:05:00Z"
+    },
+    {
+      "airline_code": "C6",
+      "flight_number": "C6322",
+      "origin": "JED",
+      "destination": "TAS",
+      "departure_date": "2026-11-22",
+      "departure_at": "2026-11-22T13:35:00Z",
+      "arrival_at": "2026-11-22T20:10:00Z"
+    },
+    {
+      "airline_code": "HY",
+      "flight_number": "HY337",
+      "origin": "TAS",
+      "destination": "JED",
+      "departure_date": "2026-11-23",
+      "departure_at": "2026-11-23T02:45:00Z",
+      "arrival_at": "2026-11-23T09:40:00Z"
+    },
+    {
+      "airline_code": "HY",
+      "flight_number": "HY338",
+      "origin": "JED",
+      "destination": "TAS",
+      "departure_date": "2026-11-23",
+      "departure_at": "2026-11-23T11:10:00Z",
+      "arrival_at": "2026-11-23T17:10:00Z"
+    },
+    {
+      "airline_code": "XY",
+      "flight_number": "XY633",
+      "origin": "JED",
+      "destination": "TAS",
+      "departure_date": "2026-11-23",
+      "departure_at": "2026-11-23T02:20:00Z",
+      "arrival_at": "2026-11-23T08:30:00Z"
+    },
+    {
+      "airline_code": "XY",
+      "flight_number": "XY634",
+      "origin": "TAS",
+      "destination": "JED",
+      "departure_date": "2026-11-23",
+      "departure_at": "2026-11-23T09:50:00Z",
+      "arrival_at": "2026-11-23T16:35:00Z"
+    },
+    {
+      "airline_code": "C6",
+      "flight_number": "C6323",
+      "origin": "FEG",
+      "destination": "JED",
+      "departure_date": "2026-11-24",
+      "departure_at": "2026-11-24T08:15:00Z",
+      "arrival_at": "2026-11-24T15:55:00Z"
+    },
+    {
+      "airline_code": "C6",
+      "flight_number": "C6326",
+      "origin": "JED",
+      "destination": "NMA",
+      "departure_date": "2026-11-24",
+      "departure_at": "2026-11-24T17:25:00Z",
+      "arrival_at": "2026-11-25T00:35:00Z"
+    },
+    {
+      "airline_code": "HY",
+      "flight_number": "HY336",
+      "origin": "JED",
+      "destination": "TAS",
+      "departure_date": "2026-11-24",
+      "departure_at": "2026-11-24T20:30:00Z",
+      "arrival_at": "2026-11-25T02:30:00Z"
+    },
+    {
+      "airline_code": "XY",
+      "flight_number": "XY633",
+      "origin": "JED",
+      "destination": "TAS",
+      "departure_date": "2026-11-24",
+      "departure_at": "2026-11-24T03:50:00Z",
+      "arrival_at": "2026-11-24T10:00:00Z"
+    },
+    {
+      "airline_code": "XY",
+      "flight_number": "XY634",
+      "origin": "TAS",
+      "destination": "JED",
+      "departure_date": "2026-11-24",
+      "departure_at": "2026-11-24T11:20:00Z",
+      "arrival_at": "2026-11-24T18:05:00Z"
+    },
+    {
+      "airline_code": "C6",
+      "flight_number": "C6324",
+      "origin": "JED",
+      "destination": "FEG",
+      "departure_date": "2026-11-26",
+      "departure_at": "2026-11-26T04:40:00Z",
+      "arrival_at": "2026-11-26T11:50:00Z"
+    },
+    {
+      "airline_code": "C6",
+      "flight_number": "C6331",
+      "origin": "TAS",
+      "destination": "MED",
+      "departure_date": "2026-11-26",
+      "departure_at": "2026-11-26T07:10:00Z",
+      "arrival_at": "2026-11-26T14:05:00Z"
+    },
+    {
+      "airline_code": "XY",
+      "flight_number": "XY633",
+      "origin": "JED",
+      "destination": "TAS",
+      "departure_date": "2026-11-26",
+      "departure_at": "2026-11-26T03:10:00Z",
+      "arrival_at": "2026-11-26T09:20:00Z"
+    },
+    {
+      "airline_code": "XY",
+      "flight_number": "XY634",
+      "origin": "TAS",
+      "destination": "JED",
+      "departure_date": "2026-11-26",
+      "departure_at": "2026-11-26T10:40:00Z",
+      "arrival_at": "2026-11-26T17:25:00Z"
+    },
+    {
+      "airline_code": "XY",
+      "flight_number": "XY633",
+      "origin": "JED",
+      "destination": "TAS",
+      "departure_date": "2026-11-28",
+      "departure_at": "2026-11-28T03:50:00Z",
+      "arrival_at": "2026-11-28T10:00:00Z"
+    },
+    {
+      "airline_code": "XY",
+      "flight_number": "XY634",
+      "origin": "TAS",
+      "destination": "JED",
+      "departure_date": "2026-11-28",
+      "departure_at": "2026-11-28T11:20:00Z",
+      "arrival_at": "2026-11-28T18:05:00Z"
+    },
+    {
+      "airline_code": "C6",
+      "flight_number": "C6322",
+      "origin": "JED",
+      "destination": "TAS",
+      "departure_date": "2026-11-29",
+      "departure_at": "2026-11-29T13:35:00Z",
+      "arrival_at": "2026-11-29T20:10:00Z"
+    },
+    {
+      "airline_code": "HY",
+      "flight_number": "HY337",
+      "origin": "TAS",
+      "destination": "JED",
+      "departure_date": "2026-11-30",
+      "departure_at": "2026-11-30T02:45:00Z",
+      "arrival_at": "2026-11-30T09:40:00Z"
+    },
+    {
+      "airline_code": "HY",
+      "flight_number": "HY338",
+      "origin": "JED",
+      "destination": "TAS",
+      "departure_date": "2026-11-30",
+      "departure_at": "2026-11-30T11:10:00Z",
+      "arrival_at": "2026-11-30T17:10:00Z"
+    },
+    {
+      "airline_code": "XY",
+      "flight_number": "XY633",
+      "origin": "JED",
+      "destination": "TAS",
+      "departure_date": "2026-11-30",
+      "departure_at": "2026-11-30T02:20:00Z",
+      "arrival_at": "2026-11-30T08:30:00Z"
+    },
+    {
+      "airline_code": "XY",
+      "flight_number": "XY634",
+      "origin": "TAS",
+      "destination": "JED",
+      "departure_date": "2026-11-30",
+      "departure_at": "2026-11-30T09:50:00Z",
+      "arrival_at": "2026-11-30T16:35:00Z"
+    },
+    {
+      "airline_code": "C6",
+      "flight_number": "C6326",
+      "origin": "JED",
+      "destination": "NMA",
+      "departure_date": "2026-12-01",
+      "departure_at": "2026-12-01T17:25:00Z",
+      "arrival_at": "2026-12-02T00:35:00Z"
+    },
+    {
+      "airline_code": "HY",
+      "flight_number": "HY336",
+      "origin": "JED",
+      "destination": "TAS",
+      "departure_date": "2026-12-01",
+      "departure_at": "2026-12-01T20:30:00Z",
+      "arrival_at": "2026-12-02T02:30:00Z"
+    },
+    {
+      "airline_code": "XY",
+      "flight_number": "XY633",
+      "origin": "JED",
+      "destination": "TAS",
+      "departure_date": "2026-12-01",
+      "departure_at": "2026-12-01T03:50:00Z",
+      "arrival_at": "2026-12-01T10:00:00Z"
+    },
+    {
+      "airline_code": "XY",
+      "flight_number": "XY634",
+      "origin": "TAS",
+      "destination": "JED",
+      "departure_date": "2026-12-01",
+      "departure_at": "2026-12-01T11:20:00Z",
+      "arrival_at": "2026-12-01T18:05:00Z"
+    },
+    {
+      "airline_code": "C6",
+      "flight_number": "C6325",
+      "origin": "NMA",
+      "destination": "JED",
+      "departure_date": "2026-12-02",
+      "departure_at": "2026-12-02T19:30:00Z",
+      "arrival_at": "2026-12-03T03:10:00Z"
+    },
+    {
+      "airline_code": "C6",
+      "flight_number": "C6324",
+      "origin": "JED",
+      "destination": "FEG",
+      "departure_date": "2026-12-03",
+      "departure_at": "2026-12-03T04:40:00Z",
+      "arrival_at": "2026-12-03T11:50:00Z"
+    },
+    {
+      "airline_code": "C6",
+      "flight_number": "C6331",
+      "origin": "TAS",
+      "destination": "MED",
+      "departure_date": "2026-12-03",
+      "departure_at": "2026-12-03T07:10:00Z",
+      "arrival_at": "2026-12-03T14:05:00Z"
+    },
+    {
+      "airline_code": "XY",
+      "flight_number": "XY633",
+      "origin": "JED",
+      "destination": "TAS",
+      "departure_date": "2026-12-03",
+      "departure_at": "2026-12-03T03:10:00Z",
+      "arrival_at": "2026-12-03T09:20:00Z"
+    },
+    {
+      "airline_code": "XY",
+      "flight_number": "XY634",
+      "origin": "TAS",
+      "destination": "JED",
+      "departure_date": "2026-12-03",
+      "departure_at": "2026-12-03T10:40:00Z",
+      "arrival_at": "2026-12-03T17:25:00Z"
+    },
+    {
+      "airline_code": "HY",
+      "flight_number": "HY336",
+      "origin": "JED",
+      "destination": "TAS",
+      "departure_date": "2026-12-05",
+      "departure_at": "2026-12-05T20:45:00Z",
+      "arrival_at": "2026-12-06T02:45:00Z"
+    },
+    {
+      "airline_code": "HY",
+      "flight_number": "HY338",
+      "origin": "JED",
+      "destination": "TAS",
+      "departure_date": "2026-12-05",
+      "departure_at": "2026-12-05T11:10:00Z",
+      "arrival_at": "2026-12-05T17:10:00Z"
+    },
+    {
+      "airline_code": "XY",
+      "flight_number": "XY633",
+      "origin": "JED",
+      "destination": "TAS",
+      "departure_date": "2026-12-05",
+      "departure_at": "2026-12-05T03:50:00Z",
+      "arrival_at": "2026-12-05T10:00:00Z"
+    },
+    {
+      "airline_code": "XY",
+      "flight_number": "XY634",
+      "origin": "TAS",
+      "destination": "JED",
+      "departure_date": "2026-12-05",
+      "departure_at": "2026-12-05T11:20:00Z",
+      "arrival_at": "2026-12-05T18:05:00Z"
+    },
+    {
+      "airline_code": "C6",
+      "flight_number": "C6322",
+      "origin": "JED",
+      "destination": "TAS",
+      "departure_date": "2026-12-06",
+      "departure_at": "2026-12-06T13:35:00Z",
+      "arrival_at": "2026-12-06T20:10:00Z"
+    },
+    {
+      "airline_code": "C6",
+      "flight_number": "C6321",
+      "origin": "TAS",
+      "destination": "JED",
+      "departure_date": "2026-12-07",
+      "departure_at": "2026-12-07T23:20:00Z",
+      "arrival_at": "2026-12-08T06:40:00Z"
+    },
+    {
+      "airline_code": "HY",
+      "flight_number": "HY337",
+      "origin": "TAS",
+      "destination": "JED",
+      "departure_date": "2026-12-07",
+      "departure_at": "2026-12-07T02:45:00Z",
+      "arrival_at": "2026-12-07T09:40:00Z"
+    },
+    {
+      "airline_code": "XY",
+      "flight_number": "XY634",
+      "origin": "TAS",
+      "destination": "JED",
+      "departure_date": "2026-12-07",
+      "departure_at": "2026-12-07T09:50:00Z",
+      "arrival_at": "2026-12-07T16:35:00Z"
+    },
+    {
+      "airline_code": "C6",
+      "flight_number": "C6326",
+      "origin": "JED",
+      "destination": "NMA",
+      "departure_date": "2026-12-08",
+      "departure_at": "2026-12-08T17:25:00Z",
+      "arrival_at": "2026-12-09T00:35:00Z"
+    },
+    {
+      "airline_code": "HY",
+      "flight_number": "HY335",
+      "origin": "TAS",
+      "destination": "JED",
+      "departure_date": "2026-12-08",
+      "departure_at": "2026-12-08T12:00:00Z",
+      "arrival_at": "2026-12-08T19:00:00Z"
+    },
+    {
+      "airline_code": "HY",
+      "flight_number": "HY336",
+      "origin": "JED",
+      "destination": "TAS",
+      "departure_date": "2026-12-08",
+      "departure_at": "2026-12-08T20:30:00Z",
+      "arrival_at": "2026-12-09T02:30:00Z"
+    },
+    {
+      "airline_code": "XY",
+      "flight_number": "XY633",
+      "origin": "JED",
+      "destination": "TAS",
+      "departure_date": "2026-12-08",
+      "departure_at": "2026-12-08T03:50:00Z",
+      "arrival_at": "2026-12-08T10:00:00Z"
+    },
+    {
+      "airline_code": "XY",
+      "flight_number": "XY634",
+      "origin": "TAS",
+      "destination": "JED",
+      "departure_date": "2026-12-08",
+      "departure_at": "2026-12-08T11:20:00Z",
+      "arrival_at": "2026-12-08T18:05:00Z"
+    },
+    {
+      "airline_code": "C6",
+      "flight_number": "C6324",
+      "origin": "JED",
+      "destination": "FEG",
+      "departure_date": "2026-12-10",
+      "departure_at": "2026-12-10T04:40:00Z",
+      "arrival_at": "2026-12-10T11:50:00Z"
+    },
+    {
+      "airline_code": "C6",
+      "flight_number": "C6331",
+      "origin": "TAS",
+      "destination": "MED",
+      "departure_date": "2026-12-10",
+      "departure_at": "2026-12-10T07:10:00Z",
+      "arrival_at": "2026-12-10T14:05:00Z"
+    },
+    {
+      "airline_code": "XY",
+      "flight_number": "XY633",
+      "origin": "JED",
+      "destination": "TAS",
+      "departure_date": "2026-12-10",
+      "departure_at": "2026-12-10T03:10:00Z",
+      "arrival_at": "2026-12-10T09:20:00Z"
+    }
+  ]
+}

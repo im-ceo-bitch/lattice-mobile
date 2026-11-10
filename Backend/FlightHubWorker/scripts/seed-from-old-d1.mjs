@@ -5,6 +5,11 @@
 import {extractCuratedFlightIdentities} from '../src/curated.js';
 import {tashkentDay} from '../src/core.js';
 import {deriveServiceCredentials} from './ci-secret-derivation.mjs';
+import { seedLocalFlightArtifactIfAvailable } from './seed-from-flight-artifact.mjs';
+
+if (await seedLocalFlightArtifactIfAvailable()) {
+  console.log('Used local kepler-ios flight artifact; no old account or feed credentials necessary.');
+} else {
 
 const oldAccount=process.env.OLD_CLOUDFLARE_ACCOUNT_ID;
 const oldToken=process.env.OLD_CLOUDFLARE_API_TOKEN;
@@ -56,3 +61,5 @@ for(let i=0;i<records.length;i+=100) {
 }
 console.log(JSON.stringify({seeded:accepted,unmatched,rejected,source_rows:rows.length}));
 if(rejected||unmatched)process.exitCode=1;
+
+}
