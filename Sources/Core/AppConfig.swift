@@ -4,6 +4,7 @@ import Foundation
 // public HTTPS endpoints only; never add Cloudflare / provider access tokens here.
 private struct BusinessEndpointSettings: Decodable {
     let platform_api_url: String?
+    let backend_api_url: String?
     let flight_hub_url: String?
 }
 
@@ -30,9 +31,13 @@ enum AppConfig {
     // Keep the existing platform API until the new Core Worker and all account/
     // bookings operations pass smoke tests on the new database.
     static let apiBaseURL: URL = httpsURL(settings?.platform_api_url) ?? URL(string: "https://iumrah.app")!
-    // Flight Hub can move independently to the new account's workers.dev host.
-    static let flightHubBaseURL: URL = httpsURL(settings?.flight_hub_url) ??
-        apiBaseURL.appending(path: "api/flight-hub")
+    // The single deployed Worker owns flights, telemetry and supported admin
+    // services. Auth and bookings stay on the existing platform until their
+    // routes and data are fully migrated; switching them prematurely logs users out.
+    static let unifiedBackendURL: URL = httpsURL(settings?.backend_api_url)
+        ?? httpsURL(settings?.flight_hub_url)
+        ?? URL(string: "https://iumrah-backend.helloiumrah.workers.dev")!
+    static let flightHubBaseURL: URL = unifiedBackendURL
     static let appName = "iumrah Business"
     static let buildChannel = "TestFlight"
 

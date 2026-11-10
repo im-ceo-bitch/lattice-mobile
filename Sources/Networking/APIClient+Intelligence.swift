@@ -1,7 +1,8 @@
 import Foundation
 
-// Aggregate analytics only. All Business endpoints reuse the existing staff cookie
-// and X-Iumrah-Business-Session header from APIClient.perform.
+// Aggregate analytics only. The analytics module lives behind the single unified backend.
+// APIClient.perform forwards staff credentials ONLY to trusted analytics paths;
+// existing login and booking requests continue to use the platform API.
 struct IntelligenceOverviewResponse: Decodable {
     let ok: Bool
     let overview: IntelligenceOverview
@@ -104,7 +105,7 @@ struct IntelligenceRecommendation: Decodable, Identifiable {
 
 extension APIClient {
     func intelligenceOverview(days: Int = 7) async throws -> IntelligenceOverview {
-        var components = URLComponents(url: AppConfig.apiBaseURL.appending(path: "/api/admin/hotels/intelligence"), resolvingAgainstBaseURL: false)!
+        var components = URLComponents(url: AppConfig.unifiedBackendURL.appending(path: "/api/admin/hotels/intelligence"), resolvingAgainstBaseURL: false)!
         components.queryItems = [URLQueryItem(name: "days", value: String(days))]
         guard let url = components.url else { throw APIError.invalidURL }
         let (data, response) = try await perform(from: url)
@@ -113,7 +114,7 @@ extension APIClient {
     }
 
     func intelligenceSessions(days: Int = 7) async throws -> [IntelligenceSession] {
-        var components = URLComponents(url: AppConfig.apiBaseURL.appending(path: "/api/admin/hotels/intelligence/sessions"), resolvingAgainstBaseURL: false)!
+        var components = URLComponents(url: AppConfig.unifiedBackendURL.appending(path: "/api/admin/hotels/intelligence/sessions"), resolvingAgainstBaseURL: false)!
         components.queryItems = [URLQueryItem(name: "days", value: String(days))]
         guard let url = components.url else { throw APIError.invalidURL }
         let (data, response) = try await perform(from: url)
@@ -122,21 +123,21 @@ extension APIClient {
     }
 
     func intelligenceJourney(sessionID: String) async throws -> IntelligenceJourneyResponse {
-        let url = AppConfig.apiBaseURL.appending(path: "/api/admin/hotels/intelligence/sessions/\(sessionID)")
+        let url = AppConfig.unifiedBackendURL.appending(path: "/api/admin/hotels/intelligence/sessions/\(sessionID)")
         let (data, response) = try await perform(from: url)
         try validate(response, data: data)
         return try decoder.decode(IntelligenceJourneyResponse.self, from: data)
     }
 
     func intelligenceReports() async throws -> [IntelligenceReport] {
-        let url = AppConfig.apiBaseURL.appending(path: "/api/admin/hotels/intelligence/reports")
+        let url = AppConfig.unifiedBackendURL.appending(path: "/api/admin/hotels/intelligence/reports")
         let (data, response) = try await perform(from: url)
         try validate(response, data: data)
         return try decoder.decode(IntelligenceReportsResponse.self, from: data).reports
     }
 
     func generateIntelligenceReport() async throws {
-        var request = URLRequest(url: AppConfig.apiBaseURL.appending(path: "/api/admin/hotels/intelligence/reports/generate"))
+        var request = URLRequest(url: AppConfig.unifiedBackendURL.appending(path: "/api/admin/hotels/intelligence/reports/generate"))
         request.httpMethod = "POST"
         request.timeoutInterval = 85
         let (data, response) = try await perform(request)

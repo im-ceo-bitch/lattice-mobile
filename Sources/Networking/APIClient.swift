@@ -825,11 +825,28 @@ actor APIClient {
 
     func perform(_ original: URLRequest) async throws -> (Data, URLResponse) {
         var request = original
-        if let url = request.url,
-           url.host?.lowercased() == AppConfig.apiBaseURL.host?.lowercased(),
-           url.path.hasPrefix("/api/admin/"),
-           let token = BusinessSessionVault.sessionToken {
-            request.setValue(token, forHTTPHeaderField: "X-Iumrah-Business-Session")
+        if let url = request.url {
+            let isPlatform = url.scheme == "https"
+                && url.host?.lowercased() == AppConfig.apiBaseURL.host?.lowercased()
+            // The unified Worker verifies staff identity via the platform
+            // session endpoint. Cookies scoped to iumrah.app are not sent to
+            // workers.dev automatically. Forward them ONLY for the analytics
+            // admin endpoints on our configured HTTPS backend; never to a user URL.
+            let isBackendAnalytics = url.scheme == "https"
+                && url.host?.lowercased() == AppConfig.unifiedBackendURL.host?.lowercased()
+                && (url.path == "/api/admin/hotels/intelligence"
+                    || url.path.hasPrefix("/api/admin/hotels/intelligence/"))
+            if isBackendAnalytics,
+               let cookies = HTTPCookieStorage.shared.cookies(for: AppConfig.apiBaseURL),
+               !cookies.isEmpty {
+                request.setValue(cookies.map { "\($0.name)=\($0.value)" }.joined(separator: "; "),
+                                 forHTTPHeaderField: "Cookie")
+            }
+            if (isPlatform || isBackendAnalytics),
+               url.path.hasPrefix("/api/admin/"),
+               let token = BusinessSessionVault.sessionToken {
+                request.setValue(token, forHTTPHeaderField: "X-Iumrah-Business-Session")
+            }
         }
         return try await session.data(for: request)
     }
