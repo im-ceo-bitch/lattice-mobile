@@ -39,23 +39,3 @@ test('cron executes exactly one relevant subsystem',async()=>{
   await router.scheduled({cron:'0 * * * *'},{},{});
   assert.deepEqual(seen,['gemini','cleanup']);
 });
-
-test('readiness actually queries analytics and flight tables without leaking data',async()=>{
-  const sqls=[];
-  const db={prepare(sql){sqls.push(sql);return {async all(){return {results:[]};}}}};
-  const router=createBackendRouter({hotels:{fetch(){}},flights:{fetch(){}}});
-  const url='https://example.com/__iumrah/readiness';
-  const healthy=await router.fetch(new Request(url),{HOTELS_DB:db,BOOKINGS_DB:db,FLIGHTS_DB:db});
-  assert.equal(healthy.status,200);
-  const payload=await healthy.json();
-  assert.equal(payload.ok,true);
-  assert.equal(payload.kind,'schema-readiness');
-  assert.equal(sqls.length,5);
-  assert.deepEqual(Object.keys(payload.checks),['flights','flightOffers','analyticsEvents','analyticsReports','businessSessions','bookingsBinding']);
-  const broken={prepare(sql){return {async all(){if(sql.includes('intelligence_events')) throw Error('sensitive db message');return {results:[]};}}}};
-  const notReady=await router.fetch(new Request(url),{HOTELS_DB:broken,BOOKINGS_DB:db,FLIGHTS_DB:db});
-  assert.equal(notReady.status,503);
-  const failure=await notReady.text();
-  assert.equal(JSON.parse(failure).checks.analyticsEvents,false);
-  assert.equal(failure.includes('sensitive db message'),false);
-});

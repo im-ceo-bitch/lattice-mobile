@@ -1,4 +1,4 @@
 {
   "platform_api_url": "https://iumrah.app",
-  "backend_api_url": "https://iumrah-backend.helloiumrah.workers.dev"
+  "flight_hub_url": "https://iumrah-backend.helloiumrah.workers.dev"
 }

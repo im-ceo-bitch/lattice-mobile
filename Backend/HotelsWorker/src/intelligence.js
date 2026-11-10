@@ -1,3 +1,4 @@
+import { intelligenceChat } from './intelligence-agent.js';
 // iumrah Intelligence — privacy-constrained event collection and Gemini analysis.
 // This module deliberately does not ingest freeform event properties, text, IDs of
 // bookings, device identifiers, passport fields, search queries or chat content.
@@ -27,7 +28,7 @@ export function validateIntelligenceBatch(body, currentTime = Date.now()) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
   const visitorId = uuid(body.visitorId);
   const sessionId = uuid(body.sessionId);
-  const platform = body.platform === 'ios' || body.platform === 'android' ? body.platform : null;
+  const platform = ['ios', 'android', 'web'].includes(body.platform) ? body.platform : null;
   const appVersion = body.appVersion === undefined || body.appVersion === '' ? '' : code(body.appVersion, 32);
   if (!visitorId || visitorId.length < 12 || !sessionId || sessionId.length < 12 || !platform || appVersion === null) return null;
   if (!Array.isArray(body.events) || body.events.length === 0 || body.events.length > 30) return null;
@@ -89,7 +90,7 @@ function lowerBound(days, reference = Date.now()) {
 
 export async function intelligenceOverview(env, days = 7) {
   const since = lowerBound(days);
-  const [events, names, screens, daily, durations] = await Promise.all([
+  const [events, names, screens, daily, durations, platforms, dailyPlatform] = await Promise.all([
     env.HOTELS_DB.prepare(`SELECT COUNT(*) AS events, COUNT(DISTINCT visitor_id) AS visitors,
       COUNT(DISTINCT session_id) AS sessions FROM intelligence_events WHERE created_at>=?`).bind(since).first(),
     env.HOTELS_DB.prepare(`SELECT event_name, COUNT(*) AS events, COUNT(DISTINCT visitor_id) AS visitors
@@ -102,7 +103,13 @@ export async function intelligenceOverview(env, days = 7) {
       GROUP BY substr(created_at,1,10) ORDER BY day ASC`).bind(since).all(),
     env.HOTELS_DB.prepare(`SELECT screen, AVG(duration_ms) AS avg_duration_ms, COUNT(*) AS exits
       FROM intelligence_events WHERE created_at>=? AND event_name='screen_exit' AND screen<>''
-      AND duration_ms IS NOT NULL GROUP BY screen`).bind(since).all()
+      AND duration_ms IS NOT NULL GROUP BY screen`).bind(since).all(),
+    env.HOTELS_DB.prepare(`SELECT platform, COUNT(DISTINCT visitor_id) AS visitors,
+      COUNT(DISTINCT session_id) AS sessions, COUNT(*) AS events,
+      COUNT(DISTINCT CASE WHEN event_name='booking_completed' THEN visitor_id END) AS bookings
+      FROM intelligence_events WHERE created_at>=? GROUP BY platform ORDER BY visitors DESC`).bind(since).all(),
+    env.HOTELS_DB.prepare(`SELECT substr(created_at,1,10) AS day, platform, COUNT(DISTINCT visitor_id) AS visitors
+      FROM intelligence_events WHERE created_at>=? GROUP BY substr(created_at,1,10), platform ORDER BY day`).bind(since).all()
   ]);
   const byName = new Map((names.results || []).map(row => [row.event_name, row]));
   const byScreenDuration = new Map((durations.results || []).map(row => [row.screen, row]));
@@ -114,7 +121,10 @@ export async function intelligenceOverview(env, days = 7) {
     screens: (screens.results || []).map(row => ({ screen: row.screen, views: count(row.views), visitors: count(row.visitors),
       averageSeconds: byScreenDuration.has(row.screen) ? Math.round(count(byScreenDuration.get(row.screen).avg_duration_ms) / 1000) : null,
       timedExits: count(byScreenDuration.get(row.screen)?.exits) })),
-    daily: (daily.results || []).map(row => ({ day: row.day, visitors: count(row.visitors), events: count(row.events) }))
+    daily: (daily.results || []).map(row => ({ day: row.day, visitors: count(row.visitors), events: count(row.events) })),
+    platforms: (platforms.results || []).map(row => ({ platform: row.platform, visitors: count(row.visitors),
+      sessions: count(row.sessions), events: count(row.events), bookings: count(row.bookings) })),
+    dailyPlatform: (dailyPlatform.results || []).map(row => ({ day: row.day, platform: row.platform, visitors: count(row.visitors) }))
   };
 }
 
@@ -171,6 +181,7 @@ export async function intelligenceAdmin(request, env, url, user) {
     const result = await runIntelligenceReport(env, { manual: true });
     return respond(result, result.ok ? 200 : result.code === 'GEMINI_KEY_MISSING' ? 503 : 400);
   }
+  if (parts.length === 1 && parts[0] === 'chat') return intelligenceChat(request, env, url);
   return respond({ ok: false, error: 'NOT_FOUND' }, 404);
 }
 
@@ -179,7 +190,7 @@ function summarizeForGemini(overview, previous) {
     periodStart: overview.periodStart, periodEnd: overview.periodEnd, days: overview.days,
     visitors: overview.visitors, sessions: overview.sessions, events: overview.events,
     funnel: overview.funnel, eventCounts: overview.eventCounts, screens: overview.screens,
-    daily: overview.daily
+    daily: overview.daily, platforms: overview.platforms, dailyPlatform: overview.dailyPlatform
   }, previous: {
     visitors: previous.visitors, sessions: previous.sessions, events: previous.events,
     funnel: previous.funnel
@@ -223,7 +234,7 @@ export async function runIntelligenceReport(env, { manual = false, now = new Dat
     await finish('failed', '', null, 'GEMINI_KEY_MISSING');
     return { ok: false, code: 'GEMINI_KEY_MISSING' };
   }
-  const model = /^gemini-[a-z0-9.-]+$/.test(String(env.GEMINI_MODEL || '')) ? env.GEMINI_MODEL : 'gemini-2.5-flash';
+  const model = 'gemini-3.8-flash'; // Free tier: never silently charge for Pro or Argon.
   try {
     // Previous 7 days are calculated from safe aggregate metrics, not raw journeys.
     const previousStart = lowerBound(14, now.getTime());
@@ -245,6 +256,7 @@ export async function runIntelligenceReport(env, { manual = false, now = new Dat
       'Предлагай конкретные проверяемые улучшения UI/UX, онбординга, доверия, поиска, конверсии и маркетинга.',
       'Для каждой рекомендации укажи наблюдение из данных, гипотезу, действие и метрику проверки.',
       'Если данных мало или воронка неполная, прямо скажи об этом. Данные являются агрегатами, не отдельными пользователями.',
+      'Отдельно сравни iOS, Android и Web, если они есть в данных. Платформа без событий НЕ означает отсутствие пользователей.',
       'Ответ по-русски. Верни JSON строго по схеме.',
       JSON.stringify(summarizeForGemini(overview, previous))
     ].join('\n');

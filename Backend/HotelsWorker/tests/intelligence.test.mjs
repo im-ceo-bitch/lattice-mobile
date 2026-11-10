@@ -18,7 +18,7 @@ test('accepts only bounded pseudonymous UUID events', () => {
   assert.equal(validateIntelligenceBatch({ ...batch(), visitorId: 'real_person_name' }), null);
   assert.equal(validateIntelligenceBatch({ ...batch(), events: [{ id: randomUUID(), name: 'passport_uploaded' }] }), null);
   assert.equal(validateIntelligenceBatch({ ...batch(), events: [{ id: randomUUID(), name: 'tap', screen: 'secret@mail.com' }] }), null);
-  assert.equal(validateIntelligenceBatch({ ...batch(), platform: 'web' }), null);
+  assert.equal(validateIntelligenceBatch({ ...batch(), platform: 'web' })?.platform, 'web');
   assert.equal(validateIntelligenceBatch({ ...batch(), events: Array(31).fill({ id: randomUUID(), name: 'tap' }) }), null);
 });
 
@@ -124,7 +124,7 @@ test('Gemini report gets aggregate-only payload, persists advice and never recei
   try {
     globalThis.fetch = async (url, options) => {
       requested = true;
-      assert.match(url, /generativelanguage.googleapis.com\/v1beta\/models\/gemini-2.5-flash:generateContent/);
+      assert.match(url, /generativelanguage.googleapis.com\/v1beta\/models\/gemini-3.8-flash:generateContent/);
       assert.equal(options.headers['x-goog-api-key'], env.GEMINI_API_KEY);
       const body = JSON.stringify(JSON.parse(options.body));
       for (const id of visitors) assert.ok(!body.includes(id));

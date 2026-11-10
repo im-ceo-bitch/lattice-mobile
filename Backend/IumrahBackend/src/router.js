@@ -12,7 +12,6 @@ function matches(path, prefix) {
 }
 export function resolveBackendRoute(pathname) {
   if (pathname === '/__iumrah/health') return 'health';
-  if (pathname === '/__iumrah/readiness') return 'readiness';
   if (pathname === '/') return 'root';
   if (matches(pathname, '/api/flight-hub') || matches(pathname, '/v1') || pathname === '/health') return 'flights';
   if (hotelPrefixes.some(prefix => matches(pathname, prefix))) return 'hotels';
@@ -31,30 +30,6 @@ export function createBackendRouter({hotels, flights}) {
       if (route === 'flights') return flights.fetch(request, env, ctx);
       if (route === 'hotels') return hotels.fetch(request, env, ctx);
       if (route === 'root') return json({ok:true,service:'iumrah-backend',apiVersion:1});
-      if (route === 'readiness') {
-        // Read-only D1 schema probes. No user data, credentials, or SQL errors
-        // are exposed. A binding can exist while its tables are still absent.
-        const probes = [
-          ['flights', env.FLIGHTS_DB, 'SELECT 1 FROM flights LIMIT 0'],
-          ['flightOffers', env.FLIGHTS_DB, 'SELECT 1 FROM flight_offers LIMIT 0'],
-          ['analyticsEvents', env.HOTELS_DB, 'SELECT 1 FROM intelligence_events LIMIT 0'],
-          ['analyticsReports', env.HOTELS_DB, 'SELECT 1 FROM intelligence_reports LIMIT 0'],
-          ['businessSessions', env.HOTELS_DB, 'SELECT 1 FROM business_staff_sessions LIMIT 0']
-        ];
-        const checks = {};
-        for (const [name, database, sql] of probes) {
-          try {
-            if (!database?.prepare) { checks[name] = false; continue; }
-            await database.prepare(sql).all();
-            checks[name] = true;
-          } catch { checks[name] = false; }
-        }
-        // BOOKINGS_DB schema migration is checked separately; presence alone
-        // cannot be treated as successful customer data migration.
-        checks.bookingsBinding = !!env.BOOKINGS_DB;
-        const ready = Object.values(checks).every(Boolean);
-        return json({ok:ready,service:'iumrah-backend',kind:'schema-readiness',checks},ready?200:503);
-      }
       if (route === 'health') {
         const bindings = {
           HOTELS_DB: !!env.HOTELS_DB,

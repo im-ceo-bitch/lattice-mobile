@@ -1,4 +1,5 @@
 import SwiftUI
+import Charts
 
 @MainActor
 private final class IntelligenceStore: ObservableObject {
@@ -47,7 +48,8 @@ private final class IntelligenceStore: ObservableObject {
 private enum IntelligencePage: String, CaseIterable, Identifiable {
     case overview = "Обзор"
     case journey = "Сессии"
-    case gemini = "Gemini"
+    case gemini = "Отчёты AI"
+    case chat = "AI-чат"
     var id: String { rawValue }
 }
 
@@ -85,6 +87,7 @@ struct IntelligenceView: View {
                     case .overview: dashboard
                     case .journey: journeys
                     case .gemini: advisor
+                    case .chat: IntelligenceChatView(days: store.days)
                     }
                 }
             }
@@ -152,6 +155,10 @@ struct IntelligenceView: View {
                     intelligenceMetric("Брони", value: data.funnel.first(where: { $0.event == "booking_completed" })?.visitors ?? 0, icon: "checkmark.circle")
                 }
 
+                dailyTrafficChart(data: data)
+                platformBreakdownChart(data: data)
+                platformTrendChart(data: data)
+
                 VStack(alignment: .leading, spacing: 17) {
                     Text("Путь к бронированию").font(.headline)
                     Text("Уникальные посетители на каждом этапе за выбранный период. Этапы не обязательно принадлежат одной сессии.")
@@ -208,6 +215,88 @@ struct IntelligenceView: View {
                 empty("Не удалось загрузить показатели. Проверьте деплой Worker и миграцию D1.")
             }
         }
+    }
+
+    private func dailyTrafficChart(data: IntelligenceOverview) -> some View {
+            VStack(alignment: .leading, spacing: 13) {
+                HStack {
+                    Text("Активность по дням").font(.headline)
+                    Spacer()
+                    Image(systemName: "chart.xyaxis.line").foregroundStyle(.secondary)
+                }
+                if data.daily.isEmpty {
+                    empty("График появится после первых событий.")
+                } else {
+                    Chart(data.daily) { point in
+                        AreaMark(x: .value("День", point.day), y: .value("Посетители", point.visitors))
+                            .foregroundStyle(Color(red: 0.40, green: 0.21, blue: 0.85).opacity(0.12))
+                        LineMark(x: .value("День", point.day), y: .value("Посетители", point.visitors))
+                            .interpolationMethod(.catmullRom)
+                            .foregroundStyle(Color(red: 0.40, green: 0.21, blue: 0.85))
+                        PointMark(x: .value("День", point.day), y: .value("Посетители", point.visitors))
+                            .foregroundStyle(Color(red: 0.40, green: 0.21, blue: 0.85))
+                    }
+                    .chartYScale(domain: 0...max(1, (data.daily.map(\.visitors).max() ?? 1)))
+                    .frame(height: 185)
+                }
+            }
+            .padding(19)
+            .businessCard(radius: 24)
+    }
+
+    private func platformBreakdownChart(data: IntelligenceOverview) -> some View {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Платформы").font(.headline)
+                Text("Уникальные посетители и события, принятые нашим Backend. Ноль событий не означает ноль установок.")
+                    .font(.caption).foregroundStyle(.secondary)
+                let items = data.platforms ?? []
+                if items.isEmpty {
+                    empty("Платформы пока не передают данные.")
+                } else {
+                    Chart(items) { item in
+                        BarMark(x: .value("Платформа", item.displayName), y: .value("Посетители", item.visitors))
+                            .foregroundStyle(by: .value("Платформа", item.displayName))
+                            .cornerRadius(6)
+                    }
+                    .frame(height: 150)
+                }
+                ForEach(["ios", "android", "web"], id: \.self) { platform in
+                    let matched = items.first(where: { $0.platform == platform })
+                    HStack(spacing: 12) {
+                        Image(systemName: platform == "ios" ? "iphone" : platform == "android" ? "smartphone" : "globe")
+                            .frame(width: 28).foregroundStyle(.secondary)
+                        Text(platform == "ios" ? "iOS" : platform == "android" ? "Android" : "Веб-сайт")
+                            .font(.subheadline.weight(.medium))
+                        Spacer()
+                        if let matched {
+                            Text("\(matched.visitors) пользователей · \(matched.bookings) броней")
+                                .font(.caption).foregroundStyle(.secondary)
+                        } else {
+                            Text("Нет событий").font(.caption).foregroundStyle(.tertiary)
+                        }
+                    }
+                }
+            }
+            .padding(19)
+            .businessCard(radius: 24)
+    }
+
+    private func platformTrendChart(data: IntelligenceOverview) -> some View {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Посетители по платформам").font(.headline)
+                if let series = data.dailyPlatform, !series.isEmpty {
+                    Chart(series) { item in
+                        LineMark(x: .value("День", item.day), y: .value("Посетители", item.visitors))
+                            .foregroundStyle(by: .value("Платформа", item.platformName))
+                            .interpolationMethod(.catmullRom)
+                    }
+                    .frame(height: 190)
+                } else {
+                    empty("Пока нет данных по платформам.")
+                }
+            }
+            .padding(19)
+            .businessCard(radius: 24)
     }
 
     private var journeys: some View {
@@ -397,6 +486,148 @@ private struct IntelligenceJourneyView: View {
             do { events = try await APIClient.shared.intelligenceJourney(sessionID: sessionId).events }
             catch { self.error = error.localizedDescription }
             loading = false
+        }
+    }
+}
+
+
+// Business-only, server-grounded conversations. No API key is stored in iOS.
+private struct IntelligenceChatView: View {
+    let days: Int
+    @AppStorage("iumrah.intelligence.ai.thread") private var savedThreadID = ""
+    @State private var entries: [IntelligenceChatMessage] = []
+    @State private var draft = ""
+    @State private var sending = false
+    @State private var notice: String?
+
+    private let suggestions = [
+        "Почему мало бронирований?",
+        "На каком этапе пользователи уходят?",
+        "Сравни iOS, Android и сайт",
+        "Какие 3 улучшения UI/UX приоритетнее?"
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 10) {
+                Image(systemName: "sparkles")
+                    .foregroundStyle(Color(red: 0.40, green: 0.21, blue: 0.85))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("iumrah AI Analyst").font(.title3.bold())
+                    Text("Gemini 3.8 Flash · анализ серверных данных")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button {
+                    savedThreadID = ""
+                    entries = []
+                    notice = nil
+                } label: { Image(systemName: "square.and.pencil") }
+                .accessibilityLabel("Новый диалог")
+            }
+            .padding(17)
+            .businessCard(radius: 24)
+
+            if entries.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Спроси о конверсии, маркетинге или дизайне")
+                        .font(.headline)
+                    Text("Ответы опираются на агрегированные метрики iumrah. Агент не может менять код, отправлять сообщения или запускать рекламу.")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                    ForEach(suggestions, id: \.self) { suggestion in
+                        Button { Task { await send(suggestion) } } label: {
+                            HStack(spacing: 10) {
+                                Text(suggestion).multilineTextAlignment(.leading)
+                                Spacer(minLength: 3)
+                                Image(systemName: "arrow.up.right")
+                            }
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(.primary)
+                            .padding(12)
+                            .background(BusinessDesign.secondarySurface, in: RoundedRectangle(cornerRadius: 14))
+                        }
+                        .disabled(sending)
+                    }
+                }
+                .padding(17)
+                .businessCard(radius: 24)
+            }
+            ForEach(entries) { entry in
+                HStack {
+                    if entry.role == "user" { Spacer(minLength: 38) }
+                    VStack(alignment: .leading, spacing: 8) {
+                        if entry.role == "assistant" {
+                            Label("iumrah AI", systemImage: "sparkles")
+                                .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                        }
+                        Text(entry.content).font(.subheadline).textSelection(.enabled)
+                    }
+                    .padding(14)
+                    .background(entry.role == "user" ? Color(red: 0.40, green: 0.21, blue: 0.85).opacity(0.10) : BusinessDesign.secondarySurface,
+                                in: RoundedRectangle(cornerRadius: 18))
+                    if entry.role == "assistant" { Spacer(minLength: 20) }
+                }
+            }
+            if sending {
+                HStack(spacing: 10) {
+                    ProgressView()
+                    Text("Анализирую данные…").font(.subheadline).foregroundStyle(.secondary)
+                }
+                .padding(12)
+            }
+            if let notice {
+                Text(notice).font(.footnote).foregroundStyle(.red)
+            }
+            HStack(alignment: .bottom, spacing: 10) {
+                TextField("Спроси о данных iumrah…", text: $draft, axis: .vertical)
+                    .lineLimit(1...4)
+                    .textInputAutocapitalization(.sentences)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .background(BusinessDesign.secondarySurface, in: RoundedRectangle(cornerRadius: 21))
+                Button { Task { await send(draft) } } label: {
+                    Image(systemName: "arrow.up")
+                        .font(.subheadline.bold())
+                        .foregroundStyle(.white)
+                        .frame(width: 42, height: 42)
+                        .background(Color(red: 0.40, green: 0.21, blue: 0.85), in: Circle())
+                }
+                .disabled(sending || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .accessibilityLabel("Отправить запрос")
+            }
+            .padding(14)
+            .businessCard(radius: 24)
+        }
+        .task { await loadHistory() }
+    }
+
+    private func loadHistory() async {
+        guard !savedThreadID.isEmpty else { return }
+        do {
+            let history = try await APIClient.shared.intelligenceChatHistory(threadID: savedThreadID)
+            entries = history.messages
+            if history.threadId == nil { savedThreadID = "" }
+        } catch { notice = "Не удалось загрузить историю диалога." }
+    }
+
+    private func send(_ raw: String) async {
+        let message = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !sending, !message.isEmpty else { return }
+        sending = true
+        notice = nil
+        draft = ""
+        // Display the user's question, but do not pretend that Gemini has replied yet.
+        let userEntry = IntelligenceChatMessage(id: UUID().uuidString, role: "user", content: message, createdAt: Date().ISO8601Format())
+        entries.append(userEntry)
+        defer { sending = false }
+        do {
+            let answer = try await APIClient.shared.intelligenceChat(message: message, threadID: savedThreadID.isEmpty ? nil : savedThreadID, days: days)
+            savedThreadID = answer.threadId
+            entries.append(IntelligenceChatMessage(id: UUID().uuidString, role: "assistant", content: answer.answer, createdAt: Date().ISO8601Format()))
+        } catch {
+            entries.removeAll(where: { $0.id == userEntry.id })
+            draft = message
+            notice = "Не удалось получить ответ Gemini. Проверьте API, лимит или подключение."
         }
     }
 }

@@ -59,6 +59,8 @@ jobs:
         run: npm run render
       - name: Apply additive intelligence tables (existing D1)
         run: npx wrangler d1 execute HOTELS_DB --remote --file=../HotelsWorker/migrations/0044_business_intelligence.sql --config wrangler.generated.jsonc
+      - name: Apply AI chat tables (existing D1)
+        run: npx wrangler d1 execute HOTELS_DB --remote --file=../HotelsWorker/migrations/0045_intelligence_ai_agent.sql --config wrangler.generated.jsonc
       - name: Build without publishing
         run: npm run dry-run
       - name: Derive existing bot credentials if no explicit Secrets exist
