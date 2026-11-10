@@ -435,7 +435,7 @@ struct FlightHubMonitorView: View {
             error = nil
             lastLoaded = Date()
         } catch {
-            error = error.localizedDescription
+            self.error = error.localizedDescription
             status = nil
             flights = []
             hasMore = false
@@ -452,6 +452,6 @@ struct FlightHubMonitorView: View {
             flights.append(contentsOf: page.flights.filter { !previous.contains($0.flight_key) })
             hasMore = page.has_more ?? false
             nextPage += 1
-        } catch { error = error.localizedDescription }
+        } catch { self.error = error.localizedDescription }
     }
 }
