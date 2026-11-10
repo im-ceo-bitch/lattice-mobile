@@ -173,7 +173,7 @@ extension APIClient {
     }
 
     func intelligenceOverview(days: Int = 7) async throws -> IntelligenceOverview {
-        var components = URLComponents(url: AppConfig.flightHubBaseURL.appending(path: "/api/admin/hotels/intelligence"), resolvingAgainstBaseURL: false)!
+        var components = URLComponents(url: AppConfig.unifiedBackendURL.appending(path: "/api/admin/hotels/intelligence"), resolvingAgainstBaseURL: false)!
         components.queryItems = [URLQueryItem(name: "days", value: String(days))]
         guard let url = components.url else { throw APIError.invalidURL }
         let (data, response) = try await intelligencePerform(URLRequest(url: url))
@@ -182,7 +182,7 @@ extension APIClient {
     }
 
     func intelligenceSessions(days: Int = 7) async throws -> [IntelligenceSession] {
-        var components = URLComponents(url: AppConfig.flightHubBaseURL.appending(path: "/api/admin/hotels/intelligence/sessions"), resolvingAgainstBaseURL: false)!
+        var components = URLComponents(url: AppConfig.unifiedBackendURL.appending(path: "/api/admin/hotels/intelligence/sessions"), resolvingAgainstBaseURL: false)!
         components.queryItems = [URLQueryItem(name: "days", value: String(days))]
         guard let url = components.url else { throw APIError.invalidURL }
         let (data, response) = try await intelligencePerform(URLRequest(url: url))
@@ -191,21 +191,21 @@ extension APIClient {
     }
 
     func intelligenceJourney(sessionID: String) async throws -> IntelligenceJourneyResponse {
-        let url = AppConfig.flightHubBaseURL.appending(path: "/api/admin/hotels/intelligence/sessions/\(sessionID)")
+        let url = AppConfig.unifiedBackendURL.appending(path: "/api/admin/hotels/intelligence/sessions/\(sessionID)")
         let (data, response) = try await intelligencePerform(URLRequest(url: url))
         try validate(response, data: data)
         return try decoder.decode(IntelligenceJourneyResponse.self, from: data)
     }
 
     func intelligenceReports() async throws -> [IntelligenceReport] {
-        let url = AppConfig.flightHubBaseURL.appending(path: "/api/admin/hotels/intelligence/reports")
+        let url = AppConfig.unifiedBackendURL.appending(path: "/api/admin/hotels/intelligence/reports")
         let (data, response) = try await intelligencePerform(URLRequest(url: url))
         try validate(response, data: data)
         return try decoder.decode(IntelligenceReportsResponse.self, from: data).reports
     }
 
     func intelligenceChatHistory(threadID: String) async throws -> IntelligenceChatHistory {
-        var components = URLComponents(url: AppConfig.flightHubBaseURL.appending(path: "/api/admin/hotels/intelligence/chat"), resolvingAgainstBaseURL: false)!
+        var components = URLComponents(url: AppConfig.unifiedBackendURL.appending(path: "/api/admin/hotels/intelligence/chat"), resolvingAgainstBaseURL: false)!
         components.queryItems = [URLQueryItem(name: "threadId", value: threadID)]
         guard let url = components.url else { throw APIError.invalidURL }
         let (data, response) = try await intelligencePerform(URLRequest(url: url))
@@ -214,7 +214,7 @@ extension APIClient {
     }
 
     func intelligenceChat(message: String, threadID: String?, days: Int) async throws -> IntelligenceChatAnswer {
-        var request = URLRequest(url: AppConfig.flightHubBaseURL.appending(path: "/api/admin/hotels/intelligence/chat"))
+        var request = URLRequest(url: AppConfig.unifiedBackendURL.appending(path: "/api/admin/hotels/intelligence/chat"))
         request.httpMethod = "POST"
         request.timeoutInterval = 85
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -227,7 +227,7 @@ extension APIClient {
     }
 
     func generateIntelligenceReport() async throws {
-        var request = URLRequest(url: AppConfig.flightHubBaseURL.appending(path: "/api/admin/hotels/intelligence/reports/generate"))
+        var request = URLRequest(url: AppConfig.unifiedBackendURL.appending(path: "/api/admin/hotels/intelligence/reports/generate"))
         request.httpMethod = "POST"
         request.timeoutInterval = 85
         let (data, response) = try await intelligencePerform(request)
