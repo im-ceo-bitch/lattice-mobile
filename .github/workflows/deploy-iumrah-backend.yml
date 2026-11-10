@@ -1,0 +1,94 @@
+name: Deploy unified iumrah Backend (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Validate bindings or deploy to workers.dev WITHOUT production routes"
+        required: true
+        default: validate
+        type: choice
+        options:
+          - validate
+          - stage
+
+permissions:
+  contents: read
+
+concurrency:
+  group: iumrah-backend-staging
+  cancel-in-progress: false
+
+jobs:
+  backend:
+    name: Unified backend / ${{ inputs.action }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: Backend/IumrahBackend
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.NEW_CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.NEW_CLOUDFLARE_API_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}
+      # D1 UUIDs and R2 bucket are detected automatically from Cloudflare.
+      # Optional variables only if there are multiple or nonstandard existing resources.
+      BOOKINGS_DB_NAME: ${{ vars.IUMRAH_BOOKINGS_DB_NAME }}
+      HOTELS_DB_NAME: ${{ vars.IUMRAH_HOTELS_DB_NAME }}
+      FLIGHTS_DB_NAME: ${{ vars.IUMRAH_FLIGHTS_DB_NAME }}
+      HOTELS_MEDIA_BUCKET: ${{ vars.IUMRAH_HOTELS_MEDIA_BUCKET }}
+      IUMRAH_ENABLE_ROUTE_CUTOVER: '0'
+      IUMRAH_ENABLE_SCHEDULED_JOBS: '0'
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      BOT_INGEST_TOKEN: ${{ secrets.FLIGHT_HUB_BOT_TOKEN }}
+      ADMIN_TOKEN: ${{ secrets.FLIGHT_HUB_ADMIN_TOKEN }}
+      IGNAV_INGEST_TOKEN: ${{ secrets.FLIGHT_HUB_IGNAV_TOKEN }}
+      AERODATABOX_INGEST_TOKEN: ${{ secrets.FLIGHT_HUB_AERODATABOX_TOKEN }}
+      AERODATABOX_RAPIDAPI_KEY: ${{ secrets.AERODATABOX_RAPIDAPI_KEY }}
+      APNS_KEY_ID: ${{ secrets.APNS_KEY_ID }}
+      APNS_PRIVATE_KEY: ${{ secrets.APNS_PRIVATE_KEY }}
+      ESIM_ACCESS_CODE: ${{ secrets.ESIM_ACCESS_CODE }}
+      ESIM_ACCESS_SECRET: ${{ secrets.ESIM_ACCESS_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Install existing hotel module dependencies (Puppeteer bundling)
+        run: npm install --prefix ../HotelsWorker --no-audit --no-fund
+      - name: Test unified API router
+        run: npm run check
+      - name: Discover existing D1 and R2 bindings (READ ONLY, NO EXTRA SECRETS)
+        shell: bash
+        run: node scripts/discover-bindings.mjs >> "$GITHUB_ENV"
+      - name: Validate Cloudflare account and existing bindings (READ ONLY)
+        run: npm run preflight
+      - name: Render unified Worker configuration (NO routes, NO crons)
+        run: npm run render
+      - name: Dry-run build
+        run: npm run dry-run
+      - name: Publish ONE staging Worker (NO production routes)
+        if: inputs.action == 'stage'
+        run: npm run deploy
+      - name: Transfer available secrets to the new Worker
+        if: inputs.action == 'stage'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for key in GEMINI_API_KEY BOT_INGEST_TOKEN ADMIN_TOKEN IGNAV_INGEST_TOKEN \
+            AERODATABOX_INGEST_TOKEN AERODATABOX_RAPIDAPI_KEY APNS_KEY_ID \
+            APNS_PRIVATE_KEY ESIM_ACCESS_CODE ESIM_ACCESS_SECRET; do
+            if [[ -n "${!key:-}" ]]; then
+              printf '%s' "${!key}" | npx wrangler secret put "$key" --config wrangler.generated.jsonc >/dev/null
+              echo "Synced secret: $key"
+            fi
+          done
+          echo 'Secrets never printed. No production domains were modified.'
+      - name: Report endpoint
+        if: inputs.action == 'stage'
+        run: |
+          echo 'iumrah-backend was deployed WITHOUT domain routes and WITHOUT cron schedules.'
+          echo 'In Cloudflare > Workers & Pages > iumrah-backend, find the *.workers.dev URL.'
+          echo 'Verify /__iumrah/health, /api/flight-hub/health and /api/catalog/hotels.'
+          echo 'DO NOT delete or disable iumrah-flight-hub or previous hotel Workers.'
