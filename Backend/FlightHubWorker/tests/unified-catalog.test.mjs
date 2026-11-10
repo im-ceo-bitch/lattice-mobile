@@ -183,3 +183,57 @@ test('Aviasales connecting hint links only when same first segment independently
  assert.equal(catalog.discoveries[0].price_status,'cached_not_confirmed');
  db.raw.close();
 });
+
+test('public source status distinguishes real Ignav API credential from ingestion authorization', async()=>{
+ const db=database(),e=env(db);
+ let result=await fetchJSON(e,'/v1/public/status');
+ const ignavResult=result.sources.find(x=>x.name==='ignav');
+ assert.equal(ignavResult.configured,false,'ingestion token is NOT a live-search key');
+ assert.equal(ignavResult.ingest_configured,true);
+ assert.equal(ignavResult.search_configured,false);
+ assert.equal(ignavResult.issue,'SOURCE_API_KEY_MISSING');
+ e.IGNAV_API_KEY='secret';
+ result=await fetchJSON(e,'/v1/public/status');
+ assert.equal(result.sources.find(x=>x.name==='ignav').issue,'NEVER_REPORTED');
+ assert.equal(result.sources.find(x=>x.name==='aviasales_data').issue,'SOURCE_API_KEY_MISSING');
+ db.raw.close();
+});
+
+test('bot publishes started / fatal lifecycle without manufacturing prices; diagnostics require admin',async()=>{
+ const db=database(),e=env(db);
+ const started=await fetchJSON(e,'/v1/ingest/centrum','POST',{
+   records:[],status:'started',run_id:'ci-123',message:'Browser launching'},'bot');
+ assert.equal(started.ok,true);
+ let s=await fetchJSON(e,'/v1/public/status');
+ let provider=s.sources.find(x=>x.name==='centrum');
+ assert.equal(provider.last_run.status,'started');
+ assert.equal(provider.last_run.message.includes('ci-123'),true);
+ const ended=await fetchJSON(e,'/v1/ingest/centrum','POST',{
+   records:[],status:'failed',run_id:'ci-123',message:'Playwright crashed'},'bot');
+ assert.equal(ended.ok,true);
+ s=await fetchJSON(e,'/v1/public/status');
+ provider=s.sources.find(x=>x.name==='centrum');
+ assert.equal(provider.issue,'BOT_RUN_FAILED');
+ assert.equal(provider.last_run.status,'failed');
+ assert.equal(db.raw.prepare('SELECT COUNT(*) n FROM flight_offers').get().n,0);
+ const denied=await fetchJSON(e,'/v1/admin/flight-diagnostics','GET',undefined,'bot');
+ assert.equal(denied.status,401);
+ const diag=await fetchJSON(e,'/v1/admin/flight-diagnostics','GET',undefined,'admin');
+ assert.equal(diag.monitor_runs.length,2);
+ assert.equal(diag.source_keys_present.IGNAV_API_KEY,false);
+ assert.equal(diag.source_keys_present.BOT_INGEST_TOKEN,true);
+ db.raw.close();
+});
+
+test('live Ignav search reports zero imported fares rather than suggesting confirmed prices',async()=>{
+ const db=database(),e=env(db),day=future();e.IGNAV_API_KEY='provider-key';
+ const req=new Request('https://test/v1/admin/ignav/search',{method:'POST',
+  body:JSON.stringify({origin:'TAS',destination:'JED',departure_date:day})});
+ const response=await searchIgnav(req,e,async()=> 'accepted',{
+  fetcher:async()=>Response.json({...ignav({day}),itineraries:[]})});
+ assert.equal(response.status,200);
+ const s=await fetchJSON(e,'/v1/public/status');
+ assert.equal(s.sources.find(x=>x.name==='ignav').last_run.status,'no_verified_fares');
+ assert.equal(db.raw.prepare('SELECT COUNT(*) n FROM price_history').get().n,0);
+ db.raw.close();
+});

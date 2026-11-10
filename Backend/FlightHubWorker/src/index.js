@@ -98,7 +98,7 @@ async function ingest(request, env, provider, ctx) {
   let payload;
   try { payload = await request.json(); } catch { return json({ok:false,error:'INVALID_JSON'},400); }
   if (!payload || !Array.isArray(payload.records) || payload.records.length > 100 ||
-    (payload.records.length === 0 && !['ok','blocked','failed','site_changed','no_verified_fares','no_tasks'].includes(payload.status))) {
+    (payload.records.length === 0 && !['ok','started','blocked','failed','site_changed','no_verified_fares','no_tasks'].includes(payload.status))) {
     return json({ok:false,error:'INVALID_RECORDS'},400);
   }
   const date = nowISO();
@@ -110,7 +110,7 @@ async function ingest(request, env, provider, ctx) {
       if (outcome === 'accepted') accepted++; else if (outcome === 'unchanged') {accepted++;unchanged++;unchangedKeys.add(normaliseFlight(entry,provider).key);} else if (outcome === 'review') review++; else unmatched++;
     } catch (e) { rejected++; if (errors.length < 5) errors.push(sanitiseError(e)); }
   }
-  const status = ['blocked','failed','site_changed','no_verified_fares','no_tasks'].includes(payload.status) ? payload.status :
+  const status = ['started','blocked','failed','site_changed','no_verified_fares','no_tasks'].includes(payload.status) ? payload.status :
     (rejected || unmatched || review || payload.status === 'partial') ? 'partial' : 'ok';
   if(BOT_PROVIDERS.has(provider)&&Array.isArray(payload.attempts)) {
     for(const attempt of payload.attempts.slice(0,250)) {
@@ -124,7 +124,7 @@ async function ingest(request, env, provider, ctx) {
   }
   await env.FLIGHTS_DB.prepare('INSERT INTO monitor_runs(id,provider,checked_at,status,accepted,unmatched,rejected,message) VALUES(?,?,?,?,?,?,?,?)')
     .bind(uid(),provider,date,status,accepted,unmatched,rejected,
-      preview(`${payload.message || ''} · review=${review} · ${errors.join('; ')}`,280)).run();
+      preview(`${payload.message || ''} · run=${payload.run_id || 'unknown'} · review=${review} · ${errors.join('; ')}`,280)).run();
   if (ctx?.waitUntil && accepted>0) ctx.waitUntil(deliverPendingPriceEvents(env).catch(e=>console.error('price-push',sanitiseError(e))));
   return json({ok:rejected===0,provider,accepted,unchanged,unmatched,rejected,review,errors,status},rejected?207:200);
 }
@@ -184,11 +184,37 @@ async function publicStatus(env) {
     WHERE departure_date BETWEEN date('now','+5 hours') AND date('now','+5 hours','+30 days')
     GROUP BY airline_code`).all();
   const byCode=Object.fromEntries((tracked.results||[]).map(x=>[x.airline_code,x.flights]));
-  const sources = ['ignav','aerodatabox','centrum','uzbekistan','flynas'].map(name => ({
-    name, configured: name === 'ignav' ? Boolean(env.IGNAV_INGEST_TOKEN) : name === 'aerodatabox' ? Boolean(env.AERODATABOX_INGEST_TOKEN) : Boolean(env.BOT_INGEST_TOKEN),
-    tracked_flights: Object.entries(AIRLINES).find(([,v])=>v===name) ? (byCode[Object.keys(AIRLINES).find(k=>AIRLINES[k]===name)]||0) : null,
-    last_run: (last.results || []).find(r=>r.provider===name) || null
-  }));
+  // Report the credentials required for ACTUAL live fetching separately from
+  // import/authentication credentials; do not imply any successful live query.
+  const available={
+    ignav:{ingest:!!env.IGNAV_INGEST_TOKEN,search:!!env.IGNAV_API_KEY},
+    aviasales_data:{ingest:!!env.ADMIN_TOKEN,search:!!env.AVIASALES_DATA_TOKEN},
+    aerodatabox:{ingest:!!env.AERODATABOX_INGEST_TOKEN,search:!!env.AERODATABOX_RAPIDAPI_KEY},
+    centrum:{ingest:!!env.BOT_INGEST_TOKEN},
+    uzbekistan:{ingest:!!env.BOT_INGEST_TOKEN},
+    flynas:{ingest:!!env.BOT_INGEST_TOKEN}
+  };
+  const recentSearches=await env.FLIGHTS_DB.prepare(`SELECT source,status,searched_at,items_count,message
+    FROM flight_source_search_runs WHERE (source, searched_at) IN
+      (SELECT source,MAX(searched_at) FROM flight_source_search_runs GROUP BY source) ORDER BY source`).all();
+  const sources = ['ignav','aviasales_data','aerodatabox','centrum','uzbekistan','flynas'].map(name => {
+    const credentials=available[name];
+    const lastRun=(last.results||[]).find(r=>r.provider===name)||null;
+    const lastSearch=(recentSearches.results||[]).find(r=>r.source===name)||null;
+    const liveSearch=name==='ignav'||name==='aviasales_data'||name==='aerodatabox';
+    const configured=liveSearch ? credentials.search : credentials.ingest;
+    let issue=null;
+    if(!configured)issue=liveSearch?'SOURCE_API_KEY_MISSING':'BOT_INGEST_TOKEN_MISSING';
+    else if(!lastRun&&!lastSearch)issue='NEVER_REPORTED';
+    else if(lastRun?.status==='started' && Date.now()-Date.parse(lastRun.checked_at)>50*60000)issue='RUN_STALLED';
+    else if(lastRun?.status==='no_verified_fares')issue='NO_VERIFIED_FARES';
+    else if(['failed','blocked','site_changed'].includes(lastRun?.status))issue='BOT_RUN_FAILED';
+    else if(lastSearch?.status==='failed'||lastSearch?.status==='throttled')issue='SEARCH_FAILED';
+    return {name,configured,ingest_configured:credentials.ingest,
+      search_configured:liveSearch?credentials.search:null,issue,
+      tracked_flights:Object.entries(AIRLINES).find(([,v])=>v===name) ? (byCode[Object.keys(AIRLINES).find(k=>AIRLINES[k]===name)]||0) : null,
+      last_run:lastRun,last_search:lastSearch};
+  });
   return json({ok:true,service:'iumrah-backend',counts,sources,generated_at:nowISO(),ready:true});
 }
 async function publicFlights(request,env) {
@@ -244,6 +270,25 @@ async function refreshAeroDataBox(request,env) {
     .bind(uid(),'aerodatabox',nowISO(),results.some(x=>x.error)?'partial':'ok',results.filter(x=>x.match).length,0,results.filter(x=>x.error).length,'manual refresh').run();
   return json({ok:true,results});
 }
+async function adminFlightDiagnostics(request,env) {
+  if (!env.ADMIN_TOKEN || !bearer(request,env.ADMIN_TOKEN)) return json({ok:false,error:'UNAUTHORIZED'},401);
+  const recent=await env.FLIGHTS_DB.prepare(`SELECT provider,checked_at,status,accepted,unmatched,rejected,message
+    FROM monitor_runs ORDER BY checked_at DESC LIMIT 35`).all();
+  const searches=await env.FLIGHTS_DB.prepare(`SELECT source,search_key,searched_at,status,items_count,message
+    FROM flight_source_search_runs ORDER BY searched_at DESC LIMIT 35`).all();
+  const attempts=await env.FLIGHTS_DB.prepare(`SELECT provider,flight_key,attempted_at,outcome,message,run_id
+    FROM flight_monitor_attempts ORDER BY attempted_at DESC LIMIT 40`).all();
+  const outbox=await env.FLIGHTS_DB.prepare(`SELECT delivery_state,COUNT(*) AS count
+    FROM flight_price_change_outbox GROUP BY delivery_state`).all();
+  const scheduled={bots:'GitHub Actions deploy-iumrah-backend.yml 03:00/15:00 UTC',
+    ignav:'iumrah-backend Worker cron 01:15 UTC (only when IGNAV_API_KEY is configured)'};
+  return json({ok:true,server_time:nowISO(),source_keys_present:{
+    IGNAV_API_KEY:!!env.IGNAV_API_KEY,IGNAV_INGEST_TOKEN:!!env.IGNAV_INGEST_TOKEN,
+    AVIASALES_DATA_TOKEN:!!env.AVIASALES_DATA_TOKEN,BOT_INGEST_TOKEN:!!env.BOT_INGEST_TOKEN,
+    AERODATABOX_RAPIDAPI_KEY:!!env.AERODATABOX_RAPIDAPI_KEY},
+    scheduled,monitor_runs:recent.results||[],searches:searches.results||[],
+    attempts:attempts.results||[],push_outbox:outbox.results||[]});
+}
 async function adminStats(request,env) {
   if (!env.ADMIN_TOKEN || !bearer(request,env.ADMIN_TOKEN)) return json({ok:false,error:'UNAUTHORIZED'},401);
   const unmatched=await env.FLIGHTS_DB.prepare('SELECT provider,airline_code,flight_number,origin,destination,departure_date,reason,observed_at FROM unmatched_observations ORDER BY observed_at DESC LIMIT 60').all();
@@ -288,6 +333,7 @@ export default {
       else if (path==='/v1/public/price-history' && request.method==='GET') response=await priceHistory(request,env);
       else if (path.startsWith('/v1/public/itineraries/') && request.method==='GET') response=await getItinerary(request,env,decodeURIComponent(path.slice('/v1/public/itineraries/'.length)));
       else if (path==='/v1/admin/unmatched' && request.method==='GET') response=await adminStats(request,env);
+      else if (path==='/v1/admin/flight-diagnostics' && request.method==='GET') response=await adminFlightDiagnostics(request,env);
       else if (path==='/v1/admin/aerodatabox/refresh' && request.method==='POST') response=await refreshAeroDataBox(request,env);
       else if (path==='/v1/monitor/tasks' && request.method==='GET') response=await tasks(request,env);
       else if (path==='/v1/ingest/ignav/response' && request.method==='POST') {

@@ -62,7 +62,16 @@ export async function searchIgnav(request,env,importDirect,{fetcher=fetch}={}){
    results.push({key,status:'ok',...out});
   }catch(error){await logSearch(db,'ignav',key,'failed',0,String(error.message));results.push({key,status:'failed',error:String(error.message).slice(0,100)});}
  }
- return json({ok:results.every(x=>!['failed','throttled'].includes(x.status)),source:'ignav',results});
+ // Source search monitoring is distinct from imported prices. Record even zero results,
+ // rate-limit blocks and failed requests, so Business never silently says 'never ran'.
+ const failed=results.filter(x=>x.status==='failed'||x.status==='throttled').length;
+ const imported=results.reduce((n,x)=>n+Number(x.imported||0),0);
+ const rejected=results.reduce((n,x)=>n+Number(x.rejected||0),0);
+ const state=failed?'partial':results.every(x=>['recently_searched','budget_exhausted'].includes(x.status))?'no_tasks':imported===0?'no_verified_fares':'ok';
+ await db.prepare(`INSERT INTO monitor_runs(id,provider,checked_at,status,accepted,unmatched,rejected,message)
+  VALUES(?,?,?,?,?,?,?,?)`).bind(uid(),'ignav',new Date().toISOString(),state,imported,0,rejected,
+    `queries=${results.length}; imported=${imported}; failed=${failed}; skipped=${results.reduce((n,x)=>n+Number(x.skipped||0),0)}`).run();
+ return json({ok:failed===0,source:'ignav',results});
 }
 export async function searchAviasales(request,env,{fetcher=fetch}={}){
  if(!env.AVIASALES_DATA_TOKEN)return json({ok:false,error:'AVIASALES_DATA_TOKEN_NOT_CONFIGURED',detail:'Use authenticated cache ingestion from the existing Aviasales integration.'},503);
@@ -78,8 +87,16 @@ export async function searchAviasales(request,env,{fetcher=fetch}={}){
   const payload=await response.json();
   const out=await importAviasalesCache(db,payload);
   await logSearch(db,'aviasales_data',key,'ok',out.stored);
+  await db.prepare(`INSERT INTO monitor_runs(id,provider,checked_at,status,accepted,unmatched,rejected,message)
+    VALUES(?,?,?,?,?,?,?,?)`).bind(uid(),'aviasales_data',new Date().toISOString(),'ok',out.stored,0,0,
+    `cache_hints=${out.stored}; linked=${out.linked}`).run();
   return json({ok:true,source:'aviasales_data',...out});
- }catch(error){await logSearch(db,'aviasales_data',key,'failed',0,String(error.message));return json({ok:false,error:'SOURCE_UNAVAILABLE'},502);}
+ }catch(error){
+  await logSearch(db,'aviasales_data',key,'failed',0,String(error.message));
+  await db.prepare(`INSERT INTO monitor_runs(id,provider,checked_at,status,accepted,unmatched,rejected,message)
+    VALUES(?,?,?,?,?,?,?,?)`).bind(uid(),'aviasales_data',new Date().toISOString(),'failed',0,0,1,'SOURCE_UNAVAILABLE').run();
+  return json({ok:false,error:'SOURCE_UNAVAILABLE'},502);
+ }
 }
 
 // Runs in the EXISTING single Worker cron at 01:15 UTC. The provider key is never

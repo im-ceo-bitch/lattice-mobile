@@ -17,12 +17,23 @@ private struct FlightHubStatus: Decodable {
         let accepted: Int
         let unmatched: Int
         let rejected: Int
+        let message: String?
+    }
+    struct Search: Decodable {
+        let status: String
+        let searched_at: String
+        let items_count: Int
+        let message: String?
     }
     struct Source: Decodable, Identifiable {
         let name: String
         let configured: Bool
         let tracked_flights: Int?
         let last_run: Run?
+        let last_search: Search?
+        let issue: String?
+        let ingest_configured: Bool?
+        let search_configured: Bool?
         var id: String { name }
     }
     let ok: Bool
@@ -243,18 +254,24 @@ struct FlightHubMonitorView: View {
                         if let tracked = source.tracked_flights {
                             Text("В каталоге: \(tracked) рейсов").font(.caption2).foregroundStyle(.secondary)
                         }
+                        if let reason = sourceReason(source) {
+                            Text(reason).font(.caption2).foregroundStyle(.orange)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
                     Spacer(minLength: 3)
                     VStack(alignment: .trailing, spacing: 2) {
                         Text(sourceState(source)).font(.caption.weight(.medium))
                         if let run = source.last_run {
-                            Text("\(run.accepted) обновлено · \(run.checked_at.prefix(10))")
+                            Text("\(run.accepted) обновлено · \(run.checked_at.prefix(16).replacingOccurrences(of: "T", with: " "))")
                                 .font(.caption2).foregroundStyle(.secondary)
                         }
                     }
                 }
                 .padding(.vertical, 5)
             }
+            Text("Статусы формируются по отчётам D1. Если бот не запускался, проверьте расписание GitHub Actions и логи запуска, а не только интерфейс.")
+                .font(.caption2).foregroundStyle(.secondary)
             Text("Цены сайтов — наблюдаемые, не гарантированные для оплаты. При оформлении требуется повторная проверка.")
                 .font(.caption2).foregroundStyle(.secondary)
         }
@@ -367,8 +384,31 @@ struct FlightHubMonitorView: View {
         case "centrum": return "Centrum Air"
         case "uzbekistan": return "Uzbekistan Airways"
         case "flynas": return "Flynas"
+        case "aviasales_data": return "Aviasales (кэш)"
         case "legacy_import": return "Импорт"
         default: return key
+        }
+    }
+    private func sourceReason(_ source: FlightHubStatus.Source) -> String? {
+        switch source.issue {
+        case "SOURCE_API_KEY_MISSING":
+            switch source.name {
+            case "ignav": return "Нет IGNAV_API_KEY в iumrah-backend"
+            case "aviasales_data": return "Нет AVIASALES_DATA_TOKEN в iumrah-backend"
+            case "aerodatabox": return "Дополнительный API не настроен (необязателен)"
+            default: return "Нет ключа источника"
+            }
+        case "BOT_INGEST_TOKEN_MISSING": return "Нет BOT_INGEST_TOKEN в Worker"
+        case "NEVER_REPORTED":
+            if ["centrum", "uzbekistan", "flynas"].contains(source.name) {
+                return "Нет отчётов: проверьте GitHub Actions 08:00/20:00"
+            }
+            return "Поиск ещё не выполнялся или нет отчётов"
+        case "RUN_STALLED": return "Запуск не завершён — проверьте логи Actions"
+        case "BOT_RUN_FAILED": return source.last_run?.message ?? "Ошибка последнего запуска"
+        case "SEARCH_FAILED": return source.last_search?.message ?? "Ошибка API-источника"
+        case "NO_VERIFIED_FARES": return "Бот работал, но не подтвердил ни одного тарифа"
+        default: return nil
         }
     }
     private func sourceIcon(_ source: FlightHubStatus.Source) -> String {
@@ -388,7 +428,10 @@ struct FlightHubMonitorView: View {
         switch run.status {
         case "ok": return "Проверено"
         case "partial": return "Частично"
-        case "no_tasks": return "Нет рейсов"
+        case "no_tasks": return "Нет заданий"
+        case "started": return "Запущен"
+        case "failed": return "Ошибка запуска"
+        case "no_verified_fares": return "Нет точной цены"
         case "blocked": return "Блокировка сайта"
         case "site_changed": return "Сайт изменился"
         default: return "Требует проверки"

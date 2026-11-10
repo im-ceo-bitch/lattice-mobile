@@ -1,11 +1,12 @@
 {
-  "version": "2026-11-10-unified-flight-catalog",
+  "version": "2026-11-10-unified-flight-catalog-operational-diagnostics-v2",
+  "cumulative_from": "iumrah-business-update.zip (initial unified catalog overlay)",
   "applies_to": "lattice-mobile-main 3.zip",
-  "changed_files": 25,
+  "changed_files": 27,
   "files": [
     {
       "path": "Backend/AirlineMonitors/monitor/cli.py",
-      "sha256": "29f1711f62a6c33f2dd4ce2797d2aee680c77b4af3e994dd917ac134c3eab91e"
+      "sha256": "196beec8e624d366d4db1161b52776d8ca0885a66247a9f0a1713943fc2de9f2"
     },
     {
       "path": "Backend/FlightHubWorker/migrations/0003_monitor_task_checks.sql",
@@ -29,7 +30,7 @@
     },
     {
       "path": "Backend/FlightHubWorker/src/index.js",
-      "sha256": "94cc92d52cb1403e22ab27111b9807d574cdb07741e207aa5e235d7540d4be82"
+      "sha256": "2496c4c93c5a9e6dd7b8ce927bf357ef72d6f1a5d85a2ff4d7ac07f1d63f3887"
     },
     {
       "path": "Backend/FlightHubWorker/src/itineraries.js",
@@ -41,7 +42,7 @@
     },
     {
       "path": "Backend/FlightHubWorker/src/source-api.js",
-      "sha256": "7ed78ef9d81c0751815e10ecceae26d192b582b205e285d5874aaefe38eec065"
+      "sha256": "66592bbe6af3afdc3b2bb29c1930043f30c739959a11e4edeb81b91578ae760d"
     },
     {
       "path": "Backend/FlightHubWorker/src/source-sync.js",
@@ -57,7 +58,7 @@
     },
     {
       "path": "Backend/FlightHubWorker/tests/unified-catalog.test.mjs",
-      "sha256": "3da0992b3d3297d15848214f3c003c86e6efe084513929814f151edb80dc77aa"
+      "sha256": "c514a98d72d0ec39d2b76aa22679f332e389898b8c319272f99b51757d487345"
     },
     {
       "path": "Backend/HotelsWorker/src/index.js",
@@ -97,18 +98,33 @@
     },
     {
       "path": "Sources/Views/FlightHubMonitorView.swift",
-      "sha256": "63aed3b3670659957f2f3e0e0362ccacf54948949254af2b8f6bf308402741ac"
+      "sha256": "a31a5b59053ebef685a149e8dec128d513611a0f68ebd188d14d7622482fdaa1"
     },
     {
       "path": "Sources/Views/FlightHubPriceHistoryView.swift",
       "sha256": "fa7224c83c2347b556f9da5500a8433e849ed044f3c681b932140f7d3716f405"
+    },
+    {
+      "path": "Backend/IumrahBackend/scripts/diagnose-flights.mjs",
+      "sha256": "844d964b2fc19d7fb5ae345a1f3895f758fd8dd7d7c37b7deceae95b63322eb7"
+    },
+    {
+      "path": "Docs/FLIGHT_RECOVERY_DIAGNOSTICS_20261110.md",
+      "sha256": "5431bb5ea3d41c5d1672f7c6f4a5c3479801bb0b7f6d3d78a38a12a48ef32d16"
     }
   ],
   "production_verified": false,
   "workflow_modified": false,
   "test_results": {
-    "flight_hub": 36,
+    "flight_hub": 39,
     "unified_backend": 27,
-    "airline_python": 5
-  }
+    "airline_python": 5,
+    "swift_syntax_parse": true
+  },
+  "known_blockers": [
+    "Genuine IGNAV_API_KEY required for live Ignav searches",
+    "Live airline sites and GitHub Actions scheduler not tested from sandbox",
+    "AVIASALES_DATA_TOKEN required only for direct Aviasales sync",
+    "APNs push delivery requires production device verification"
+  ]
 }

@@ -45,7 +45,7 @@ def publish(provider,records,attempts,status,message,run_id):
 def task_key(task):
  return '|'.join(str(task[v]).upper() for v in ('airline_code','flight_number','origin','destination','departure_date'))
 
-def main():
+def run_monitor():
  p=argparse.ArgumentParser()
  p.add_argument('--provider',choices=['centrum','uzbekistan','flynas'],required=True)
  p.add_argument('--limit',type=int,default=20,help='page size, not maximum run size')
@@ -60,6 +60,10 @@ def main():
  output=Path(a.output)/a.provider
  output.mkdir(parents=True,exist_ok=True)
  LOG.info('%s: checking entire catalog in pages of %d; run=%s',a.provider,page_size,run_id)
+ # Announce the run before any Playwright/network interaction with the airline.
+ # A browser crash then becomes a visible 'started/stalled' run in D1, rather
+ # than looking identical to a GitHub schedule that never executed.
+ publish(a.provider,[],[],'started','Monitor browser startup; run='+run_id,run_id)
  offers=[];attempts=[];failures=[];blocked=False;processed=0
  # Actions has a 45-minute job limit; allow room for installing deps and publishing.
  deadline=time.monotonic()+30*60
@@ -109,5 +113,30 @@ def main():
     f'{processed} checked; {len(failures)} failed; {len(offers)} exact offers',run_id)
  LOG.info('Hub: %s; total visited=%s',result,processed)
  return 0 if status in ('ok','no_tasks','partial','no_verified_fares') else 2
+
+def main():
+ try:
+  return run_monitor()
+ except Exception as error:
+  # Never silently lose a scheduled run when Playwright, task paging or
+  # publishing fails. Fail the Action, keep a local artifact, attempt a D1
+  # diagnostic (best-effort, because network/auth may be the actual blocker).
+  LOG.exception('AIRLINE_MONITOR_FATAL')
+  name='unknown'
+  if '--provider' in sys.argv:
+   i=sys.argv.index('--provider')
+   if i+1<len(sys.argv): name=sys.argv[i+1]
+  report={'provider':name,'status':'failed','at':datetime.now(timezone.utc).isoformat(),
+   'reason':type(error).__name__,'detail':str(error)[:400]}
+  try:
+   folder=ROOT/'output'/name
+   folder.mkdir(parents=True,exist_ok=True)
+   (folder/'fatal.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
+  except Exception: LOG.exception('FATAL_ARTIFACT_WRITE_FAILED')
+  if name in ('centrum','uzbekistan','flynas'):
+   try:
+    publish(name,[],[],'failed',f"{report['reason']}: {report['detail']}",uuid.uuid4().hex)
+   except Exception: LOG.exception('FATAL_REPORT_DELIVERY_FAILED: inspect GitHub Actions logs')
+  return 2
 
 if __name__=='__main__':sys.exit(main())
