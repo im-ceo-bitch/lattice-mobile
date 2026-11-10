@@ -25,7 +25,13 @@ test('accepts only bounded pseudonymous UUID events', () => {
 test('ingestion writes ONLY whitelisted columns, never arbitrary client properties', async () => {
   const captured = [];
   const env = { HOTELS_DB: {
-    prepare(sql) { return { bind(...args) { captured.push({ sql, args }); return { sql, args }; } }; },
+    prepare(sql) {
+      if (sql.includes('sqlite_master')) {
+        const names = ['intelligence_events','intelligence_reports','intelligence_ai_threads','intelligence_ai_messages','intelligence_ai_usage'];
+        return { async all() { return { results: names.map(name => ({name})) }; } };
+      }
+      return { bind(...args) { captured.push({ sql, args }); return { sql, args }; } };
+    },
     async batch(statements) { assert.equal(statements.length, 1); return []; }
   } };
   const payload = batch();

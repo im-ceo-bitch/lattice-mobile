@@ -75,7 +75,7 @@ struct BusinessAppUnlockView: View {
         }
         .task {
             if appLock.biometricsEnabled && appLock.canUseBiometrics {
-                _ = await appLock.unlockWithBiometrics()
+                _ = await appLock.automaticallyUnlockWithBiometrics()
             }
         }
         .confirmationDialog(

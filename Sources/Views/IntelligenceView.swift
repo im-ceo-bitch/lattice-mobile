@@ -7,6 +7,7 @@ private final class IntelligenceStore: ObservableObject {
     @Published var sessions: [IntelligenceSession] = []
     @Published var reports: [IntelligenceReport] = []
     @Published var days = 7
+    @Published var status: IntelligenceStatusResponse?
     @Published var loading = false
     @Published var generating = false
     @Published var message: String?
@@ -15,20 +16,18 @@ private final class IntelligenceStore: ObservableObject {
         guard !loading else { return }
         loading = true
         defer { loading = false }
-        do {
-            async let overviewTask = APIClient.shared.intelligenceOverview(days: days)
-            async let sessionsTask = APIClient.shared.intelligenceSessions(days: days)
-            async let reportsTask = APIClient.shared.intelligenceReports()
-            let newOverview = try await overviewTask
-            let newSessions = try await sessionsTask
-            let newReports = try await reportsTask
-            overview = newOverview
-            sessions = newSessions
-            reports = newReports
-            message = nil
-        } catch {
-            message = error.localizedDescription
-        }
+        var warnings: [String] = []
+        // Partial success must be visible: a failed AI chat/history endpoint
+        // must not hide working conversion charts.
+        do { overview = try await APIClient.shared.intelligenceOverview(days: days) }
+        catch { warnings.append("Обзор: " + intelligenceFailureDescription(error)) }
+        do { sessions = try await APIClient.shared.intelligenceSessions(days: days) }
+        catch { warnings.append("Сессии: " + intelligenceFailureDescription(error)) }
+        do { reports = try await APIClient.shared.intelligenceReports() }
+        catch { warnings.append("Отчёты AI: " + intelligenceFailureDescription(error)) }
+        do { status = try await APIClient.shared.intelligenceStatus() }
+        catch { status = nil; warnings.append("Диагностика: " + intelligenceFailureDescription(error)) }
+        message = warnings.isEmpty ? nil : warnings.joined(separator: "\n")
     }
 
     func generate() async {
@@ -40,8 +39,34 @@ private final class IntelligenceStore: ObservableObject {
             reports = try await APIClient.shared.intelligenceReports()
             message = nil
         } catch {
-            message = error.localizedDescription
+            message = intelligenceFailureDescription(error)
         }
+    }
+}
+
+// Clear operational errors while never displaying secret values or SQL errors.
+private func intelligenceFailureDescription(_ error: Error) -> String {
+    guard let apiError = error as? APIError else { return error.localizedDescription }
+    switch apiError {
+    case .server(let code):
+        switch code {
+        case "INTELLIGENCE_DATABASE_UNAVAILABLE", "DATABASE_UNAVAILABLE", "INTELLIGENCE_SCHEMA_UNAVAILABLE":
+            return "База аналитики недоступна. Проверьте D1 iumrah-hotels и миграции Backend."
+        case "INTELLIGENCE_BACKEND_FAILURE":
+            return "Внутренняя ошибка аналитики на сервере. Проверьте Workers Observability."
+        case "GEMINI_KEY_MISSING":
+            return "В iumrah-backend отсутствует GEMINI_API_KEY."
+        case "GEMINI_HTTP_400", "GEMINI_HTTP_404":
+            return "Google отклонил запрос модели. Проверьте доступность Gemini 3.8 Flash для этого ключа."
+        case "GEMINI_HTTP_401", "GEMINI_HTTP_403":
+            return "Google отклонил Gemini API Key. Проверьте ограничения ключа в Google AI Studio."
+        case "GEMINI_HTTP_429", "DAILY_AI_LIMIT":
+            return "Достигнут бесплатный лимит Gemini или суточный лимит чата."
+        case "GEMINI_UNAVAILABLE", "GEMINI_EMPTY_RESPONSE", "GEMINI_TOOL_LIMIT":
+            return "Gemini не смог сформировать ответ. Проверьте Workers Observability."
+        default: return apiError.localizedDescription
+        }
+    default: return apiError.localizedDescription
     }
 }
 
@@ -70,7 +95,7 @@ struct IntelligenceView: View {
                 if let message = store.message {
                     HStack(alignment: .top, spacing: 9) {
                         Image(systemName: "exclamationmark.circle")
-                        Text(message)
+                        Text(message).fixedSize(horizontal: false, vertical: true)
                         Spacer(minLength: 0)
                     }
                     .foregroundStyle(.red)
@@ -125,6 +150,15 @@ struct IntelligenceView: View {
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
+            }
+            if let status = store.status {
+                HStack(spacing: 10) {
+                    Label(status.databaseReady ? "D1 подключена" : "D1 недоступна", systemImage: status.databaseReady ? "checkmark.circle" : "exclamationmark.circle")
+                    Label(status.geminiKeyConfigured ? "Ключ Gemini найден" : "Ключ Gemini не найден", systemImage: "key")
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .accessibilityElement(children: .combine)
             }
             Text("Вся статистика поступает с вашего сервера. Пока клиентское приложение не отправляет события, показатели останутся пустыми.")
                 .font(.footnote)
@@ -627,7 +661,7 @@ private struct IntelligenceChatView: View {
         } catch {
             entries.removeAll(where: { $0.id == userEntry.id })
             draft = message
-            notice = "Не удалось получить ответ Gemini. Проверьте API, лимит или подключение."
+            notice = intelligenceFailureDescription(error)
         }
     }
 }

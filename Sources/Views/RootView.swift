@@ -44,8 +44,12 @@ struct RootView: View {
             case .active:
                 appLock.sceneDidBecomeActive(authenticated: auth.state == .signedIn)
                 Task { await auth.expireWeeklySessionIfNeeded() }
-            case .inactive, .background:
+            case .background:
+                // Face ID temporarily moves a scene into .inactive. Only a real
+                // background transition counts towards automatic PIN locking.
                 appLock.sceneDidMoveToBackground()
+            case .inactive:
+                break
             @unknown default: break
             }
         }

@@ -111,12 +111,15 @@ final class BusinessAppLockStore: ObservableObject {
 
     private var sceneInactiveAt: Date?
     private var biometricPromptInProgress = false
+    private var lockCycle: Int = 0
+    private var lastAutomaticBiometricCycle: Int = -1
     private let preferences = UserDefaults.standard
 
     init() {
         let configured = (try? JSONDecoder().decode(BusinessPINRecord.self, from: BusinessLockKeychain.read() ?? Data())) != nil
         hasPIN = configured
         isLocked = configured // Cold launches always require local unlock.
+        lockCycle = configured ? 1 : 0
         biometricsEnabled = configured && UserDefaults.standard.bool(forKey: Keys.biometrics)
         interval = BusinessAppLockInterval(rawValue: UserDefaults.standard.integer(forKey: Keys.interval)) ?? .immediately
         blockedUntil = UserDefaults.standard.object(forKey: Keys.blockedUntil) as? Date
@@ -180,6 +183,7 @@ final class BusinessAppLockStore: ObservableObject {
         blockedUntil = nil
         errorMessage = nil
         sceneInactiveAt = nil
+        lastAutomaticBiometricCycle = -1
     }
 
     private static func digest(pin: String, salt: Data) -> Data {
@@ -208,7 +212,7 @@ final class BusinessAppLockStore: ObservableObject {
             preferences.removeObject(forKey: Keys.blockedUntil)
             blockedUntil = nil
             errorMessage = nil
-            if unlock { isLocked = false }
+            if unlock { completeUnlock() }
             return true
         }
         let failed = preferences.integer(forKey: Keys.failedAttempts) + 1
@@ -255,14 +259,38 @@ final class BusinessAppLockStore: ObservableObject {
     }
 
     func unlockWithBiometrics() async -> Bool {
-        guard hasPIN, isLocked, biometricsEnabled, canUseBiometrics else { return false }
+        guard hasPIN, isLocked, biometricsEnabled, canUseBiometrics,
+              !biometricPromptInProgress else { return false }
         if let blockedUntil, blockedUntil > Date() { return false }
         let result = await evaluateBiometrics(reason: "Разблокировать iumrah Business")
-        if result { isLocked = false; errorMessage = nil }
+        if result { completeUnlock(); errorMessage = nil }
         return result
     }
 
+    // One automatic Face ID prompt per lock cycle. If cancelled or unavailable,
+    // users can unlock with PIN or explicitly tap the Face ID button.
+    func automaticallyUnlockWithBiometrics() async -> Bool {
+        guard isLocked, biometricsEnabled, !biometricPromptInProgress,
+              lastAutomaticBiometricCycle != lockCycle else { return false }
+        lastAutomaticBiometricCycle = lockCycle
+        return await unlockWithBiometrics()
+    }
+
+    private func requireUnlock() {
+        if !isLocked { lockCycle += 1 }
+        isLocked = true
+    }
+
+    private func completeUnlock() {
+        // An old background timestamp must not re-lock the app as soon as
+        // Face ID dismisses and scenePhase becomes active again.
+        isLocked = false
+        sceneInactiveAt = nil
+        preferences.removeObject(forKey: Keys.lastBackground)
+    }
+
     private func evaluateBiometrics(reason: String) async -> Bool {
+        guard !biometricPromptInProgress else { return false }
         let context = LAContext()
         context.localizedFallbackTitle = "Ввести PIN"
         guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil) else { return false }
@@ -285,7 +313,7 @@ final class BusinessAppLockStore: ObservableObject {
     }
 
     func didSignOut() {
-        isLocked = hasPIN
+        if hasPIN { requireUnlock() } else { isLocked = false }
         sceneInactiveAt = nil
     }
 
@@ -293,14 +321,14 @@ final class BusinessAppLockStore: ObservableObject {
         guard hasPIN && !biometricPromptInProgress else { return }
         sceneInactiveAt = Date()
         preferences.set(sceneInactiveAt, forKey: Keys.lastBackground)
-        if interval == .immediately { isLocked = true }
+        if interval == .immediately { requireUnlock() }
     }
 
     func sceneDidBecomeActive(authenticated: Bool) {
         guard authenticated && hasPIN && !biometricPromptInProgress else { return }
         let inactive = sceneInactiveAt ?? (preferences.object(forKey: Keys.lastBackground) as? Date)
         if let inactive, Date().timeIntervalSince(inactive) >= TimeInterval(interval.rawValue) {
-            isLocked = true
+            requireUnlock()
         }
         sceneInactiveAt = nil
     }

@@ -67,6 +67,13 @@ export default {
 
       return json({ ok: false, error: 'NOT_FOUND' }, 404);
     } catch (error) {
+      const requestPath = new URL(request.url).pathname;
+      if (requestPath.startsWith('/api/admin/hotels/intelligence')) {
+        const requestId = crypto.randomUUID();
+        // Admin diagnostic correlation only; never expose SQL or private data to clients.
+        console.error('INTELLIGENCE_UNHANDLED', requestId, String(error?.message || 'unknown').slice(0,250));
+        return json({ ok: false, error: 'INTELLIGENCE_BACKEND_FAILURE', requestId }, 503);
+      }
       console.error('HOTELS_API_UNHANDLED', error);
       return json({ ok: false, error: 'INTERNAL_ERROR' }, 500);
     }

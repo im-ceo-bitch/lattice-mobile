@@ -141,10 +141,12 @@ export async function intelligenceChat(request,env,url){
   try{ result=await askGemini(env,question,(rows.results||[]).reverse(),days); }
   catch(e){
     const err=String(e?.message||'');
-    const code=err==='GEMINI_KEY_MISSING'?503:err==='GEMINI_HTTP_429'?429:502;
-    const safe=/^GEMINI_HTTP_\d{3}$/.test(err)||err==='GEMINI_KEY_MISSING'?err:'GEMINI_UNAVAILABLE';
+    const status=err==='GEMINI_KEY_MISSING'?503:err==='GEMINI_HTTP_429'?429:502;
+    const safe=/^GEMINI_HTTP_\d{3}$/.test(err)||
+      ['GEMINI_KEY_MISSING','GEMINI_EMPTY_RESPONSE','GEMINI_TOOL_LIMIT'].includes(err)?err:'GEMINI_UNAVAILABLE';
+    // Only a safe status code; never print the user prompt, API key or Gemini response.
     console.error('INTELLIGENCE_CHAT_FAILED',safe);
-    return json({ok:false,error:safe},code);
+    return json({ok:false,error:safe},status);
   }
   const now=new Date().toISOString();
   if(!existing)await env.HOTELS_DB.prepare('INSERT INTO intelligence_ai_threads(id,title,created_at,updated_at) VALUES(?,?,?,?)')

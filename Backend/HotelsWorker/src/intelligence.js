@@ -1,4 +1,5 @@
 import { intelligenceChat } from './intelligence-agent.js';
+import { ensureIntelligenceSchema } from './intelligence-schema.js';
 // iumrah Intelligence — privacy-constrained event collection and Gemini analysis.
 // This module deliberately does not ingest freeform event properties, text, IDs of
 // bookings, device identifiers, passport fields, search queries or chat content.
@@ -66,6 +67,7 @@ export async function intelligenceIngest(request, env) {
   if (!env.HOTELS_DB) return respond({ ok: false, error: 'DATABASE_UNAVAILABLE' }, 503);
   const now = new Date().toISOString();
   try {
+    await ensureIntelligenceSchema(env.HOTELS_DB);
     const statements = batch.events.map(event => env.HOTELS_DB.prepare(`
       INSERT OR IGNORE INTO intelligence_events
       (event_id, visitor_id, session_id, event_name, screen, element_id, platform, app_version, occurred_at, duration_ms, created_at)
@@ -171,6 +173,19 @@ export async function intelligenceAdmin(request, env, url, user) {
     return respond({ ok: false, error: 'FORBIDDEN' }, 403);
   }
   const parts = url.pathname.replace(/^\/api\/admin\/hotels\/intelligence\/?/, '').split('/').filter(Boolean);
+  if (!env.HOTELS_DB) return respond({ok:false,error:'INTELLIGENCE_DATABASE_UNAVAILABLE'},503);
+  try { await ensureIntelligenceSchema(env.HOTELS_DB); }
+  catch (error) {
+    console.error('INTELLIGENCE_SCHEMA_FAILED', String(error?.message || 'unknown').slice(0,150));
+    return respond({ok:false,error:'INTELLIGENCE_SCHEMA_UNAVAILABLE'},503);
+  }
+  if (parts.length === 1 && parts[0] === 'status' && request.method === 'GET') {
+    const events = await env.HOTELS_DB.prepare('SELECT COUNT(*) AS total FROM intelligence_events').first();
+    const chats = await env.HOTELS_DB.prepare('SELECT COUNT(*) AS total FROM intelligence_ai_threads').first();
+    return respond({ok:true,service:'iumrah-intelligence', databaseReady:true,
+      geminiKeyConfigured:typeof env.GEMINI_API_KEY === 'string' && env.GEMINI_API_KEY.trim().length > 0,
+      model:'gemini-3.8-flash',totalEvents:count(events?.total),chatThreads:count(chats?.total)});
+  }
   if (!parts.length && request.method === 'GET') {
     return respond({ ok: true, overview: await intelligenceOverview(env, daysParam(url)) });
   }
@@ -198,6 +213,12 @@ function summarizeForGemini(overview, previous) {
 }
 
 export async function runIntelligenceReport(env, { manual = false, now = new Date() } = {}) {
+  if (!env.HOTELS_DB) return {ok:false,code:'INTELLIGENCE_DATABASE_UNAVAILABLE'};
+  try { await ensureIntelligenceSchema(env.HOTELS_DB); }
+  catch (error) {
+    console.error('INTELLIGENCE_REPORT_SCHEMA_FAILED', String(error?.message || 'unknown').slice(0,150));
+    return {ok:false,code:'INTELLIGENCE_SCHEMA_UNAVAILABLE'};
+  }
   const cadence = Number(env.INTELLIGENCE_REPORT_CADENCE_DAYS || 1) === 2 ? 2 : 1;
   const key = manual ? `manual_${crypto.randomUUID()}` : `scheduled_${now.toISOString().slice(0, 10)}`;
   if (!manual) {

@@ -2,6 +2,14 @@ import Foundation
 
 // Aggregate analytics only. All Business endpoints reuse the existing staff cookie
 // and X-Iumrah-Business-Session header from APIClient.perform.
+struct IntelligenceStatusResponse: Decodable {
+    let ok: Bool
+    let databaseReady: Bool
+    let geminiKeyConfigured: Bool
+    let model: String
+    let totalEvents: Int
+}
+
 struct IntelligenceOverviewResponse: Decodable {
     let ok: Bool
     let overview: IntelligenceOverview
@@ -147,6 +155,13 @@ struct IntelligenceRecommendation: Decodable, Identifiable {
 }
 
 extension APIClient {
+    func intelligenceStatus() async throws -> IntelligenceStatusResponse {
+        let url = AppConfig.unifiedBackendURL.appending(path: "/api/admin/hotels/intelligence/status")
+        let (data, response) = try await intelligencePerform(URLRequest(url: url))
+        try validate(response, data: data)
+        return try decoder.decode(IntelligenceStatusResponse.self, from: data)
+    }
+
     // The unified Worker runs on workers.dev while the staff login cookie is
     // issued by iumrah.app. Forward only first-party authentication cookies
     // and the registered Business device-session token to our own Worker.
