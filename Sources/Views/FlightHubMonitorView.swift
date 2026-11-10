@@ -72,8 +72,6 @@ private struct FlightHubCatalog: Decodable {
 }
 
 struct FlightHubMonitorView: View {
-    @AppStorage("iumrah.business.flightHubPublicURL") private var flightHubPublicURL = ""
-    @State private var showConnectionSettings = false
     @State private var status: FlightHubStatus?
     @State private var flights: [FlightHubCatalog.Flight] = []
     @State private var loading = false
@@ -87,14 +85,8 @@ struct FlightHubMonitorView: View {
     @State private var hasMore = false
     @State private var totalFlights = 0
 
-    private var activeHubURL: URL {
-        let raw = flightHubPublicURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let url = URL(string: raw), url.scheme?.lowercased() == "https", url.host != nil,
-           url.user == nil, url.password == nil, url.query == nil, url.fragment == nil {
-            return url
-        }
-        return AppConfig.flightHubBaseURL
-    }
+    // One backend endpoint; legacy saved Flight Hub URLs are never used.
+    private var activeHubURL: URL { AppConfig.flightHubBaseURL }
 
     private let pageSize = 50
     private let airlineOptions = ["ALL", "C6", "HY", "XY"]
@@ -127,38 +119,13 @@ struct FlightHubMonitorView: View {
                 .disabled(loading || loadingMore)
             }
 
-            DisclosureGroup(isExpanded: $showConnectionSettings) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Публичный HTTPS-адрес Flight Hub из Cloudflare Workers. Не вставляйте токены и пароли.")
-                        .font(.caption).foregroundStyle(.secondary)
-                    TextField("https://iumrah-flight-hub.…workers.dev", text: $flightHubPublicURL)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .font(.caption)
-                        .padding(10)
-                        .background(BusinessDesign.secondarySurface, in: RoundedRectangle(cornerRadius: 10))
-                    HStack {
-                        Button("Проверить подключение") { Task { await reload() } }
-                            .buttonStyle(.bordered)
-                        Spacer()
-                        Button("Сбросить") {
-                            flightHubPublicURL = ""
-                            Task { await reload() }
-                        }.font(.caption).foregroundStyle(.secondary)
-                    }
-                }.padding(.top, 8)
-            } label: {
-                Label("Подключение авиационной D1", systemImage: "server.rack")
-                    .font(.caption.weight(.medium))
-            }
-
             if let error {
                 HStack(alignment: .top, spacing: 10) {
                     Image(systemName: "wifi.exclamationmark").foregroundStyle(.orange)
                     VStack(alignment: .leading, spacing: 5) {
                         Text("Авиабаза недоступна").font(.subheadline.weight(.semibold))
                         Text(error).font(.caption).foregroundStyle(.secondary)
-                        Text("Проверьте адрес Flight Hub и развёртывание новой Cloudflare D1.")
+                        Text("Проверьте подключение к единому iumrah Backend.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }

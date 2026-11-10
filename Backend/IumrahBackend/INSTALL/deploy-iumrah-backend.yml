@@ -1,0 +1,130 @@
+name: Deploy iumrah backend
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 3,15 * * *' # Existing airline monitors: 08:00 / 20:00 Asia/Tashkent
+
+permissions:
+  contents: read
+
+concurrency:
+  group: iumrah-backend-${{ github.event_name }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.event_name == 'workflow_dispatch'
+    name: Deploy iumrah backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: Backend/IumrahBackend
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.NEW_CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.NEW_CLOUDFLARE_API_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}
+      HOTELS_DB_NAME: iumrah-hotels
+      BOOKINGS_DB_NAME: iumrah-core
+      FLIGHTS_DB_NAME: iumrah-flights
+      # One Worker, both flight cleanup and Gemini; never hijack unrelated iumrah.app API routes.
+      IUMRAH_ENABLE_ROUTE_CUTOVER: '0'
+      IUMRAH_ENABLE_SCHEDULED_JOBS: '1'
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      BOT_INGEST_TOKEN: ${{ secrets.FLIGHT_HUB_BOT_TOKEN }}
+      ADMIN_TOKEN: ${{ secrets.FLIGHT_HUB_ADMIN_TOKEN }}
+      IGNAV_INGEST_TOKEN: ${{ secrets.FLIGHT_HUB_IGNAV_TOKEN }}
+      AERODATABOX_INGEST_TOKEN: ${{ secrets.FLIGHT_HUB_AERODATABOX_TOKEN }}
+      AERODATABOX_RAPIDAPI_KEY: ${{ secrets.AERODATABOX_RAPIDAPI_KEY }}
+      APNS_KEY_ID: ${{ secrets.APNS_KEY_ID }}
+      APNS_PRIVATE_KEY: ${{ secrets.APNS_PRIVATE_KEY }}
+      ESIM_ACCESS_CODE: ${{ secrets.ESIM_ACCESS_CODE }}
+      ESIM_ACCESS_SECRET: ${{ secrets.ESIM_ACCESS_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Install hotel dependencies
+        run: npm install --prefix ../HotelsWorker --no-audit --no-fund
+      - name: Test unified backend
+        run: npm run check
+      - name: Discover existing D1 and R2
+        run: node scripts/discover-bindings.mjs >> "$GITHUB_ENV"
+      - name: Verify existing resources
+        run: npm run preflight
+      - name: Generate one Worker config
+        run: npm run render
+      - name: Apply additive intelligence tables (existing D1)
+        run: npx wrangler d1 execute HOTELS_DB --remote --file=../HotelsWorker/migrations/0044_business_intelligence.sql --config wrangler.generated.jsonc
+      - name: Build without publishing
+        run: npm run dry-run
+      - name: Derive existing bot credentials if no explicit Secrets exist
+        run: node ../FlightHubWorker/scripts/write-ci-service-keys.mjs
+      - name: Deploy unified iumrah-backend
+        run: npm run deploy
+      - name: Sync existing secrets to the ONE Worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          for key in GEMINI_API_KEY BOT_INGEST_TOKEN ADMIN_TOKEN IGNAV_INGEST_TOKEN \
+            AERODATABOX_INGEST_TOKEN AERODATABOX_RAPIDAPI_KEY APNS_KEY_ID \
+            APNS_PRIVATE_KEY ESIM_ACCESS_CODE ESIM_ACCESS_SECRET; do
+            if [[ -n "${!key:-}" ]]; then
+              printf '%s' "${!key}" | npx wrangler secret put "$key" --config wrangler.generated.jsonc >/dev/null
+              echo "Configured key: $key"
+            fi
+          done
+      - name: Verify published backend and real flight catalog
+        run: node scripts/check-deployed.mjs
+      - name: Result
+        run: |
+          echo 'One active deployment target: iumrah-backend'
+          echo 'Flights, hotels and Gemini run in the same Worker (D1 databases remain separate).'
+          echo 'Legacy iumrah-flight-hub is NOT deleted: retire only after every client and bot uses this endpoint.'
+
+  flight-monitors:
+    if: github.event_name == 'schedule'
+    name: Update existing airline prices
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        provider: [centrum, uzbekistan, flynas]
+    defaults:
+      run:
+        working-directory: Backend/AirlineMonitors
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Resolve unified backend and existing bot key
+        working-directory: Backend/FlightHubWorker
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.NEW_CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.NEW_CLOUDFLARE_API_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}
+          FLIGHT_HUB_BOT_TOKEN: ${{ secrets.FLIGHT_HUB_BOT_TOKEN }}
+          FLIGHT_HUB_ADMIN_TOKEN: ${{ secrets.FLIGHT_HUB_ADMIN_TOKEN }}
+        run: |
+          node scripts/write-ci-service-keys.mjs
+          node scripts/find-worker-url.mjs
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install browser runtime
+        run: |
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+      - name: Monitor fares in unified backend
+        run: python -m monitor.cli --provider '${{ matrix.provider }}' --limit 20
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: airline-${{ matrix.provider }}-${{ github.run_number }}
+          path: Backend/AirlineMonitors/output/${{ matrix.provider }}/
+          retention-days: 7
+          if-no-files-found: ignore

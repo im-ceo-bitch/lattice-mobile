@@ -149,7 +149,7 @@ async function publicStatus(env) {
     tracked_flights: Object.entries(AIRLINES).find(([,v])=>v===name) ? (byCode[Object.keys(AIRLINES).find(k=>AIRLINES[k]===name)]||0) : null,
     last_run: (last.results || []).find(r=>r.provider===name) || null
   }));
-  return json({ok:true,service:'iumrah-flight-hub',counts,sources,generated_at:nowISO(),ready:true});
+  return json({ok:true,service:'iumrah-backend',counts,sources,generated_at:nowISO(),ready:true});
 }
 async function publicFlights(request,env) {
   const u=new URL(request.url);
@@ -237,7 +237,7 @@ export default {
     }
     const u=new URL(request.url),path=u.pathname.replace(/^\/api\/flight-hub(?=\/)/,'').replace(/\/+$/,'');
     // Health does not imply a configured D1; /v1/public/status does.
-    if (path==='/health' && request.method==='GET') return addCORS(request,json({ok:true,service:'iumrah-flight-hub',version:2,database_connected:!!env.FLIGHTS_DB}));
+    if (path==='/health' && request.method==='GET') return addCORS(request,json({ok:true,service:'iumrah-backend',version:2,database_connected:!!env.FLIGHTS_DB}));
     if (!env.FLIGHTS_DB) return addCORS(request,json({ok:false,error:'FLIGHTS_DB_BINDING_MISSING'},503));
     try {
       let response;

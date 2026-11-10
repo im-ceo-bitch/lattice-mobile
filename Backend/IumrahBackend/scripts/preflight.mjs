@@ -49,13 +49,15 @@ async function check(env = process.env, fetcher = fetch) {
   } else {
     results.push('WARNING HOTELS_MEDIA: R2 is not connected; media endpoints will be unavailable');
   }
-  if (cfg.routes.length || cfg.triggers.crons.length) throw Error('ONE_CLICK_DEPLOY_MUST_NOT_CHANGE_PRODUCTION_ROUTES_OR_CRONS');
+  if (cfg.routes.length) throw Error('ONE_CLICK_DEPLOY_MUST_NOT_CHANGE_PRODUCTION_ROUTES');
+  const allowedCrons = ['15 1 * * *', '0 3 * * *'];
+  if (cfg.triggers.crons.some(cron => !allowedCrons.includes(cron))) throw Error('UNEXPECTED_CRON');
   return results;
 }
 export {check};
 if (process.argv[1] && path.resolve(process.argv[1])===fileURLToPath(import.meta.url)) {
   try {
     for (const result of await check()) console.log(result);
-    console.log('PREFLIGHT COMPLETE: staging only; no production traffic changed.');
+    console.log('PREFLIGHT COMPLETE: no production HTTP routes changed; configured cron schedules allowed.');
   } catch (error) { console.error('PREFLIGHT_BLOCKED:', error.message); process.exitCode=1; }
 }

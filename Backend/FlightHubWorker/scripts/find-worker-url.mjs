@@ -12,6 +12,6 @@ const subdomain = payload?.result?.subdomain;
 if (!payload?.success || typeof subdomain !== 'string' || !/^[a-z0-9-]{1,63}$/.test(subdomain)) {
  throw new Error('WORKERS_DEV_SUBDOMAIN_NOT_CONFIGURED: enable workers.dev subdomain in new Cloudflare account');
 }
-const url=`https://iumrah-flight-hub.${subdomain}.workers.dev`;
+const url=`https://iumrah-backend.${subdomain}.workers.dev`;
 if (process.env.GITHUB_ENV) fs.appendFileSync(process.env.GITHUB_ENV,`FLIGHT_HUB_URL=${url}\n`);
-console.log(`Flight Hub public endpoint: ${url}`);
+console.log(`iumrah backend public endpoint: ${url}`);

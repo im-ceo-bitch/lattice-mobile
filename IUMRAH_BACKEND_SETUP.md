@@ -1,3 +1,5 @@
+**АКТУАЛЬНОЕ РУКОВОДСТВО: `IUMRAH_BACKEND_CONSOLIDATION.md`**
+
 # iumrah Backend — один Worker и один деплой
 
 Cloudflare Worker: `iumrah-backend`. Репозиторий остаётся прежним — iumrah Business.

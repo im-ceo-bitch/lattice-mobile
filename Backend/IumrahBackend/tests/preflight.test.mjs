@@ -32,3 +32,8 @@ test('missing D1 blocks publishing and no replacement database is created',async
 test('D1 name mismatch blocks publishing',async()=>{
  await assert.rejects(check({...env,BOOKINGS_DB_NAME:'other'},fakeFetch),/not named/);
 });
+
+test('allows only known schedules for a single unified Worker',async()=>{
+ const result=await check({...env, IUMRAH_ENABLE_SCHEDULED_JOBS:'1'}, fakeFetch);
+ assert.ok(result.some(x=>x.includes('HOTELS_DB: confirmed')));
+});
