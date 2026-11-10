@@ -16,6 +16,7 @@ enum BusinessWorkspaceSection: String, Identifiable, CaseIterable, Hashable {
     case flights
     case intelligence
     case profile
+    case security
     case sessions
     case employees
     case archive
@@ -34,6 +35,7 @@ enum BusinessWorkspaceSection: String, Identifiable, CaseIterable, Hashable {
         case .flights: return "Авиабилеты"
         case .intelligence: return "Аналитика"
         case .profile: return "Мой профиль"
+        case .security: return "Безопасность"
         case .sessions: return "Устройства и сеансы"
         case .employees: return "Сотрудники"
         case .archive: return "Архив клиентов"
@@ -52,6 +54,7 @@ enum BusinessWorkspaceSection: String, Identifiable, CaseIterable, Hashable {
         case .flights: return "airplane"
         case .intelligence: return "chart.xyaxis.line"
         case .profile: return "person.crop.circle"
+        case .security: return "lock.shield.fill"
         case .sessions: return "lock.shield"
         case .employees: return "person.2"
         case .archive: return "archivebox"
@@ -67,7 +70,7 @@ enum BusinessWorkspaceSection: String, Identifiable, CaseIterable, Hashable {
     ]
 
     static let administration: [BusinessWorkspaceSection] = [
-        .intelligence, .profile, .sessions, .employees, .archive, .payments, .ziyarats, .notifications
+        .intelligence, .profile, .security, .sessions, .employees, .archive, .payments, .ziyarats, .notifications
     ]
 }
 
@@ -196,6 +199,7 @@ private struct BusinessWorkspaceView: View {
         case .flights: FlightCurationView(tabMode: true)
         case .intelligence: IntelligenceView()
         case .profile: ProfileView()
+        case .security: BusinessSecuritySettingsView()
         case .sessions: BusinessSessionsView()
         case .employees: EmployeesView()
         case .archive: ClientArchiveView()

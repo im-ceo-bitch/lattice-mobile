@@ -129,6 +129,17 @@ struct LoginView: View {
                 .background(BusinessDesign.primaryControl, in: Capsule())
             }
             .disabled(login.isEmpty || password.isEmpty || working)
+            if BusinessStaffAuthPersistence.hasSavedLogin && !working {
+                Button("Повторить проверку сохранённого сеанса") {
+                    working = true
+                    Task {
+                        await auth.restore()
+                        working = false
+                    }
+                }
+                .font(.subheadline.weight(.medium))
+                .padding(.top, 8)
+            }
         }
         .padding(18)
         .businessCard(radius: 30)

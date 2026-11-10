@@ -45,6 +45,7 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: "iumrah Business"
         INFOPLIST_KEY_CFBundleIconName: "AppIcon"
+        INFOPLIST_KEY_NSFaceIDUsageDescription: "Разблокировка iumrah Business с помощью Face ID вместо PIN-кода."
         INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
         INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
         INFOPLIST_KEY_UILaunchScreen_Generation: YES

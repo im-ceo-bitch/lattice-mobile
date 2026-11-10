@@ -29,6 +29,12 @@ struct ProfileView: View {
                 ToolbarItem(placement: .topBarLeading) { Button("Закрыть") { dismiss() } }
             }
             ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink { BusinessSecuritySettingsView() } label: {
+                    Image(systemName: "lock.shield.fill")
+                }
+                .accessibilityLabel("Безопасность приложения")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
                 Button(saving ? "Сохраняю…" : "Сохранить") { Task { await save() } }
                     .fontWeight(.semibold)
                     .disabled(member == nil || saving)
