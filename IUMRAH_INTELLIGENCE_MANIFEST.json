@@ -1,0 +1,14 @@
+{
+  "name": "iumrah Intelligence v1",
+  "date": "2026-11-10",
+  "type": "business-zip-root-patch",
+  "features": [
+    "server-side anonymous behavioral event ingestion",
+    "D1 session/funnel/retention schema",
+    "superadmin analytics API",
+    "Gemini automatic daily/alternate-day product insights",
+    "iumrah Business SwiftUI analytics screen",
+    "tests and deployment instructions"
+  ],
+  "deployment_notice": "Applying the ZIP alone does not deploy the Cloudflare Worker nor run D1 migrations. It also does not instrument the separate iOS client app."
+}

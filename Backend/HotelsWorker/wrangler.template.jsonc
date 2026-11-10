@@ -4,6 +4,7 @@
   "main": "src/index.js",
   "compatibility_date": "2026-08-23",
   "workers_dev": true,
+  "triggers": { "crons": ["0 3 * * *"] },
   "routes": [
     {
       "pattern": "iumrah.app/api/admin/ziyarats*",
@@ -66,6 +67,7 @@
   "vars": {
     "APPLE_TEAM_ID": "HVT4U96286",
     "IGNAV_MONTHLY_REQUEST_BUDGET": "6000",
+    "INTELLIGENCE_REPORT_CADENCE_DAYS": "1",
     "AUTH_SESSION_URL": "https://iumrah.app/api/auth/staff/session",
     "BOOKINGS_ADMIN_URL": "https://iumrah.app/api/admin/bookings",
     "BOOKINGS_PUBLIC_URL": "https://iumrah.app/api/bookings"

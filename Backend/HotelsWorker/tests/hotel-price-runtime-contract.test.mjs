@@ -10,7 +10,11 @@ test('Hotels Worker exposes manual hotel price refresh route', () => {
 });
 
 test('Hotels Worker no longer runs automatic Cloudflare price maintenance', () => {
-  assert.doesNotMatch(worker, /async scheduled\(controller,\s*env,\s*ctx\)/);
+  // Intelligence has its own Cron; hotel-price browser maintenance stays manual.
+  assert.match(worker, /async scheduled\(controller,\s*env,\s*ctx\)/);
+  assert.match(worker, /ctx\.waitUntil\(runIntelligenceReport\(env\)/);
+  const handler = worker.slice(worker.indexOf('async scheduled('), worker.indexOf('\n};', worker.indexOf('async scheduled(')));
+  assert.doesNotMatch(handler, /runHotelPriceMaintenance|refreshHotelPrice/);
   assert.match(worker, /saveBusinessHotelSyncSnapshot/);
 });
 
@@ -94,7 +98,11 @@ test('successful source refresh removes the manual hotel price override only aft
 
 
 test('legacy maintenance code is not wired to a scheduled runtime trigger', () => {
-  assert.doesNotMatch(worker, /async scheduled\(controller,\s*env,\s*ctx\)/);
+  // Intelligence has its own Cron; hotel-price browser maintenance stays manual.
+  assert.match(worker, /async scheduled\(controller,\s*env,\s*ctx\)/);
+  assert.match(worker, /ctx\.waitUntil\(runIntelligenceReport\(env\)/);
+  const handler = worker.slice(worker.indexOf('async scheduled('), worker.indexOf('\n};', worker.indexOf('async scheduled(')));
+  assert.doesNotMatch(handler, /runHotelPriceMaintenance|refreshHotelPrice/);
   assert.match(worker, /async function runHotelPriceMaintenance/);
 });
 

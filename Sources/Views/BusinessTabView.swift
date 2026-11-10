@@ -14,6 +14,7 @@ enum BusinessWorkspaceSection: String, Identifiable, CaseIterable, Hashable {
     case bookings
     case chats
     case flights
+    case intelligence
     case profile
     case sessions
     case employees
@@ -31,6 +32,7 @@ enum BusinessWorkspaceSection: String, Identifiable, CaseIterable, Hashable {
         case .bookings: return "Бронирования"
         case .chats: return "Чаты"
         case .flights: return "Авиабилеты"
+        case .intelligence: return "Аналитика"
         case .profile: return "Мой профиль"
         case .sessions: return "Устройства и сеансы"
         case .employees: return "Сотрудники"
@@ -48,6 +50,7 @@ enum BusinessWorkspaceSection: String, Identifiable, CaseIterable, Hashable {
         case .bookings: return "suitcase.rolling.fill"
         case .chats: return "message.fill"
         case .flights: return "airplane"
+        case .intelligence: return "chart.xyaxis.line"
         case .profile: return "person.crop.circle"
         case .sessions: return "lock.shield"
         case .employees: return "person.2"
@@ -64,7 +67,7 @@ enum BusinessWorkspaceSection: String, Identifiable, CaseIterable, Hashable {
     ]
 
     static let administration: [BusinessWorkspaceSection] = [
-        .profile, .sessions, .employees, .archive, .payments, .ziyarats, .notifications
+        .intelligence, .profile, .sessions, .employees, .archive, .payments, .ziyarats, .notifications
     ]
 }
 
@@ -130,7 +133,7 @@ private struct BusinessWorkspaceView: View {
                 }
 
                 Section("Управление") {
-                    ForEach(BusinessWorkspaceSection.administration) { section in
+                    ForEach(BusinessWorkspaceSection.administration.filter { $0 != .intelligence || auth.user?.role.lowercased() == "superadmin" }) { section in
                         workspaceRow(section)
                     }
                     if auth.user?.role.lowercased() == "superadmin" {
@@ -191,6 +194,7 @@ private struct BusinessWorkspaceView: View {
         case .bookings: BookingsView()
         case .chats: ChatsView()
         case .flights: FlightCurationView(tabMode: true)
+        case .intelligence: IntelligenceView()
         case .profile: ProfileView()
         case .sessions: BusinessSessionsView()
         case .employees: EmployeesView()

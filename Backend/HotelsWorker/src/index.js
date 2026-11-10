@@ -1,4 +1,5 @@
 import { obtainHotelPrice, propertyKey, safePropertyKey } from './hotel-price-source.js';
+import { intelligenceAdmin, intelligenceIngest, runIntelligenceReport } from './intelligence.js';
 import { WorkflowEntrypoint } from 'cloudflare:workers';
 import { handleZiyaratAdmin, handleZiyaratCatalog } from './ziyarats.js';
 import { HOTEL_PRICE_TTL_MS, HOTEL_PRICE_RETRY_MS, normalizeImportedHotelPriceSnapshot, hotelPriceMoveNeedsConfirmation, hotelPriceCandidatesMatch, extractHotelPriceFromHTML, quoteContextFromProbeURL } from './hotel-price.js';
@@ -41,6 +42,10 @@ export default {
         return withCors(await handleZiyaratCatalog(request, env, url), request);
       }
 
+      if (url.pathname === '/api/catalog/hotels/intelligence/events') {
+        return withCors(await intelligenceIngest(request, env), request);
+      }
+
       if (url.pathname.startsWith('/api/admin/hotels')) {
         const registrationPath = url.pathname.replace(/\/+$/, '') === '/api/admin/hotels/security/sessions/register'
           && request.method === 'POST';
@@ -67,12 +72,20 @@ export default {
     }
   },
 
-  // Hotel price monitoring is intentionally user-driven through Hotel ChatGPT
-  // Sync. There is no scheduled Browser/Workflow price updater.
+  // Cron is dedicated to iumrah Intelligence. Price monitoring remains manual.
+  async scheduled(controller, env, ctx) {
+    ctx.waitUntil(runIntelligenceReport(env).catch(error => {
+      console.error('INTELLIGENCE_CRON_FAILED', String(error?.message || error));
+    }));
+  }
 };
 
 async function handleAdmin(request, env, url, user, businessSession = null) {
   const parts = pathParts(url.pathname, '/api/admin/hotels');
+
+  if (parts[0] === 'intelligence') {
+    return intelligenceAdmin(request, env, url, user);
+  }
 
   if (parts.length === 0) {
     if (request.method === 'GET') {
