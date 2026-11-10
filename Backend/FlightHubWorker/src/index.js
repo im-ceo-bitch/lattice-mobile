@@ -1,5 +1,6 @@
 import { AIRLINES, BOT_PROVIDERS, normaliseFlight, normaliseOffer, allowCreateFlight, needsPrice, publicOfferIsFresh, sanitiseError, eligibleFlightDay, isPriceAnomaly } from './core.js';
 import { fetchAeroCandidate } from './aerodatabox.js';
+import { listItineraries, getItinerary } from './itineraries.js';
 
 const json = (body, code = 200) => new Response(JSON.stringify(body), { status: code, headers: {
   'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
@@ -116,15 +117,31 @@ async function tasks(request, env) {
   const code = Object.keys(AIRLINES).find(k => AIRLINES[k]===provider);
   if (!code) return json({ok:false,error:'INVALID_AIRLINE'},400);
   const limit = Math.min(40,Math.max(1,Number.parseInt(url.searchParams.get('limit') || '20',10) || 20));
-  const sql = `SELECT f.airline_code,f.flight_number,f.origin,f.destination,f.departure_date,
-        MAX(o.checked_at) AS last_price_check
-      FROM flights f LEFT JOIN flight_offers o ON o.flight_id=f.id AND o.provider=?
+  // Fair round-robin dispatch: no-fare flights must not monopolize the first
+  // N tasks forever. Requests are authenticated and mark dispatches only,
+  // never invent a price or change the master flight inventory.
+  const sql = `SELECT f.id AS internal_id,f.airline_code,f.flight_number,f.origin,f.destination,f.departure_date,
+        MAX(o.checked_at) AS last_price_check,
+        m.last_requested_at AS last_task_check
+      FROM flights f
+      LEFT JOIN flight_offers o ON o.flight_id=f.id AND o.provider=?
+      LEFT JOIN monitor_task_checks m ON m.flight_id=f.id AND m.provider=?
       WHERE f.airline_code=? AND f.departure_date >= date('now','+5 hours') AND f.departure_date <= date('now','+5 hours','+30 days')
       AND ((f.origin IN ('TAS','FEG','NMA','AZN','SKD','BHK','KSQ','TMJ','UGC') AND f.destination IN ('JED','MED','TIF'))
        OR (f.destination IN ('TAS','FEG','NMA','AZN','SKD','BHK','KSQ','TMJ','UGC') AND f.origin IN ('JED','MED','TIF')))
-      GROUP BY f.id ORDER BY CASE WHEN last_price_check IS NULL THEN 0 ELSE 1 END,last_price_check ASC,f.departure_date ASC LIMIT ?`;
-  const result = await env.FLIGHTS_DB.prepare(sql).bind(provider,code,limit).all();
-  return json({ok:true,provider,tasks:result.results || [],count:(result.results || []).length});
+      GROUP BY f.id
+      ORDER BY COALESCE(m.last_requested_at,'') ASC,COALESCE(last_price_check,'') ASC,f.departure_date ASC
+      LIMIT ?`;
+  const result = await env.FLIGHTS_DB.prepare(sql).bind(provider,provider,code,limit).all();
+  const selected=result.results || [];
+  const dispatchedAt=nowISO();
+  for (const flight of selected) {
+    await env.FLIGHTS_DB.prepare(`INSERT INTO monitor_task_checks(provider,flight_id,last_requested_at)
+      VALUES(?,?,?) ON CONFLICT(provider,flight_id) DO UPDATE SET last_requested_at=excluded.last_requested_at`)
+      .bind(provider,flight.internal_id,dispatchedAt).run();
+  }
+  const records=selected.map(({internal_id,last_task_check,...record})=>record);
+  return json({ok:true,provider,tasks:records,count:records.length});
 }
 async function publicStatus(env) {
   const counts = await env.FLIGHTS_DB.prepare(`SELECT
@@ -243,6 +260,8 @@ export default {
       let response;
       if (path==='/v1/public/status' && request.method==='GET') response=await publicStatus(env);
       else if (path==='/v1/public/flights' && request.method==='GET') response=await publicFlights(request,env);
+      else if (path==='/v1/public/itineraries' && request.method==='GET') response=await listItineraries(request,env);
+      else if (path.startsWith('/v1/public/itineraries/') && request.method==='GET') response=await getItinerary(request,env,decodeURIComponent(path.slice('/v1/public/itineraries/'.length)));
       else if (path==='/v1/admin/unmatched' && request.method==='GET') response=await adminStats(request,env);
       else if (path==='/v1/admin/aerodatabox/refresh' && request.method==='POST') response=await refreshAeroDataBox(request,env);
       else if (path==='/v1/monitor/tasks' && request.method==='GET') response=await tasks(request,env);
