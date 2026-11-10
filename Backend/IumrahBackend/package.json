@@ -9,7 +9,7 @@
     "render": "node scripts/render-config.mjs",
     "preflight": "node scripts/preflight.mjs",
     "discover": "node scripts/discover-bindings.mjs",
-    "deploy": "wrangler d1 execute FLIGHTS_DB --remote --file=../FlightHubWorker/migrations/0003_monitor_dispatch.sql --config wrangler.generated.jsonc && wrangler d1 execute FLIGHTS_DB --remote --file=../FlightHubWorker/migrations/0004_itinerary_catalog.sql --config wrangler.generated.jsonc && wrangler deploy --config wrangler.generated.jsonc",
+    "deploy": "wrangler deploy --config wrangler.generated.jsonc",
     "dry-run": "wrangler deploy --dry-run --config wrangler.generated.jsonc"
   },
   "dependencies": {
