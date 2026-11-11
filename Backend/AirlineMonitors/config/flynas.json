@@ -1,1 +1,37 @@
-{"provider":"flynas","airline_code":"XY","booking_url":"https://www.flynas.com/en/book-flight","locale":"en-US","min_pause_seconds":12,"selectors":{"origin_input":["input[placeholder*='Origin']","input[placeholder*='From']","button:has-text('Origin')"],"destination_input":["input[placeholder*='Destination']","input[placeholder*='To']","button:has-text('Destination')"],"departure_input":["input[type='date']","input[aria-label*='Departure']","button[aria-label*='Departure']"],"search_button":["button:has-text('SEARCH FLIGHTS')","button:has-text('Search Flights')"],"flight_cards":["[data-testid*='flight']","[class*='flight-card']","[class*='flightCard']","[class*='FlightCard']","[class*='flight-result']"]}}
+{
+  "provider": "flynas",
+  "airline_code": "XY",
+  "booking_url": "https://www.flynas.com/en/flights",
+  "locale": "en-US",
+  "min_pause_seconds": 12,
+  "selectors": {
+    "origin_input": [
+      "button:has-text(\"Origin\")",
+      "button[aria-label*=\"Origin\"]",
+      "input[placeholder*=\"Origin\"]",
+      "input[placeholder*=\"From\"]"
+    ],
+    "destination_input": [
+      "button:has-text(\"Destination\")",
+      "button[aria-label*=\"Destination\"]",
+      "input[placeholder*=\"Destination\"]",
+      "input[placeholder*=\"To\"]"
+    ],
+    "departure_input": [
+      "button[aria-label*=\"Departure\"]",
+      "input[aria-label*=\"Departure\"]",
+      "input[type=\"date\"]"
+    ],
+    "search_button": [
+      "button:has-text('SEARCH FLIGHTS')",
+      "button:has-text('Search Flights')"
+    ],
+    "flight_cards": [
+      "[data-testid*='flight']",
+      "[class*='flight-card']",
+      "[class*='flightCard']",
+      "[class*='FlightCard']",
+      "[class*='flight-result']"
+    ]
+  }
+}

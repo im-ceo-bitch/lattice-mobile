@@ -9,6 +9,7 @@ import sys
 import time
 import uuid
 from datetime import datetime, timezone
+from collections import Counter
 from pathlib import Path
 import requests
 from playwright.sync_api import sync_playwright
@@ -64,7 +65,8 @@ def run_monitor():
  # A browser crash then becomes a visible 'started/stalled' run in D1, rather
  # than looking identical to a GitHub schedule that never executed.
  publish(a.provider,[],[],'started','Monitor browser startup; run='+run_id,run_id)
- offers=[];attempts=[];failures=[];blocked=False;processed=0
+ offers=[];attempts=[];failures=[];blocked=False;calibration_required=False;processed=0
+ consecutive_stage=None;consecutive_count=0
  # Actions has a 45-minute job limit; allow room for installing deps and publishing.
  deadline=time.monotonic()+30*60
  with sync_playwright() as p:
@@ -80,9 +82,11 @@ def run_monitor():
     try:
      found=search_one(page,settings,task,output/'diagnostics')
      offers.extend(found)
+     consecutive_stage=None;consecutive_count=0
      attempts.append({'flight_key':key,'outcome':'verified','message':f'{len(found)} exact site fares'})
      LOG.info('Verified %s: %d exact offer(s)',key,len(found))
     except NoFareAvailable as e:
+     consecutive_stage=None;consecutive_count=0
      attempts.append({'flight_key':key,'outcome':'no_fares','message':str(e)[:150]})
      LOG.info('No visible fare at official site for %s',key)
     except AccessBlocked as e:
@@ -93,24 +97,39 @@ def run_monitor():
      outcome='site_changed' if isinstance(e,SiteChanged) else 'failed'
      attempts.append({'flight_key':key,'outcome':outcome,'message':str(e)[:150]})
      failures.append({'flight':task,'error':str(e)});save_diagnostic(page,output/'diagnostics',task,e)
+     if isinstance(e,SiteChanged):
+      stage=str(e).split(':',1)[0]
+      consecutive_count=consecutive_count+1 if stage==consecutive_stage else 1
+      consecutive_stage=stage
+      if consecutive_count>=3:
+       calibration_required=True
+       LOG.error('Circuit breaker: %d consecutive browser failures at %s; stop this provider run', consecutive_count,stage)
     processed+=1
-    if blocked or time.monotonic()>=deadline:break
+    if blocked or calibration_required or time.monotonic()>=deadline:break
     if processed<a.max_tasks:time.sleep(max(8,settings.get('min_pause_seconds',12)))
-   if blocked:break
+   if blocked or calibration_required:break
   context.close();browser.close()
  status=('no_tasks' if processed==0 else 'blocked' if blocked else 'partial' if failures and offers else
   'site_changed' if failures else 'ok' if offers else 'no_verified_fares')
+ reason_counts=Counter(str(item['error']).split(':',1)[0] for item in failures)
+ first_problem=next((str(item['error']) for item in failures), '')
  report={'provider':a.provider,'checked_at':datetime.now(timezone.utc).isoformat(),'run_id':run_id,
-  'status':status,'tasks':processed,'offers':offers,'attempts':attempts,'failures':failures}
+  'status':status,'tasks':processed,'offers':offers,'attempts':attempts,'failures':failures,
+  'failure_stages':dict(reason_counts),'first_problem':first_problem[:250],
+  'calibration_required':calibration_required}
  (output/'latest.json').write_text(json.dumps(report,indent=2,ensure_ascii=False),encoding='utf-8')
  # Each API ingestion accepts <=100 fares. All attempted tasks receive diagnostic records.
  if not offers and not attempts:
   result=publish(a.provider,[],[],status,'No published tasks',run_id)
  else:
   result={}
+  # Put the first real browser failure into D1, not just the uploaded artifact.
+  # Business can then distinguish airport/date/calendar/results/matching errors.
+  summary=(f'{processed} checked; {len(failures)} failed; {len(offers)} exact fares; '
+           f'{"STOPPED_EARLY; " if calibration_required else ""}first={first_problem[:115]}' if failures else
+           f'{processed} checked; {len(offers)} exact fares; no failures')
   for i in range(0,max(len(offers),len(attempts)),100):
-   result=publish(a.provider,offers[i:i+100],attempts[i:i+100],status,
-    f'{processed} checked; {len(failures)} failed; {len(offers)} exact offers',run_id)
+   result=publish(a.provider,offers[i:i+100],attempts[i:i+100],status,summary,run_id)
  LOG.info('Hub: %s; total visited=%s',result,processed)
  return 0 if status in ('ok','no_tasks','partial','no_verified_fares') else 2
 

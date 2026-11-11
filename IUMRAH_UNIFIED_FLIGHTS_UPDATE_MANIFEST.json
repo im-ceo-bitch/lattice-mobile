@@ -1,12 +1,24 @@
 {
-  "version": "2026-11-10-unified-flight-catalog-operational-diagnostics-v2",
-  "cumulative_from": "iumrah-business-update.zip (initial unified catalog overlay)",
-  "applies_to": "lattice-mobile-main 3.zip",
-  "changed_files": 27,
+  "version": "2026-11-11-airline-monitor-browser-recovery-v3",
+  "cumulative_from": "2026-11-10-unified-flight-catalog-operational-diagnostics-v2",
+  "applies_to": "lattice-mobile-main 3.zip (overlay)",
+  "changed_files": 31,
   "files": [
     {
+      "path": "Backend/AirlineMonitors/config/flynas.json",
+      "sha256": "d46ea7be73ba21a91ef824f959883f7c15d4e00fc96cc109e5e45254a81c3f4a"
+    },
+    {
+      "path": "Backend/AirlineMonitors/monitor/browser.py",
+      "sha256": "80e59a3a966912070e8d9475db4153e5fccfd6c2df48447e24ea49ead9abec1f"
+    },
+    {
       "path": "Backend/AirlineMonitors/monitor/cli.py",
-      "sha256": "196beec8e624d366d4db1161b52776d8ca0885a66247a9f0a1713943fc2de9f2"
+      "sha256": "d25a19c236ebf0c7803f283819dc21c2fee2e2e310c728aa69877fbcdd1aedb0"
+    },
+    {
+      "path": "Backend/AirlineMonitors/tests/test_browser.py",
+      "sha256": "c0def8053deff4b632b799a931c3934501063e04f74439abdd7b192e944d3dc3"
     },
     {
       "path": "Backend/FlightHubWorker/migrations/0003_monitor_task_checks.sql",
@@ -73,8 +85,20 @@
       "sha256": "7ef8730d087009b1a08c8f218ce7e46e8b6b06218dee02a646adbc09e1a2cce0"
     },
     {
+      "path": "Backend/IumrahBackend/scripts/diagnose-flights.mjs",
+      "sha256": "844d964b2fc19d7fb5ae345a1f3895f758fd8dd7d7c37b7deceae95b63322eb7"
+    },
+    {
       "path": "Backend/IumrahBackend/tests/deploy-regression.test.mjs",
       "sha256": "ef71f24958eccc3dec13036b83bfd441fd06851f14b24113b678aa5f4d2db775"
+    },
+    {
+      "path": "Docs/FLIGHT_BOT_RECOVERY_20261111.md",
+      "sha256": "5772c4156a850bca697a06124fccbd72a10dd17096aefd3657f1b092188740d1"
+    },
+    {
+      "path": "Docs/FLIGHT_RECOVERY_DIAGNOSTICS_20261110.md",
+      "sha256": "5431bb5ea3d41c5d1672f7c6f4a5c3479801bb0b7f6d3d78a38a12a48ef32d16"
     },
     {
       "path": "Docs/FLIGHT_UNIFIED_CATALOG_20261110.md",
@@ -98,19 +122,11 @@
     },
     {
       "path": "Sources/Views/FlightHubMonitorView.swift",
-      "sha256": "a31a5b59053ebef685a149e8dec128d513611a0f68ebd188d14d7622482fdaa1"
+      "sha256": "88dd93f17f7ae0701b5891f3619ed463e3ec46543d7926ed2745b2a00bd48803"
     },
     {
       "path": "Sources/Views/FlightHubPriceHistoryView.swift",
       "sha256": "fa7224c83c2347b556f9da5500a8433e849ed044f3c681b932140f7d3716f405"
-    },
-    {
-      "path": "Backend/IumrahBackend/scripts/diagnose-flights.mjs",
-      "sha256": "844d964b2fc19d7fb5ae345a1f3895f758fd8dd7d7c37b7deceae95b63322eb7"
-    },
-    {
-      "path": "Docs/FLIGHT_RECOVERY_DIAGNOSTICS_20261110.md",
-      "sha256": "5431bb5ea3d41c5d1672f7c6f4a5c3479801bb0b7f6d3d78a38a12a48ef32d16"
     }
   ],
   "production_verified": false,
@@ -118,13 +134,12 @@
   "test_results": {
     "flight_hub": 39,
     "unified_backend": 27,
-    "airline_python": 5,
+    "airline_python": 10,
     "swift_syntax_parse": true
   },
   "known_blockers": [
-    "Genuine IGNAV_API_KEY required for live Ignav searches",
-    "Live airline sites and GitHub Actions scheduler not tested from sandbox",
-    "AVIASALES_DATA_TOKEN required only for direct Aviasales sync",
-    "APNs push delivery requires production device verification"
+    "Live airline booking DOM and actual GitHub Actions logs unavailable for verification",
+    "No actual provider fare confirmed yet",
+    "Ignav and Aviasales provider API keys missing per Business screenshot"
   ]
 }

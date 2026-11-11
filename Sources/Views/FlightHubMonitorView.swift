@@ -433,7 +433,7 @@ struct FlightHubMonitorView: View {
         case "failed": return "Ошибка запуска"
         case "no_verified_fares": return "Нет точной цены"
         case "blocked": return "Блокировка сайта"
-        case "site_changed": return "Сайт изменился"
+        case "site_changed": return "Сбой поиска"
         default: return "Требует проверки"
         }
     }
