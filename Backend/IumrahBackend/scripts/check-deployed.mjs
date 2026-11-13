@@ -36,6 +36,10 @@ export async function verifyDeployed(env=process.env, fetcher=fetch, activation=
   const services=await getJSON(origin+'/api/services/health');
   if(services.service!=='iumrah-public-services'||services.release!=='v21-rc'||services.advisorLanguages<9||services.audioLanguages<9)throw Error('PUBLIC_SERVICES_NOT_READY');
   let cutover=await getJSON(origin+'/__iumrah/cutover');
+  // Report all provider gaps even if the independent Core activation fails.
+  // Never print values or silently mark missing integrations as ready.
+  const providerGaps=Object.entries(cutover.providers||{}).filter(([,ready])=>ready!==true).map(([name])=>name);
+  if(providerGaps.length)console.log('Provider configuration gaps (independent of Core activation): '+providerGaps.join(', '));
   const flightHealth=await getJSON(origin+'/health');
   if(!flightHealth.database_connected) throw Error('FLIGHTS_DB_NOT_CONNECTED');
   const status=await getJSON(origin+'/v1/public/status');
@@ -47,7 +51,7 @@ export async function verifyDeployed(env=process.env, fetcher=fetch, activation=
     const report=await inspectCleanLaunch(env,fetcher,activation.config);
     const latest=await getJSON(origin+'/__iumrah/cutover');
     if(!eligiblePending(latest))throw Error('CLEAN_LAUNCH_PENDING_STATE_CHANGED');
-    console.log(`Clean launch: ${report.checkedTables} customer/misplaced tables checked; R2 private; no legacy parity claimed.`);
+    console.log(`Clean launch: ${report.checkedTables} customer/misplaced tables checked; ${report.preservedGuestDevices} existing guest notification devices preserved; R2 private; no legacy parity claimed.`);
     await activation.set(report.attestation,env);
     for(let i=0;i<15;i++){
       cutover=await getJSON(origin+'/__iumrah/cutover');health=await getJSON(origin+'/__iumrah/health');

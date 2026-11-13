@@ -14,6 +14,20 @@ const ident=x=>{if(!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(x))throw Error('INVALID_TABL
 // already exist. A nonempty customer table requires reconciliation, not deletion.
 const sensitive=name=>/^(iumrah_(?!public)|pilgrims$|pilgrim_trips$|bookings$|booking_(?!number_sequence$)|business_chat_(threads|messages|attachments)$|chat_(threads|messages)$|client_(push_subscriptions|notification_devices|system_notification_reads)$|trip_(flights|assignments)$|telegram_booking_consents$|operation_notification_receipts$|package_quote_audits$|pending_package_pricing_reports$|esim_access_inventory$|client_system_notifications$)/.test(name);
 const allowedByBinding={HOTELS_DB:new Set([...snapshot.HOTELS_DB.tables.map(t=>t.name),...policy['iumrah-hotels'].allow]),BOOKINGS_DB:new Set([...snapshot.BOOKINGS_DB.tables.map(t=>t.name),...policy['iumrah-web-db'].allow])};
+// This is an installation registry, not an account table. The public client
+// registers without a session; has_trip is a client-supplied hint, not a
+// booking relation. Legacy imports use a legacy: prefix and must be reviewed.
+// Keep all rows unchanged. Never exempt authenticated/linked/malformed rows,
+// or a registry in another D1. The other customer tables are still checked.
+const guestDeviceTable='client_notification_devices';
+const reviewDeviceSQL=`SELECT COUNT(*) AS n FROM "client_notification_devices" WHERE NOT (
+  is_authenticated IS 0 AND pilgrim_id IS NULL
+  AND has_trip IS NOT NULL AND has_trip IN (0,1)
+  AND installation_id IS NOT NULL AND length(installation_id) BETWEEN 16 AND 128
+  AND installation_id NOT GLOB '*[^A-Za-z0-9._:-]*'
+  AND lower(installation_id) NOT LIKE 'legacy:%'
+  AND app_bundle_id IS 'com.iumrah.app'
+)`;
 const gateNames=new Set(['IUMRAH_CORE_CUTOVER_READY','IUMRAH_CORE_PARITY_ATTESTATION','IUMRAH_CORE_CLEAN_ATTESTATION']);
 export function eligiblePending(cut){return cut?.service==='iumrah-backend'&&cut.cleanLaunchSupported===true&&cut.schemaReady===true&&cut.coreHandlersInstalled===true&&cut.coreCutoverEnabled===false&&cut.securityConfigurationReady===true&&Array.isArray(cut.missing)&&cut.missing.length>0&&cut.missing.every(k=>gateNames.has(k));}
 export function cleanLaunchPolicy(config){return config?.mode==='new-account-no-legacy-source'&&config?.operatorConfirmedSourceUnavailable===true&&config?.worker==='iumrah-backend'&&config?.subdomain==='helloiumrah'&&config?.databases?.HOTELS_DB==='iumrah-hotels'&&config?.databases?.BOOKINGS_DB==='iumrah-core'&&config?.databases?.FLIGHTS_DB==='iumrah-flights'&&config?.buckets?.HOTELS_MEDIA==='iumrah-hotels-media'&&config?.buckets?.PASSPORTS==='iumrah-passports';}
@@ -54,7 +68,7 @@ export async function inspectCleanLaunch(env,fetcher,config){
   buckets[name]=bucket;
  }
  if(new Set(Object.values(buckets)).size!==2)throw Error('CLEAN_LAUNCH_R2_NOT_DISTINCT');
- const counts={};const issues=[];
+ const counts={};const issues=[];let preservedGuestDevices=0;
  for(const [name,id] of Object.entries(dbs)){
   const endpoint='/d1/database/'+id+'/query';
   // Use the same simple catalog query as the successful deployment preflight.
@@ -95,13 +109,20 @@ export async function inspectCleanLaunch(env,fetcher,config){
   for(let i=0;i<relevant.length;i++){
    const t=relevant[i],result=countResults[i];
    if(result.length!==1||!Number.isSafeInteger(result[0].n)||result[0].n<0)throw Error('CLEAN_LAUNCH_INVALID_COUNT:'+name+'.'+t);
-   counts[name][t]=result[0].n;if(result[0].n>0)issues.push(`${name}.${t}=${result[0].n}`);
+   counts[name][t]=result[0].n;
+   if(t===guestDeviceTable&&name==='HOTELS_DB'&&result[0].n>0){
+    // Only the count of rows needing review is fetched; never export tokens/IDs.
+    const review=await single({stage:'review.'+t,sql:reviewDeviceSQL});
+    if(review.length!==1||!Number.isSafeInteger(review[0].n)||review[0].n<0||review[0].n>result[0].n)throw Error('CLEAN_LAUNCH_INVALID_DEVICE_REVIEW:'+name);
+    preservedGuestDevices=result[0].n-review[0].n;
+    if(review[0].n>0)issues.push(`${name}.${t}.linked_or_legacy=${review[0].n}`);
+   }else if(result[0].n>0)issues.push(`${name}.${t}=${result[0].n}`);
   }
  }
  if(issues.length)throw Error('CLEAN_LAUNCH_EXISTING_DATA_REVIEW_REQUIRED:'+issues.join(','));
  // Verify bindings a second time before the one-time activation.
  const after=await settings();for(const [name,id] of Object.entries(dbs))if(binding(after,name,'d1','id')!==id)throw Error('CLEAN_LAUNCH_BINDINGS_CHANGED');for(const [name,bucket] of Object.entries(buckets))if(binding(after,name,'r2_bucket','bucket_name')!==bucket)throw Error('CLEAN_LAUNCH_BINDINGS_CHANGED');
- return {attestation:'v22-clean:'+resourceFingerprint(env.CLOUDFLARE_ACCOUNT_ID,dbs,buckets),checkedTables:Object.values(counts).reduce((n,x)=>n+Object.keys(x).length,0)};
+ return {attestation:'v22-clean:'+resourceFingerprint(env.CLOUDFLARE_ACCOUNT_ID,dbs,buckets),checkedTables:Object.values(counts).reduce((n,x)=>n+Object.keys(x).length,0),preservedGuestDevices};
 }
 export function setCleanSecrets(attestation,env){
  if(!/^v22-clean:[a-f0-9]{64}$/.test(attestation))throw Error('INVALID_CLEAN_ATTESTATION');
