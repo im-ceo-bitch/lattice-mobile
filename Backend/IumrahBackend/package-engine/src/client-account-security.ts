@@ -3160,6 +3160,21 @@ export async function handleClientAccountSecurity(request: Request, env: Env, ur
   if (!env.HOTELS_DB) return json({ ok: false, error: "HOTELS_DB_NOT_CONFIGURED" }, 503);
   const db = env.HOTELS_DB;
   try {
+    // Compatibility with the existing account session store. Never create a new
+    // identity or issue a new token during a session read; both public paths use
+    // HOTELS_DB. The unified router retains the Core cutover guard.
+    if (url.pathname === "/api/package/client/account/session") {
+      if (request.method !== "GET") return json({ ok: false, error: "METHOD_NOT_ALLOWED" }, 405);
+      const auth = await requireAccount(request, db);
+      return json({ ok: true, account: accountProfile(auth.pilgrim) });
+    }
+    if (url.pathname === "/api/package/client/account/logout") {
+      if (request.method !== "POST") return json({ ok: false, error: "METHOD_NOT_ALLOWED" }, 405);
+      const auth = await requireAccount(request, db);
+      await db.prepare("UPDATE iumrah_account_sessions SET revoked_at=?1 WHERE token_hash=?2 AND pilgrim_id=?3")
+        .bind(new Date().toISOString(), auth.tokenHash, auth.pilgrimID).run();
+      return json({ ok: true });
+    }
     if (request.method === "POST" && url.pathname === "/api/package/client/account/activate") {
       return await activateWithBookingPassword(request, env, db);
     }
