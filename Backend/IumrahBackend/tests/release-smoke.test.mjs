@@ -24,6 +24,6 @@ function fixture(){let device,logout=0;const fake=async(url,opts)=>{assert.equal
  else if(p==='/api/auth/staff/session'){assert.equal(opts.headers.cookie,'staff=test');data={authenticated:true};}
  else if(p==='/api/admin/bookings')data={bookings:[]};
  else throw Error('UNEXPECTED_ROUTE');return Response.json(data);};return {fake,logout:()=>logout};}
-test('production smoke uses valid device credentials and revokes test session',async()=>{const f=fixture();const r=await releaseSmoke(env,f.fake);assert.ok(r.done.includes('Apple Wallet'));assert.ok(r.done.includes('migrated booking'));assert.equal(f.logout(),2);assert.equal(r.releaseReady,false);});
+test('production smoke uses valid device credentials and revokes test session',async()=>{const f=fixture();const r=await releaseSmoke(env,f.fake);assert.ok(r.done.includes('Apple Wallet'));assert.ok(r.done.includes('existing test booking'));assert.equal(f.logout(),2);assert.equal(r.releaseReady,false);});
 test('public-only checks do not authenticate or declare production ready',async()=>{const f=fixture();const r=await releaseSmoke({},f.fake,true);assert.equal(f.logout(),0);assert.equal(r.publicOnly,true);assert.equal(r.releaseReady,false);});
 test('missing provider data blocks activation smoke before credentials used',async()=>{const f=fixture();await assert.rejects(releaseSmoke(env,(url,opts)=>url.includes('/api/services/fx')?Response.json([]):f.fake(url,opts)),/FX_DATA/);assert.equal(f.logout(),0);});

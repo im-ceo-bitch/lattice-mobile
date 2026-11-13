@@ -3,6 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {resourceFingerprint} from './resource-fingerprint.mjs';
 
 const uuid = value => /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i.test(value || '');
 const truthy = value => value === '1' || value === 'true';
@@ -53,6 +54,7 @@ export function buildConfig(env = process.env) {
     images:{binding:'IMAGES'},
     workflows:[{name:'iumrah-backend-hotel-import',binding:'HOTEL_IMPORT_WORKFLOW',class_name:'HotelImportWorkflow'}],
     vars:{
+      IUMRAH_CORE_RESOURCE_FINGERPRINT:resourceFingerprint(env.CLOUDFLARE_ACCOUNT_ID,Object.fromEntries(dbs.map(([binding,key])=>[binding,env[key]])),{HOTELS_MEDIA:bucket,PASSPORTS:passports}),
       APPLE_TEAM_ID:env.APPLE_TEAM_ID || 'HVT4U96286',
       APPLE_BUNDLE_ID:'com.iumrah.app',
       GOOGLE_SERVER_CLIENT_ID:'863185716777-8tec2kuch1qkra1f1coikpi20j6is65f.apps.googleusercontent.com',

@@ -11,8 +11,15 @@ const required = {
 };
 const bindings=['HOTELS_DB','BOOKINGS_DB','FLIGHTS_DB','HOTELS_MEDIA','PASSPORTS','IUMRAH_SESSION_SECRET','IUMRAH_SUPERADMIN_PASSWORD','PACKAGE_QUOTE_SEAL_KEY'];
 export const migrationAttested = env => /^v21:[a-f0-9]{64}$/.test(env.IUMRAH_CORE_PARITY_ATTESTATION || '');
+export const cleanLaunchAttested = env => /^[a-f0-9]{64}$/.test(env.IUMRAH_CORE_RESOURCE_FINGERPRINT||'') && env.IUMRAH_CORE_CLEAN_ATTESTATION==='v22-clean:'+env.IUMRAH_CORE_RESOURCE_FINGERPRINT;
+export const activationAttested = env => migrationAttested(env)||cleanLaunchAttested(env);
+export function securityConfigurationReady(env) {
+  const session=env.IUMRAH_SESSION_SECRET, password=env.IUMRAH_SUPERADMIN_PASSWORD, quote=env.PACKAGE_QUOTE_SEAL_KEY;
+  if(typeof session!=='string'||session.trim().length<32||typeof password!=='string'||password.trim().length<16||typeof quote!=='string'||!/^[A-Za-z0-9_-]{43}$/.test(quote))return false;
+  try{return atob(quote.replace(/-/g,'+').replace(/_/g,'/')+'=').length===32;}catch{return false;}
+}
 export function coreReady(env,core) {
-  return !!core && env.IUMRAH_CORE_CUTOVER_READY === '1' && migrationAttested(env) && bindings.every(key=>!!env[key]);
+  return !!core && env.IUMRAH_CORE_CUTOVER_READY === '1' && activationAttested(env) && (!cleanLaunchAttested(env)||securityConfigurationReady(env)) && bindings.every(key=>!!env[key]);
 }
 export async function cutoverStatus(env,installed=false,enabled=false) {
   const readiness = {};
@@ -28,7 +35,8 @@ export async function cutoverStatus(env,installed=false,enabled=false) {
   if (!installed) missing.push('coreHandlers');
   for (const binding of bindings) if (!env[binding]) missing.push(binding);
   if (env.IUMRAH_CORE_CUTOVER_READY !== '1') missing.push('IUMRAH_CORE_CUTOVER_READY');
-  if (!migrationAttested(env)) missing.push('IUMRAH_CORE_PARITY_ATTESTATION');
+  if (!activationAttested(env)) missing.push('IUMRAH_CORE_PARITY_ATTESTATION','IUMRAH_CORE_CLEAN_ATTESTATION');
+  if(!migrationAttested(env)&&!securityConfigurationReady(env))missing.push('CORE_SECURITY_CONFIGURATION_INVALID');
   const has=(...keys)=>keys.every(key=>typeof env[key]==='string'&&env[key].trim().length>0);
   const providers={
     sms:has('DEVSMS_API_TOKEN'), email:has('RESEND_API_KEY'),
@@ -42,5 +50,5 @@ export async function cutoverStatus(env,installed=false,enabled=false) {
   };
   const schemaReady=Object.values(readiness).every(Boolean);
   const providerConfigurationReady=Object.values(providers).every(Boolean);
-  return {ok:true, missing, service:'iumrah-backend', readiness, schemaReady, providers, providerConfigurationReady, coreHandlersInstalled:installed,coreCutoverEnabled:enabled, migrationAttested:migrationAttested(env),dataParityVerified:false, legacyRetirementAllowed:false};
+  return {ok:true, missing, service:'iumrah-backend', readiness, schemaReady, providers, providerConfigurationReady, coreHandlersInstalled:installed,coreCutoverEnabled:enabled, migrationAttested:migrationAttested(env),cleanLaunchAttested:cleanLaunchAttested(env),activationAttested:activationAttested(env),cleanLaunchSupported:true,securityConfigurationReady:securityConfigurationReady(env),activationMode:migrationAttested(env)?'legacy-migration':cleanLaunchAttested(env)?'new-account':'pending',dataParityVerified:false, legacyRetirementAllowed:false};
 }

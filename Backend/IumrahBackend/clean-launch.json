@@ -1,0 +1,8 @@
+{
+  "mode": "new-account-no-legacy-source",
+  "operatorConfirmedSourceUnavailable": true,
+  "worker": "iumrah-backend",
+  "subdomain": "helloiumrah",
+  "databases": {"HOTELS_DB":"iumrah-hotels","BOOKINGS_DB":"iumrah-core","FLIGHTS_DB":"iumrah-flights"},
+  "buckets": {"HOTELS_MEDIA":"iumrah-hotels-media","PASSPORTS":"iumrah-passports"}
+}
