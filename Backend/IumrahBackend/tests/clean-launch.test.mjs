@@ -3,16 +3,27 @@ import {inspectCleanLaunch,eligiblePending} from '../scripts/clean-launch.mjs';i
 const cfg=JSON.parse(readFileSync(new URL('../clean-launch.json',import.meta.url),'utf8'));
 const snap=JSON.parse(readFileSync(new URL('../schema/bootstrap-v21.json',import.meta.url),'utf8'));
 const env={CLOUDFLARE_ACCOUNT_ID:'a'.repeat(32),CLOUDFLARE_API_TOKEN:'fixture',HOTELS_DB_ID:'11111111-1111-1111-1111-111111111111',BOOKINGS_DB_ID:'22222222-2222-2222-2222-222222222222',FLIGHTS_DB_ID:'33333333-3333-3333-3333-333333333333',BOOKINGS_DB_NAME:'iumrah-core',HOTELS_MEDIA_BUCKET:'iumrah-hotels-media',PASSPORTS_BUCKET:'iumrah-passports'};
-function fixture({publicBucket=false,existing=false,misplaced=false,wrongId=false,foreign=false}={}){
+function fixture({publicBucket=false,existing=false,misplaced=false,wrongId=false,foreign=false,rejectBatch=false,failTable=null,failMetadata=false,partialBatch=false}={}){
  const dbs={};for(const [name,schema] of Object.entries(snap)){const db=dbs[env[name+'_ID']]=new DatabaseSync(':memory:');for(const table of schema.tables)db.exec(table.sql);}
- const f=dbs[env.FLIGHTS_DB_ID]=new DatabaseSync(':memory:');f.exec('CREATE TABLE flights(id INTEGER);CREATE TABLE flight_offers(id INTEGER);');
+ const f=dbs[env.FLIGHTS_DB_ID]=new DatabaseSync(':memory:');f.exec('CREATE TABLE flights(id INTEGER);CREATE TABLE flight_offers(id INTEGER);CREATE TABLE _cf_KV(key TEXT);');
  if(existing){const db=dbs[env.HOTELS_DB_ID];db.exec('DROP TABLE iumrah_accounts; CREATE TABLE iumrah_accounts(id INTEGER); INSERT INTO iumrah_accounts VALUES(1)');}
  if(misplaced)dbs[env.BOOKINGS_DB_ID].exec('CREATE TABLE iumrah_friends_credit_ledger(id INTEGER); INSERT INTO iumrah_friends_credit_ledger VALUES(1)');
  const bindings=[...Object.keys(cfg.databases).map(name=>({name,type:'d1',id:wrongId&&name==='HOTELS_DB'?env.BOOKINGS_DB_ID:env[name+'_ID']})),...Object.entries(cfg.buckets).map(([name,bucket_name])=>({name,type:'r2_bucket',bucket_name}))];
  const fake=async(url,opts={})=>{const p=new URL(url).pathname;let result;
  if(p.endsWith('/workers/subdomain'))result={subdomain:'helloiumrah'};
  else if(p.endsWith('/workers/scripts/iumrah-backend/settings'))result={bindings};
- else if(p.includes('/d1/database/')){const id=p.split('/database/')[1].split('/')[0];if(p.endsWith('/query')){const {sql}=JSON.parse(opts.body);assert.match(sql,/^(SELECT|PRAGMA foreign_key_check)/);result=[{success:true,results:foreign&&sql==='PRAGMA foreign_key_check'?[{table:'fixture'}]:dbs[id].prepare(sql).all()}];}else result={name:Object.entries(cfg.databases).find(([k])=>env[k+'_ID']===id)[1]};}
+ else if(p.includes('/d1/database/')){
+  const id=p.split('/database/')[1].split('/')[0];
+  const fail=(message='not authorized')=>Response.json({success:false,errors:[{code:7500,message}]},{status:400});
+  if(p.endsWith('/query')){
+   assert.equal(opts.method,'POST');assert.equal(opts.headers['Content-Type'],'application/json');
+   const body=JSON.parse(opts.body);const statements=body.batch||[body];
+   if(body.batch&&rejectBatch)return fail('invalid batch');
+   for(const {sql} of statements){assert.match(sql,/^(SELECT|PRAGMA foreign_key_check)/);if(sql==='PRAGMA foreign_key_check'||sql.includes('"_cf_KV"'))return fail();if(failTable&&sql===`SELECT COUNT(*) AS n FROM "${failTable}"`)return fail('no such column: secret-fixture-value');}
+   result=statements.map(({sql})=>({success:true,results:foreign&&sql==='PRAGMA foreign_key_check("iumrah_accounts")'?[{table:'fixture'}]:dbs[id].prepare(sql).all()}));
+   if(body.batch&&partialBatch)result.pop();
+  }else{assert.equal(opts.headers['Content-Type'],undefined);if(failMetadata)return fail('invalid request');result={name:Object.entries(cfg.databases).find(([k])=>env[k+'_ID']===id)[1]};}
+ }
  else if(p.includes('/r2/buckets/')){const bucket=p.split('/buckets/')[1].split('/')[0];result=p.endsWith('/managed')?{enabled:publicBucket}:p.endsWith('/custom')?{domains:[]}:{name:bucket};}
  else throw Error('UNEXPECTED '+p);
  return Response.json({success:true,result});};return {fake,close:()=>Object.values(dbs).forEach(db=>db.close())};
@@ -24,3 +35,10 @@ test('operator policy and complete valid pending state required',async()=>{asser
 const fp='b'.repeat(64);const good={HOTELS_DB:{},BOOKINGS_DB:{},FLIGHTS_DB:{},HOTELS_MEDIA:{},PASSPORTS:{},IUMRAH_SESSION_SECRET:'s'.repeat(48),IUMRAH_SUPERADMIN_PASSWORD:'p'.repeat(24),PACKAGE_QUOTE_SEAL_KEY:Buffer.alloc(32,1).toString('base64url'),IUMRAH_CORE_RESOURCE_FINGERPRINT:fp,IUMRAH_CORE_CLEAN_ATTESTATION:'v22-clean:'+fp,IUMRAH_CORE_CUTOVER_READY:'1'};
 test('clean activation is not migration parity; wrong resources, missing flag, malformed key block runtime',async()=>{assert.equal(securityConfigurationReady(good),true);assert.equal(coreReady(good,{}),true);assert.equal(coreReady({...good,IUMRAH_CORE_RESOURCE_FINGERPRINT:'c'.repeat(64)},{}),false);assert.equal(coreReady({...good,IUMRAH_CORE_CUTOVER_READY:'0'},{}),false);assert.equal(coreReady({...good,PACKAGE_QUOTE_SEAL_KEY:'bad'},{}),false);const status=await cutoverStatus(good,true,true);assert.equal(status.migrationAttested,false);assert.equal(status.cleanLaunchAttested,true);assert.equal(status.dataParityVerified,false);assert.equal(status.legacyRetirementAllowed,false);});
 test('deploy verifier activates once after real resource checks then keeps provider gate independent',async()=>{const f=fixture();let activated=0;const fetcher=async(url,opts)=>{if(url.includes('api.cloudflare.com'))return f.fake(url,opts);const p=new URL(url).pathname;let data;if(p==='/__iumrah/health')data={ok:true,service:'iumrah-backend',bindings:{FLIGHTS_DB:true},modules:{core:true,packages:true,coreCutoverEnabled:!!activated}};else if(p==='/__iumrah/cutover')data=activated?{...pending,coreCutoverEnabled:true,cleanLaunchAttested:true,missing:[],providerConfigurationReady:false,providers:{email:false}}:pending;else if(p==='/api/package/health')data={ok:true,service:'iumrah-package-engine',hotelsDbConfigured:true,bookingsDbConfigured:true};else if(p==='/api/services/health')data={ok:true,service:'iumrah-public-services',release:'v21-rc',advisorLanguages:9,audioLanguages:9};else if(p==='/health')data={ok:true,database_connected:true};else if(p==='/v1/public/status')data={ok:true,ready:true,counts:{flights:1,offers:1}};else if(p==='/v1/public/flights')data={ok:true,flights:[{}]};else throw Error(p);return Response.json(data);};try{await assert.rejects(verifyDeployed(env,fetcher,{config:cfg,set:async a=>{assert.match(a,/^v22-clean:/);activated++;}}),/CORE_PROVIDER_CONFIGURATION_PENDING: email/);assert.equal(activated,1);}finally{f.close();}});
+
+test('D1 rejects global PRAGMA and internal tables; scoped checks still pass',async()=>{const f=fixture();try{assert.ok((await inspectCleanLaunch(env,f.fake,cfg)).checkedTables>35);}finally{f.close();}});
+test('HTTP 400 on batch retries individual reads and still checks all tables',async()=>{const f=fixture({rejectBatch:true});try{assert.ok((await inspectCleanLaunch(env,f.fake,cfg)).checkedTables>35);}finally{f.close();}});
+test('batch fallback cannot conceal existing records',async()=>{const f=fixture({rejectBatch:true,existing:true});try{await assert.rejects(inspectCleanLaunch(env,f.fake,cfg),/EXISTING_DATA_REVIEW_REQUIRED.*iumrah_accounts=1/);}finally{f.close();}});
+test('D1 HTTP 400 on a single table reports precise stage and code without raw message',async()=>{const f=fixture({failTable:'iumrah_accounts'});try{await assert.rejects(inspectCleanLaunch(env,f.fake,cfg),error=>{assert.match(error.message,/HOTELS_DB.count.iumrah_accounts:HTTP_400:CF_7500:missing-column/);assert.doesNotMatch(error.message,/secret-fixture-value|11111111|fixture/);return true;});}finally{f.close();}});
+test('D1 metadata failure distinguished from SQL failure',async()=>{const f=fixture({failMetadata:true});try{await assert.rejects(inspectCleanLaunch(env,f.fake,cfg),/HOTELS_DB.metadata:HTTP_400:CF_7500:invalid-request/);}finally{f.close();}});
+test('incomplete batch cannot yield activation attestation',async()=>{const f=fixture({partialBatch:true});try{await assert.rejects(inspectCleanLaunch(env,f.fake,cfg),/D1_RESULT_INCOMPLETE/);}finally{f.close();}});

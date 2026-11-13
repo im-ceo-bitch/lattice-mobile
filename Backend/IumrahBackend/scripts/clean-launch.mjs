@@ -21,39 +21,81 @@ export async function inspectCleanLaunch(env,fetcher,config){
  if(!cleanLaunchPolicy(config))throw Error('CLEAN_LAUNCH_OPERATOR_POLICY_REQUIRED');
  if(!/^[a-f0-9]{32}$/i.test(env.CLOUDFLARE_ACCOUNT_ID||'')||!env.CLOUDFLARE_API_TOKEN)throw Error('CLEAN_LAUNCH_CLOUDFLARE_ACCESS_MISSING');
  const origin=`https://api.cloudflare.com/client/v4/accounts/${env.CLOUDFLARE_ACCOUNT_ID}`;
- const headers={Authorization:`Bearer ${env.CLOUDFLARE_API_TOKEN}`,'Content-Type':'application/json'};
- async function api(p,body){const r=await fetcher(origin+p,{headers, ...(body?{method:'POST',body:JSON.stringify(body)}:{})});const j=await r.json().catch(()=>null);if(!r.ok||j?.success!==true)throw Error(`CLEAN_LAUNCH_API_FAILED:${p.split('/').filter(Boolean).slice(0,2).join('/')}:HTTP_${r.status}`);return j.result;}
- const sub=await api('/workers/subdomain');if(sub?.subdomain!==config.subdomain)throw Error('CLEAN_LAUNCH_WRONG_ACCOUNT');
- async function settings(){const s=await api('/workers/scripts/iumrah-backend/settings');if(!Array.isArray(s?.bindings))throw Error('CLEAN_LAUNCH_SETTINGS_INVALID');return s.bindings;}
+ const headers={Authorization:`Bearer ${env.CLOUDFLARE_API_TOKEN}`};
+ // Do not print tokens, account/database IDs, raw SQL results or raw provider responses.
+ // Preserve a safe stage, HTTP status, and numeric Cloudflare error codes.
+ async function api(p,body,stage='resource'){
+  const options=body?{method:'POST',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify(body)}:{headers};
+  let r;try{r=await fetcher(origin+p,options);}catch{throw Error('CLEAN_LAUNCH_NETWORK_FAILED:'+stage);}
+  const j=await r.json().catch(()=>null);
+  if(!r.ok||j?.success!==true){
+   const errors=Array.isArray(j?.errors)?j.errors:[];
+   const codes=errors.map(e=>e?.code).filter(Number.isSafeInteger).join(',')||'none';
+   const message=errors.map(e=>typeof e?.message==='string'?e.message:'').join(' ');
+   const reason=[[/not authorized|authorization|permission|forbidden/i,'authorization'],[/foreign key mismatch/i,'foreign-key-schema'],[/no such table/i,'missing-table'],[/no such column/i,'missing-column'],[/too many|limit exceeded/i,'limit'],[/syntax error|incomplete input/i,'sql-syntax'],[/invalid|malformed/i,'invalid-request']].find(([pattern])=>pattern.test(message))?.[1]||'unspecified';
+   const error=Error(`CLEAN_LAUNCH_API_FAILED:${stage}:HTTP_${r.status}:CF_${codes}:${reason}`);error.httpStatus=r.status;throw error;
+  }
+  return j.result;
+ }
+ const sub=await api('/workers/subdomain',null,'account-subdomain');if(sub?.subdomain!==config.subdomain)throw Error('CLEAN_LAUNCH_WRONG_ACCOUNT');
+ async function settings(){const s=await api('/workers/scripts/iumrah-backend/settings',null,'worker-bindings');if(!Array.isArray(s?.bindings))throw Error('CLEAN_LAUNCH_SETTINGS_INVALID');return s.bindings;}
  function binding(b,name,type,field){const matches=b.filter(x=>x.name===name&&x.type===type);if(matches.length!==1||!matches[0][field])throw Error('CLEAN_LAUNCH_BINDING_MISSING:'+name);return matches[0][field];}
  const b=await settings();const dbs={},buckets={};
  for(const [name,expected] of Object.entries(config.databases)){
   const id=binding(b,name,'d1','id');if(!validId(id)||id!==env[name+'_ID'])throw Error('CLEAN_LAUNCH_D1_ID_MISMATCH:'+name);
-  const d=await api('/d1/database/'+id);if(d?.name!==expected)throw Error('CLEAN_LAUNCH_D1_NAME_MISMATCH:'+name);dbs[name]=id;
+  const d=await api('/d1/database/'+id,null,name+'.metadata');if(d?.name!==expected)throw Error('CLEAN_LAUNCH_D1_NAME_MISMATCH:'+name);dbs[name]=id;
  }
  if(new Set(Object.values(dbs)).size!==3)throw Error('CLEAN_LAUNCH_D1_NOT_DISTINCT');
  for(const [name,expected] of Object.entries(config.buckets)){
   const bucket=binding(b,name,'r2_bucket','bucket_name');if(bucket!==expected)throw Error('CLEAN_LAUNCH_R2_MISMATCH:'+name);
-  const p='/r2/buckets/'+encodeURIComponent(bucket);if((await api(p))?.name!==bucket)throw Error('CLEAN_LAUNCH_R2_NOT_FOUND:'+name);
-  const managed=await api(p+'/domains/managed'),custom=await api(p+'/domains/custom');
+  const p='/r2/buckets/'+encodeURIComponent(bucket);if((await api(p,null,name+'.metadata'))?.name!==bucket)throw Error('CLEAN_LAUNCH_R2_NOT_FOUND:'+name);
+  const managed=await api(p+'/domains/managed',null,name+'.managed-domain'),custom=await api(p+'/domains/custom',null,name+'.custom-domains');
   if(managed?.enabled!==false||!Array.isArray(custom?.domains)||custom.domains.some(x=>x.enabled!==false))throw Error('CLEAN_LAUNCH_R2_PUBLIC_OR_UNVERIFIED:'+name);
   buckets[name]=bucket;
  }
  if(new Set(Object.values(buckets)).size!==2)throw Error('CLEAN_LAUNCH_R2_NOT_DISTINCT');
  const counts={};const issues=[];
  for(const [name,id] of Object.entries(dbs)){
-  const query=async sql=>{const result=await api('/d1/database/'+id+'/query',{sql});if(!Array.isArray(result)||result[0]?.success!==true||!Array.isArray(result[0].results))throw Error('CLEAN_LAUNCH_D1_QUERY_FAILED:'+name);return result[0].results;};
-  const rows=await query("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%'");
-  const names=new Set(rows.map(r=>r.name));
+  const endpoint='/d1/database/'+id+'/query';
+  // Use the same simple catalog query as the successful deployment preflight.
+  // The API permits batches; if it rejects a read-only batch, retry statements
+  // individually so the exact failing table is reported, never skip a check.
+  const unpack=(result,checks)=>{
+   if(!Array.isArray(result)||result.length!==checks.length)throw Error('CLEAN_LAUNCH_D1_RESULT_INCOMPLETE:'+name);
+   return result.map((r,i)=>{if(r?.success!==true||!Array.isArray(r.results))throw Error('CLEAN_LAUNCH_D1_QUERY_FAILED:'+name+'.'+checks[i].stage);return r.results;});
+  };
+  const single=async check=>unpack(await api(endpoint,{sql:check.sql},name+'.'+check.stage),[check])[0];
+  async function readChecks(checks){
+   const results=[];
+   for(let i=0;i<checks.length;i+=10){
+    const group=checks.slice(i,i+10);
+    if(group.length===1){results.push(await single(group[0]));continue;}
+    try{results.push(...unpack(await api(endpoint,{batch:group.map(({sql})=>({sql}))},name+'.batch-'+group[0].stage),group));}
+    catch(error){
+     if(error.httpStatus!==400&&error.httpStatus!==422)throw error;
+     // All operations in this batch are SELECT / table-scoped read-only PRAGMA.
+     // Fallback preserves every check and identifies a rejected statement.
+     for(const check of group)results.push(await single(check));
+    }
+   }
+   return results;
+  }
+  const rows=await single({stage:'catalog',sql:"SELECT name FROM sqlite_master WHERE type='table'"});
+  if(rows.some(r=>typeof r.name!=='string'))throw Error('CLEAN_LAUNCH_INVALID_CATALOG:'+name);
+  const names=new Set(rows.map(r=>r.name).filter(t=>!t.startsWith('sqlite_')&&!t.startsWith('_cf_')));
   if(snapshot[name])for(const t of snapshot[name].tables)if(!names.has(t.name))throw Error('CLEAN_LAUNCH_SCHEMA_MISSING:'+name+'.'+t.name);
-  // Foreign key checks return no personal data to logs.
-  if((await query('PRAGMA foreign_key_check')).length)throw Error('CLEAN_LAUNCH_FOREIGN_KEYS_INVALID:'+name);
-  const relevant=[...names].filter(t=>sensitive(t)||(name!=='FLIGHTS_DB'&&allowedByBinding[name==='HOTELS_DB'?'BOOKINGS_DB':'HOTELS_DB'].has(t)&&!allowedByBinding[name].has(t)));
+  // D1 has internal tables. Avoid database-wide PRAGMA foreign_key_check;
+  // check each application table explicitly, including tables not in snapshot.
+  const foreignChecks=[...names].sort().map(t=>({stage:'foreign-keys.'+t,sql:`PRAGMA foreign_key_check(${ident(t)})`}));
+  const foreignResults=await readChecks(foreignChecks);
+  for(let i=0;i<foreignChecks.length;i++)if(foreignResults[i].length)throw Error('CLEAN_LAUNCH_FOREIGN_KEYS_INVALID:'+name+'.'+foreignChecks[i].stage);
+  const relevant=[...names].filter(t=>sensitive(t)||(name!=='FLIGHTS_DB'&&allowedByBinding[name==='HOTELS_DB'?'BOOKINGS_DB':'HOTELS_DB'].has(t)&&!allowedByBinding[name].has(t))).sort();
   counts[name]={};
-  for(let i=0;i<relevant.length;i+=20){
-   const tables=relevant.slice(i,i+20);const results=await query(tables.map(t=>`SELECT '${t}' AS name, COUNT(*) AS n FROM ${ident(t)}`).join(' UNION ALL '));
-   if(results.length!==tables.length)throw Error('CLEAN_LAUNCH_COUNT_INCOMPLETE:'+name);
-   for(const row of results){if(!tables.includes(row.name)||Object.hasOwn(counts[name],row.name)||!Number.isSafeInteger(row.n)||row.n<0)throw Error('CLEAN_LAUNCH_INVALID_COUNT:'+name);counts[name][row.name]=row.n;if(row.n>0)issues.push(`${name}.${row.name}=${row.n}`);}
+  const countResults=await readChecks(relevant.map(t=>({stage:'count.'+t,sql:`SELECT COUNT(*) AS n FROM ${ident(t)}`})));
+  for(let i=0;i<relevant.length;i++){
+   const t=relevant[i],result=countResults[i];
+   if(result.length!==1||!Number.isSafeInteger(result[0].n)||result[0].n<0)throw Error('CLEAN_LAUNCH_INVALID_COUNT:'+name+'.'+t);
+   counts[name][t]=result[0].n;if(result[0].n>0)issues.push(`${name}.${t}=${result[0].n}`);
   }
  }
  if(issues.length)throw Error('CLEAN_LAUNCH_EXISTING_DATA_REVIEW_REQUIRED:'+issues.join(','));
