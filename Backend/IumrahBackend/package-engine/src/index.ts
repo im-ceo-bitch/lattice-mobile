@@ -15,7 +15,7 @@ import { handlePublicIdentityRequest } from "./public-identity";
 import { cleanupExpiredFlightCache, flightCalendarResponse } from "./flight-cache";
 import { deleteCuratedFlightAdmin, listCuratedFlightsAdmin, publicCuratedFlightRecommendations, resolvePublicCuratedFlightRecommendation, saveCuratedFlightAdmin } from "./curated-flights";
 import { appleAppSiteAssociation, hotelWebFallback, publicStorefrontFlightBoard } from "./storefront";
-import { generatePackageQuote, generateStorefrontPackageQuote } from "./package-search";
+import { generateManualPackageEstimate, generatePackageQuote, generateStorefrontPackageQuote } from "./package-search";
 import { commitPackageQuoteReport } from "./booking-gateway";
 import { quoteSealingMode } from "./quote-audit";
 import { createCarePackageRequest, listCarePackageRequests, updateCarePackageRequest } from "./care-requests";
@@ -263,6 +263,10 @@ export default {
 
     if (request.method === "GET" && (url.pathname === "/health" || url.pathname === "/api/package/health")) {
       return publicHealth(env);
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/package/estimate") {
+      return generateManualPackageEstimate(request, env);
     }
 
     if (request.method === "POST" && url.pathname === "/api/package/quote") {

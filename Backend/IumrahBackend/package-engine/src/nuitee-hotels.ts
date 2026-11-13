@@ -487,10 +487,11 @@ export function packageTierForStars(stars: number): "economy" | "standard" | "lu
 }
 
 /** Prices/stars are read from supplier and server catalogue, never accepted from iOS. */
-export async function resolveNuiteePackageHotels(env: Env, values: NuiteePackageRoom[], travelers: {adults:number;children:number;infants:number;rooms:number}, includeMadinah: boolean) {
-  if (!Array.isArray(values) || values.length !== travelers.rooms * (includeMadinah ? 2 : 1)) throw new Error("NUITEE_ROOM_SELECTION_INCOMPLETE");
+export async function resolveNuiteePackageHotels(env: Env, values: NuiteePackageRoom[], travelers: {adults:number;children:number;infants:number;rooms:number}, includeMadinah: boolean, estimateSelectedCities = false) {
+  const expectedCities = includeMadinah ? ["makkah", "madinah"] : ["makkah"];
+  const cities = estimateSelectedCities && Array.isArray(values) ? expectedCities.filter(city=>values.some(room=>room?.city===city)) : expectedCities;
+  if (!Array.isArray(values) || !cities.length || values.length !== travelers.rooms * cities.length) throw new Error("NUITEE_ROOM_SELECTION_INCOMPLETE");
   await ensure(env);
-  const cities = includeMadinah ? ["makkah", "madinah"] : ["makkah"];
   const result: Record<string, import("./pricing").PricingHotelInput> = {};
   const selected: NuiteePackageRoom[] = [];
   let highestStars = 0;

@@ -2,7 +2,7 @@ import { resolveNuiteePackageHotels, type NuiteePackageRoom } from "./nuitee-hot
 import type { Env } from "./env";
 import { readFlightSearchCache, type NormalizedFlightSearch } from "./flight-cache";
 import { resolveServerHotelPricing } from "./hotel-costs";
-import { calculatePackageQuote, calculateStorefrontPreviewQuote, type PackageTier, type ServerQuoteInput, type TripType, type TransferVehicle, type VerifiedJourneyFare } from "./pricing";
+import { calculatePackageQuote, calculatePartialPackageEstimate, calculateStorefrontPreviewQuote, type PackageTier, type ServerQuoteInput, type TripType, type TransferVehicle, type VerifiedJourneyFare } from "./pricing";
 import { sealPricingSnapshot } from "./quote-audit";
 import { deriveAuthoritativeStayPlan, type StayPolicy, type VerifiedFlightSchedule } from "./itinerary-planner";
 
@@ -632,6 +632,93 @@ async function resolveJourneySchedule(request: QuoteRequest, travelers: { adults
 
 function parseStayPolicy(value: unknown): StayPolicy {
   return text(value, 24) === "hotelFirst" ? "hotelFirst" : "balanced";
+}
+
+// Independent preview: no D1 booking writes, no sealed snapshot or bookable ID.
+// All prices and stars are re-resolved from the same trusted providers as checkout.
+export async function generateManualPackageEstimate(request: Request, env: Env): Promise<Response> {
+  try {
+    const raw = await request.json() as {adults?:unknown; includeMadinah?:unknown; start?:unknown; end?:unknown;
+      transferVehicle?:unknown; haramain?:{enabled?:unknown;fareClass?:unknown;ticketCount?:unknown}; rooms?:NuiteePackageRoom[]; flights?:Array<{identity?:unknown;origin?:unknown;destination?:unknown;departureDate?:unknown;cabin?:unknown}>};
+    const adults = int(raw.adults,1,6), includeMadinah = bool(raw.includeMadinah);
+    const start = text(raw.start,10), end = text(raw.end,10);
+    let nights = (Date.parse(end)-Date.parse(start))/86400000;
+    if (!DATE.test(start) || !DATE.test(end) || !Number.isInteger(nights) || nights < (includeMadinah ? 2 : 1) || nights > 90 || start < new Date().toISOString().slice(0,10)) throw new Error("INVALID_STAY_DATES");
+    const selections = raw.rooms ?? [], legs = raw.flights ?? [];
+    if (!Array.isArray(selections) || !Array.isArray(legs) || selections.length > 2 || legs.length > 2 || (!selections.length && !legs.length)) throw new Error("ESTIMATE_COMPONENT_REQUIRED");
+    const travelers = {adults,children:0,infants:0,rooms:1};
+    for (const room of selections) {
+      if (room.checkin < start || room.checkout > end) throw new Error("NUITEE_STAY_OUTSIDE_TRIP");
+    }
+    const stays = [...selections].sort((a,b)=>a.checkin.localeCompare(b.checkin));
+    if (stays.length === 2 && stays[0].checkout !== stays[1].checkin) throw new Error("NUITEE_STAY_GAP_OR_OVERLAP");
+    let totalFare=0, pairedFareIncluded=false;
+    let firstArrivalDay: string | null = null;
+    let firstAirport: string | null = null;
+    const verifiedSelected: VerifiedFlightSchedule["outbound"][] = [];
+    const counted = new Set<string>();
+    const directions = new Set<string>();
+    for (const item of legs) {
+      const id=text(item.identity,220), origin=text(item.origin,3), destination=text(item.destination,3), day=text(item.departureDate,10);
+      const direction = ["JED","MED"].includes(destination) && !["JED","MED"].includes(origin) ? "out" : ["JED","MED"].includes(origin) && !["JED","MED"].includes(destination) ? "back" : "";
+      if (!direction || directions.has(direction) || !IATA.test(origin) || !IATA.test(destination) || !DATE.test(day) || (direction==="out" ? day!==start : day!==end) || (!includeMadinah && (origin==="MED" || destination==="MED"))) throw new Error("ESTIMATE_FLIGHT_ROUTE_MISMATCH");
+      directions.add(direction);
+      let schedule: VerifiedFlightSchedule | null, fare: VerifiedJourneyFare;
+      if (/^curated:[A-Za-z0-9_-]+$/.test(id)) {
+        schedule = await resolveCuratedSchedule(id,env);
+        fare = await resolveCuratedFare(id,adults,env);
+        const row=await env.HOTELS_DB!.prepare("SELECT itinerary_json FROM curated_flight_offers WHERE id=?1 AND published=1 LIMIT 1").bind(id.slice(8)).first<{itinerary_json:string}>();
+        const itinerary=JSON.parse(row?.itinerary_json ?? "{}");
+        const cabin=String(itinerary.cabin_class ?? itinerary.cabinClass ?? "economy").toLowerCase().replace(/ /g,"_");
+        if (text(item.cabin,30)!==cabin) throw new Error("ESTIMATE_CABIN_MISMATCH");
+      } else if (id.startsWith("aviasales:") && parseAviasalesIdentity(id).mode==="ow" && item.cabin==="economy") {
+        const offer=await resolveAviasalesSelection(id,env);
+        schedule={outbound:offer.outbound,inbound:undefined};
+        fare={candidateId:id,amount:offer.perTravelerUsd*adults,currency:"USD",fareScope:"totalParty",providerId:"Aviasales",observedAt:new Date().toISOString(),travelDate:day,normalizedGroupUsd:offer.perTravelerUsd*adults};
+      } else throw new Error("ESTIMATE_FLIGHT_IDENTITY_INVALID");
+      const selectedLeg = [schedule?.outbound,schedule?.inbound].find(leg=>leg?.origin===origin && leg.destination===destination && leg.departureAt.slice(0,10)===day);
+      if (!selectedLeg) throw new Error("ESTIMATE_FLIGHT_ROUTE_MISMATCH");
+      verifiedSelected.push(selectedLeg);
+      if (direction === "out") {
+        firstAirport = destination;
+        const arrival = new Date(selectedLeg.arrivalAt);
+        if (Number.isFinite(arrival.getTime())) {
+          // Both Saudi airports share the same timezone; handle overnight arrivals.
+          const parts = new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Riyadh",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(arrival);
+          const part = (key:string) => parts.find(x=>x.type===key)?.value;
+          firstArrivalDay = `${part("year")}-${part("month")}-${part("day")}`;
+        }
+      }
+      if (schedule?.inbound) {
+        if (legs.length===2 && legs.some(leg=>leg.identity!==id)) throw new Error("ESTIMATE_PAIRED_FARE_MISMATCH");
+        pairedFareIncluded ||= legs.length===1;
+      }
+      if (!counted.has(id)) { totalFare+=fare.normalizedGroupUsd; counted.add(id); }
+    }
+    if (verifiedSelected.length === 2) {
+      const out=verifiedSelected.find(leg=>["JED","MED"].includes(leg.destination));
+      const back=verifiedSelected.find(leg=>["JED","MED"].includes(leg.origin));
+      if (!out || !back || out.origin!==back.destination || Date.parse(back.departureAt)<=Date.parse(out.arrivalAt)) throw new Error("ESTIMATE_FLIGHT_ROUTE_MISMATCH");
+    }
+    if (firstArrivalDay) {
+      nights=(Date.parse(end)-Date.parse(firstArrivalDay))/86400000;
+      if (!Number.isInteger(nights) || nights < 1 || selections.some(room=>room.checkin<firstArrivalDay!)) throw new Error("NUITEE_STAY_OUTSIDE_TRIP");
+    }
+    if (firstAirport && stays.length===2 && stays[0].city !== (firstAirport==="MED" ? "madinah" : "makkah")) throw new Error("NUITEE_CITY_ORDER_MISMATCH");
+    const nuitee = selections.length ? await resolveNuiteePackageHotels(env,selections,travelers,includeMadinah,true) : null;
+    const blankHotel=(city:string,n:number): import("./pricing").PricingHotelInput=>({hotelId:`estimate-unselected-${city}`,roomId:null,amountUsd:0,unit:"perRoomNight",nights:n,pricingMode:"estimateUnselected"});
+    const makkah=nuitee?.makkah, madinah=nuitee?.madinah;
+    const mn=makkah?.nights ?? (includeMadinah ? Math.max(0,nights-(madinah?.nights ?? Math.max(0,nights-Math.ceil(nights*0.6)))) : nights);
+    const dn=includeMadinah ? madinah?.nights ?? Math.max(0,nights-mn) : 0;
+    if (mn+dn>nights) throw new Error("ESTIMATE_STAY_MISMATCH");
+    const fare: VerifiedJourneyFare={candidateId:"estimate",amount:totalFare,currency:"USD",fareScope:"totalParty",providerId:"verified selections",observedAt:new Date().toISOString(),travelDate:start,normalizedGroupUsd:totalFare};
+    const result=calculatePartialPackageEstimate({tier:nuitee?.tier ?? "standard",tripType:"roundTrip",includeMadinah,travelers,meals:{makkahLunch:false,makkahDinner:false,madinahDinner:false},hotelMealComponents:nuitee?.mealComponents,transferVehicle:parseTransfer(raw.transferVehicle),includeHaramainTrain:includeMadinah && !!parseTransfer(raw.transferVehicle) && raw.haramain?.enabled===true,haramainFareClass:raw.haramain?.fareClass==="business" ? "business" : "economy",haramainTicketCount:int(raw.haramain?.ticketCount??0,0,adults),journeyFare:fare,makkahHotel:makkah ?? blankHotel("makkah",mn),madinahHotel:includeMadinah ? madinah ?? blankHotel("madinah",dn) : null});
+    return json({ok:true,estimate:{...result,pairedFareIncluded,provisionalTier:!nuitee}});
+  } catch (error) {
+    // Do not leak upstream provider response bodies or internal exception details.
+    const code=error instanceof Error ? error.message : "";
+    return json({ok:false,error:/^[A-Z][A-Z0-9_]{2,100}$/.test(code) ? code : "ESTIMATE_FAILED"},400);
+  }
 }
 
 export async function generatePackageQuote(request: Request, env: Env): Promise<Response> {

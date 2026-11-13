@@ -1,0 +1,4 @@
+# Manual estimate V21
+Deploy only in private lattice-mobile, using existing Deploy iumrah backend. Apply on top of V18. No secrets, workflows, new D1 schema or migration flags. POST /api/package/estimate is an independent provisional estimate endpoint. It validates exact published/provider identities and Nuitee anchored room selections; no client price is trusted. It shares existing server formula and returns only public estimate amounts plus flags. No quote ID, snapshot or booking proof is returned. Full quote and booking remain gated by core cutover and V18 proof validation. The partial estimate is not a confirmed supplier booking. Without hotels, Standard is provisional. A paired fare is counted once and identified as such. Existing full quote requirements are unchanged.
+
+Tests: 99 package runtime, 47 unified backend, 39 flight hub. No production deployment or live provider request performed.

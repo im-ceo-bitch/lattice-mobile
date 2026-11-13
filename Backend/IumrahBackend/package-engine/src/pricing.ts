@@ -156,13 +156,23 @@ function mealCost(input: ServerQuoteInput, totalDays: number, makkahNights: numb
 }
 
 export function calculatePackageQuote(input: ServerQuoteInput): CalculatedPackageQuote {
+  return calculateQuote(input, false);
+}
+
+// Estimates share the production formula, but must never produce a booking proof.
+export function calculatePartialPackageEstimate(input: ServerQuoteInput) {
+  const {totalPackagePrice, pricePerPerson, currency} = calculateQuote(input, true);
+  return {totalPackagePrice, pricePerPerson, currency, bookingAllowed:false as const, isEstimated:true as const};
+}
+
+function calculateQuote(input: ServerQuoteInput, estimate: boolean): CalculatedPackageQuote {
   const travelers = input.travelers.adults + input.travelers.children + input.travelers.infants;
   if (!Number.isInteger(travelers) || travelers < 1 || travelers > 9) throw new Error("INVALID_TRAVELERS");
   if (!Number.isInteger(input.travelers.rooms) || input.travelers.rooms < 1 || input.travelers.rooms > 9) throw new Error("INVALID_ROOMS");
   if (input.includeMadinah && !input.madinahHotel) throw new Error("MADINAH_HOTEL_REQUIRED");
   if (!input.includeMadinah && input.madinahHotel) throw new Error("UNEXPECTED_MADINAH_HOTEL");
 
-  const makkahNights = Math.max(1, input.makkahHotel.nights);
+  const makkahNights = Math.max(estimate && input.makkahHotel.pricingMode === "estimateUnselected" ? 0 : 1, input.makkahHotel.nights);
   const madinahNights = input.includeMadinah ? Math.max(0, input.madinahHotel?.nights ?? 0) : 0;
   const totalDays = Math.max(1, makkahNights + madinahNights + 1);
   const rooms = input.travelers.rooms;
@@ -172,7 +182,7 @@ export function calculatePackageQuote(input: ServerQuoteInput): CalculatedPackag
   const flights = input.journeyFare.fareScope === "perPassenger"
     ? input.journeyFare.amount * travelers
     : input.journeyFare.normalizedGroupUsd;
-  if (!Number.isFinite(flights) || flights <= 0) throw new Error("INVALID_FLIGHT_FARE");
+  if (!Number.isFinite(flights) || flights < 0 || (!estimate && flights === 0)) throw new Error("INVALID_FLIGHT_FARE");
 
   const makkahHotelCost = input.makkahHotel.amountUsd * rooms * makkahNights;
   const madinahHotelCost = input.includeMadinah && input.madinahHotel
