@@ -18,6 +18,7 @@ export type Env = {
   GOOGLE_SERVER_CLIENT_ID?: string;
   IUMRAH_PUBLIC_ID_ORIGIN?: string;
   TELEGRAM_BOT_ORIGIN?: string;
+  IUMRAH_TELEGRAM_BRIDGE_SECRET?: string;
   RESEND_API_KEY?: string;
   ACCOUNT_EMAIL_FROM?: string;
   ACCOUNT_EMAIL_REPLY_TO?: string;

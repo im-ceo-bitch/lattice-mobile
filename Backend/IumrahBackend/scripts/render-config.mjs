@@ -18,10 +18,10 @@ export function buildConfig(env = process.env) {
   }
   const ids = dbs.map(([,key])=>env[key].toLowerCase());
   if (new Set(ids).size !== ids.length) throw Error('D1 database bindings must be three DISTINCT UUIDs');
-  const bucket = env.HOTELS_MEDIA_BUCKET || 'none';
-  if (bucket !== 'none' && !/^[a-z0-9][a-z0-9-]{0,62}$/.test(bucket)) throw Error('HOTELS_MEDIA_BUCKET_INVALID');
   const coreBindingsFile=new URL('../core-bindings.json',import.meta.url);
   const coreBindings=fs.existsSync(coreBindingsFile)?JSON.parse(fs.readFileSync(coreBindingsFile,'utf8')):{};
+  const bucket = env.HOTELS_MEDIA_BUCKET || coreBindings.hotelsMediaBucket || 'none';
+  if (bucket !== 'none' && !/^[a-z0-9][a-z0-9-]{0,62}$/.test(bucket)) throw Error('HOTELS_MEDIA_BUCKET_INVALID');
   const passports=env.PASSPORTS_BUCKET || coreBindings.passportsBucket || 'none';
   if (passports!=='none' && !/^[a-z0-9][a-z0-9-]{0,62}$/.test(passports)) throw Error('PASSPORTS_BUCKET_INVALID');
   const routesEnabled = truthy(env.IUMRAH_ENABLE_ROUTE_CUTOVER);

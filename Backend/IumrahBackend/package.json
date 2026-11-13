@@ -5,13 +5,14 @@
   "type": "module",
   "scripts": {
     "test": "node --test tests/*.test.mjs",
-    "check": "node --check src/index.js && node --check src/router.js && node --test tests/*.test.mjs && npm --prefix ../FlightHubWorker test && npm run package:check",
+    "check": "node --check src/index.js && node --check src/router.js && node --test tests/*.test.mjs && npm --prefix ../FlightHubWorker test && npm run package:check && python3 -m unittest discover -s ../CoreMigration/tests",
     "render": "node scripts/render-config.mjs",
     "preflight": "node scripts/preflight.mjs",
     "discover": "node scripts/discover-bindings.mjs",
     "deploy": "node scripts/apply-package-schema.mjs && node scripts/apply-flights-migrations.mjs && wrangler deploy --config wrangler.generated.jsonc",
     "dry-run": "wrangler deploy --dry-run --config wrangler.generated.jsonc",
-    "package:check": "tsc -p package-engine/tsconfig.json && bash scripts/test-package-module.sh"
+    "package:check": "tsc -p package-engine/tsconfig.json && bash scripts/test-package-module.sh",
+    "release:smoke": "node scripts/release-smoke.mjs"
   },
   "dependencies": {
     "@cloudflare/puppeteer": "1.1.0"

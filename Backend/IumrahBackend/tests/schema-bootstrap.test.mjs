@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import {DatabaseSync} from 'node:sqlite';import {ensureSchema,applyPackageSchema} from '../scripts/apply-package-schema.mjs';
-const schema=JSON.parse(fs.readFileSync(new URL('../schema/bootstrap-v9.json',import.meta.url)));
+const schema=JSON.parse(fs.readFileSync(new URL('../schema/bootstrap-v21.json',import.meta.url)));
 function fixture(){const db=new DatabaseSync(':memory:');const query=async sql=>{assert.doesNotMatch(sql,/^\s*(DELETE|DROP|UPDATE|INSERT|REPLACE)\b/i);return db.prepare(sql).all();};return {db,query};}
 test('new hotel D1 with intelligence tables only is bootstrapped, not reset',async()=>{const {db,query}=fixture();db.exec(fs.readFileSync(new URL('../../HotelsWorker/migrations/0044_business_intelligence.sql',import.meta.url),'utf8'));await ensureSchema(query,schema.HOTELS_DB,'HOTELS_DB');db.exec("INSERT INTO hotels(id,slug,name,city) VALUES('keep','keep','Keep','Makkah')");const result=await ensureSchema(query,schema.HOTELS_DB,'HOTELS_DB');assert.equal(result.created,0);assert.equal(result.added,0);assert.equal(db.prepare('SELECT name FROM hotels').get().name,'Keep');});
 test('new bookings D1 schema includes booking documents and room columns; repeat is safe',async()=>{const {db,query}=fixture();await ensureSchema(query,schema.BOOKINGS_DB,'BOOKINGS_DB');assert.ok(db.prepare('PRAGMA table_info(bookings)').all().some(x=>x.name==='makkah_room_id'));assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE name='booking_documents'").get());assert.equal((await ensureSchema(query,schema.BOOKINGS_DB,'BOOKINGS_DB')).created,0);});
@@ -29,4 +29,16 @@ test('remote schema deploy path repairs the discovered partial databases and is 
   assert.ok(bookings.prepare("SELECT name FROM sqlite_master WHERE name='bookings'").get());
   const before=calls;await assert.rejects(applyPackageSchema({...env,HOTELS_DB_ID:ids[1]},transport,config),/SCHEMA_TARGET_MISMATCH/);assert.equal(calls,before);
  } finally {hotels.close();bookings.close();}
+});
+
+test('V21 provisions original account security, referral ledger and Care schema before activation',async()=>{
+ const {db,query}=fixture();
+ try {
+  await ensureSchema(query,schema.HOTELS_DB,'HOTELS_DB');
+  for(const table of ['iumrah_client_devices','iumrah_client_session_bindings','iumrah_client_apple_links','iumrah_client_google_links','iumrah_client_account_emails','iumrah_client_email_challenges','iumrah_friends_gifts','iumrah_friends_redemptions','iumrah_friends_credit_ledger','iumrah_care_package_requests','iumrah_booking_email_subscriptions'])assert.ok(db.prepare('SELECT name FROM sqlite_master WHERE type=\'table\' AND name=?').get(table),table);
+  db.exec("INSERT INTO pilgrims(id,display_name) VALUES(1,'Fixture'); INSERT INTO iumrah_friends_gifts(id,gift_token,referrer_pilgrim_id,position,created_at) VALUES('g1','token',1,1,'2026-01-01'); INSERT INTO iumrah_friends_credit_ledger(id,pilgrim_id,amount_usd,source_type,source_id,created_at) VALUES('l1',1,100,'referral','r1','2026-01-01');");
+  assert.throws(()=>db.exec("INSERT INTO iumrah_friends_gifts(id,gift_token,referrer_pilgrim_id,position,created_at) VALUES('g2','token',1,2,'2026-01-01')"),/UNIQUE/);
+  await ensureSchema(query,schema.HOTELS_DB,'HOTELS_DB');
+  assert.equal(db.prepare('SELECT gift_token FROM iumrah_friends_gifts').get().gift_token,'token');assert.equal(db.prepare('SELECT SUM(amount_usd) n FROM iumrah_friends_credit_ledger').get().n,100);
+ }finally{db.close()}
 });

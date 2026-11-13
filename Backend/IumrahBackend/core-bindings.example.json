@@ -1,0 +1,4 @@
+{
+  "hotelsMediaBucket": "replace-with-exact-existing-hotels-media-bucket",
+  "passportsBucket": "replace-with-exact-existing-private-passports-bucket"
+}

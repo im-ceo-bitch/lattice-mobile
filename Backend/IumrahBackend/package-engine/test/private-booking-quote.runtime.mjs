@@ -32,7 +32,7 @@ test('real core booking endpoint rejects tampered price before DB writes and acc
  Object.assign(booking,{customization:{},hotelNames:{makkah:'Fixture Hotel'},flight:'Fixture flight'});
  const dummy={fetch:()=>new Response('unexpected')};
  const router=createBackendRouter({hotels:dummy,flights:dummy,packages:dummy,core,verifyBookingQuote});
- const bindings={...env,HOTELS_DB:{},BOOKINGS_DB:db,PASSPORTS:{},IUMRAH_CORE_CUTOVER_READY:'1',IUMRAH_SUPERADMIN_PASSWORD:'fixture',IUMRAH_SESSION_SECRET:'fixture'};
+ const bindings={...env,HOTELS_DB:{},BOOKINGS_DB:db,PASSPORTS:{},FLIGHTS_DB:{},HOTELS_MEDIA:{},IUMRAH_CORE_PARITY_ATTESTATION:'v21:'+'a'.repeat(64),IUMRAH_CORE_CUTOVER_READY:'1',IUMRAH_SUPERADMIN_PASSWORD:'fixture',IUMRAH_SESSION_SECRET:'fixture'};
  const send=(b,p)=>router.fetch(new Request('https://iumrah-backend.helloiumrah.workers.dev/api/bookings',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({lang:'ru',booking:b,quoteProof:p})}),bindings,{});
  assert.equal((await send({...booking,totalUsd:1},proof)).status,409);
  assert.equal(sql.prepare("SELECT COUNT(*) n FROM sqlite_master WHERE name='bookings'").get().n,0);

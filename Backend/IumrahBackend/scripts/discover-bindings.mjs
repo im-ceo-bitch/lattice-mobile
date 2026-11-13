@@ -3,6 +3,7 @@
 // different schemas. Schema compatibility is reported separately by preflight.
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
+import fs from 'node:fs';
 
 const targets = [
   {binding:'HOTELS_DB',id:'HOTELS_DB_ID',name:'HOTELS_DB_NAME',defaultName:'iumrah-hotels'},
@@ -50,33 +51,51 @@ export async function discover(env=process.env, fetcher=fetch) {
     outputs[target.name]=db.name;
   }
 
-  // A missing R2 media bucket must not prevent a staging Worker from being
-  // deployed. Its media endpoints will remain unavailable until connected.
-  const bucketCandidates=env.HOTELS_MEDIA_BUCKET ? [env.HOTELS_MEDIA_BUCKET] : ['iumrah-hotels-media','iumrah-operations-media'];
-  for (const bucket of bucketCandidates) if (!nameOK(bucket)) throw Error('Invalid R2 bucket name');
-  let selectedBucket='';
-  for (const bucket of bucketCandidates) {
+  // Preserve exact existing Worker R2 bindings on redeploy. A missing config
+  // file must not silently detach a private passport bucket from production.
+  const file=new URL('../core-bindings.json',import.meta.url);
+  const local=fs.existsSync(file)?JSON.parse(fs.readFileSync(file,'utf8')):{};
+  const settingsResponse=await fetcher(`${origin}/workers/scripts/iumrah-backend/settings`,{headers});
+  let previous=[];
+  if(settingsResponse.status!==404){
+    if(!settingsResponse.ok)throw Error('WORKER_BINDINGS_LOOKUP_FAILED: cannot safely preserve existing R2 bindings');
+    const settings=await settingsResponse.json();
+    if(!settings.success||!Array.isArray(settings.result?.bindings))throw Error('WORKER_BINDINGS_RESPONSE_INVALID');
+    previous=settings.result.bindings;
+  }
+  const priorBucket=name=>{
+    const matches=previous.filter(x=>x.name===name&&x.type==='r2_bucket');
+    if(matches.length>1||matches.some(x=>!nameOK(x.bucket_name)))throw Error('AMBIGUOUS_EXISTING_R2_BINDING:'+name);
+    return matches[0]?.bucket_name;
+  };
+  const findBucket=async(bucket)=>{
+    if(!nameOK(bucket))throw Error('INVALID_R2_BUCKET_NAME');
     const response=await fetcher(`${origin}/r2/buckets/${encodeURIComponent(bucket)}`,{headers});
-    if (response.status===404) continue;
-    if (response.status===403) {
-      console.error('Warning: Cloudflare token cannot read R2; deploying without HOTELS_MEDIA binding.');
-      break;
-    }
-    if (!response.ok) throw Error(`R2 lookup returned HTTP ${response.status}`);
-    const body=await response.json();
-    if (!body.success) throw Error('R2 bucket lookup failed');
-    if (body.result?.name!==bucket) throw Error('R2 bucket name mismatch');
-    selectedBucket=bucket; break;
+    if(response.status===404)return false;
+    if(!response.ok)throw Error(`R2 lookup returned HTTP ${response.status}; cannot safely verify existing bucket`);
+    const data=await response.json();if(!data.success||data.result?.name!==bucket)throw Error('R2_BUCKET_MISMATCH');
+    return true;
+  };
+  const explicitMedia=env.HOTELS_MEDIA_BUCKET||local.hotelsMediaBucket||priorBucket('HOTELS_MEDIA');
+  const explicitPassports=env.PASSPORTS_BUCKET||local.passportsBucket||priorBucket('PASSPORTS');
+  for(const [name,explicit] of [['HOTELS_MEDIA',explicitMedia],['PASSPORTS',explicitPassports]]){
+    const prior=priorBucket(name);
+    if(prior&&explicit&&explicit!==prior)throw Error(`R2_BINDING_CHANGE_REFUSED:${name}; review migration and explicitly rebind in Cloudflare first`);
   }
-  outputs.HOTELS_MEDIA_BUCKET=selectedBucket||'none';
-  // Explicit private bucket only; do not guess or create a replacement for passport files.
-  if (env.PASSPORTS_BUCKET && env.PASSPORTS_BUCKET !== 'none') {
-    if (!nameOK(env.PASSPORTS_BUCKET)) throw Error('PASSPORTS_BUCKET_INVALID');
-    const res=await fetcher(`${origin}/r2/buckets/${encodeURIComponent(env.PASSPORTS_BUCKET)}`,{headers});
-    if (!res.ok) throw Error('PASSPORTS_BUCKET_NOT_FOUND');
-    const data=await res.json(); if(!data.success || data.result?.name!==env.PASSPORTS_BUCKET) throw Error('PASSPORTS_BUCKET_MISMATCH');
-    outputs.PASSPORTS_BUCKET=env.PASSPORTS_BUCKET;
+  if(explicitMedia&&explicitMedia!=='none'){
+    if(!await findBucket(explicitMedia))throw Error('HOTELS_MEDIA_BUCKET_NOT_FOUND');
+    outputs.HOTELS_MEDIA_BUCKET=explicitMedia;
+  } else if(explicitMedia==='none')outputs.HOTELS_MEDIA_BUCKET='none';
+  else {
+    const found=[];
+    for(const bucket of ['iumrah-hotels-media','iumrah-operations-media'])if(await findBucket(bucket))found.push(bucket);
+    if(found.length>1)throw Error('HOTELS_MEDIA_BUCKET_AMBIGUOUS: set exact hotelsMediaBucket in core-bindings.json');
+    outputs.HOTELS_MEDIA_BUCKET=found[0]||'none';
   }
+  if(explicitPassports&&explicitPassports!=='none'){
+    if(!await findBucket(explicitPassports))throw Error('PASSPORTS_BUCKET_NOT_FOUND');
+    outputs.PASSPORTS_BUCKET=explicitPassports;
+  }else outputs.PASSPORTS_BUCKET='none';
 
   return outputs;
 }

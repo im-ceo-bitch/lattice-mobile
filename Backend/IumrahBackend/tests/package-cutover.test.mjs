@@ -20,7 +20,7 @@ test('cutover never falsely declares the missing core implemented or old data sa
 test('package cron starts only with core cutover and explicit scheduler enablement',async()=>{
  let n=0;const module={fetch(){},scheduled(){n++}};const router=createBackendRouter({hotels:module,flights:module,packages:module,core:module});
  const event={cron:'*/5 * * * *',scheduledTime:Date.UTC(2026,10,13,5,0)};
- const env={IUMRAH_CORE_CUTOVER_READY:'1',BOOKINGS_DB:{},HOTELS_DB:{},PASSPORTS:{},IUMRAH_SESSION_SECRET:'test',IUMRAH_SUPERADMIN_PASSWORD:'test',PACKAGE_QUOTE_SEAL_KEY:'test'};
+ const env={IUMRAH_CORE_CUTOVER_READY:'1',IUMRAH_CORE_PARITY_ATTESTATION:'v21:'+'a'.repeat(64),HOTELS_MEDIA:{},BOOKINGS_DB:{},HOTELS_DB:{},FLIGHTS_DB:{},PASSPORTS:{},IUMRAH_SESSION_SECRET:'test',IUMRAH_SUPERADMIN_PASSWORD:'test',PACKAGE_QUOTE_SEAL_KEY:'test'};
  await router.scheduled(event,{},{});assert.equal(n,0);
  await router.scheduled(event,env,{});assert.equal(n,0);
  await router.scheduled(event,{...env,IUMRAH_PACKAGE_CRON_ENABLED:'1'},{});assert.equal(n,1);
@@ -34,4 +34,13 @@ test('newly imported account and booking mutations cannot write to an unverified
    assert.equal(result.status,503);assert.equal((await result.json()).error,'CORE_CUTOVER_PENDING');
  }
  assert.equal(called,false);
+});
+
+test('legacy activation flag alone cannot unlock private data or mutations',async()=>{
+ const module={fetch(){throw Error('must not dispatch')}};
+ const router=createBackendRouter({hotels:module,flights:module,packages:module,core:module});
+ const env={IUMRAH_CORE_CUTOVER_READY:'1',BOOKINGS_DB:{},HOTELS_DB:{},FLIGHTS_DB:{},HOTELS_MEDIA:{},PASSPORTS:{},IUMRAH_SESSION_SECRET:'test',IUMRAH_SUPERADMIN_PASSWORD:'test',PACKAGE_QUOTE_SEAL_KEY:'test'};
+ for(const path of ['/api/bookings','/api/package/client/account/login','/api/package/quote']) {
+  const res=await router.fetch(new Request('https://example.test'+path,{method:'POST'}),env,{});assert.equal(res.status,503);
+ }
 });

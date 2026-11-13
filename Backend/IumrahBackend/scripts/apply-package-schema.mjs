@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-const snapshot=JSON.parse(fs.readFileSync(new URL('../schema/bootstrap-v9.json',import.meta.url),'utf8'));
+const snapshot=JSON.parse(fs.readFileSync(new URL('../schema/bootstrap-v21.json',import.meta.url),'utf8'));
 const ident=s=>{if(!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(s))throw Error('INVALID_SCHEMA_IDENTIFIER');return '"'+s+'"';};
 const constant=s=>s===null||/^(?:NULL|[-+]?\d+(?:\.\d+)?|'(?:[^']|'')*')$/i.test(s);
 export async function ensureSchema(query, schema, binding) {

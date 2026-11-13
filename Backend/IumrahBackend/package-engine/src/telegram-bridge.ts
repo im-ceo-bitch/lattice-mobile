@@ -70,7 +70,7 @@ function telegramOrigin(env: Env) {
   if (!raw) return null;
   try {
     const url = new URL(raw);
-    if (url.protocol !== "https:") return null;
+    if (url.protocol !== "https:" || url.username || url.password || url.hostname === "iumrah-backend.helloiumrah.workers.dev") return null;
     return url.origin;
   } catch {
     return null;
@@ -99,7 +99,8 @@ export async function createTelegramBookingLink(request: Request, bookingID: str
       headers: {
         accept: "application/json",
         "content-type": "application/json",
-        "user-agent": "iumrah-package-engine/telegram-bridge",
+        "user-agent": "iumrah-backend/telegram-bridge",
+        ...(env.IUMRAH_TELEGRAM_BRIDGE_SECRET ? { authorization: `Bearer ${env.IUMRAH_TELEGRAM_BRIDGE_SECRET}` } : {}),
       },
       body: JSON.stringify({ bookingId: bookingID, language, ...credential }),
       redirect: "manual",
@@ -111,7 +112,7 @@ export async function createTelegramBookingLink(request: Request, bookingID: str
       "cache-control": "no-store",
     });
     if (!response.ok) {
-      console.error("telegram-link-create-failed", bookingID, response.status, text.slice(0, 400));
+      console.error("telegram-link-create-failed", response.status);
       return new Response(text || JSON.stringify({ ok: false, error: "TELEGRAM_LINK_FAILED" }), {
         status: response.status >= 400 && response.status < 600 ? response.status : 502,
         headers,
@@ -119,7 +120,7 @@ export async function createTelegramBookingLink(request: Request, bookingID: str
     }
     return new Response(text, { status: 200, headers });
   } catch (error) {
-    console.error("telegram-link-bridge-unreachable", bookingID, error);
+    console.error("telegram-link-bridge-unreachable");
     return json({ ok: false, error: "TELEGRAM_BOT_UNREACHABLE" }, 502);
   }
 }
@@ -139,7 +140,8 @@ export async function getTelegramBookingStatus(request: Request, bookingID: stri
       headers: {
         accept: "application/json",
         "content-type": "application/json",
-        "user-agent": "iumrah-package-engine/telegram-bridge",
+        "user-agent": "iumrah-backend/telegram-bridge",
+        ...(env.IUMRAH_TELEGRAM_BRIDGE_SECRET ? { authorization: `Bearer ${env.IUMRAH_TELEGRAM_BRIDGE_SECRET}` } : {}),
       },
       body: JSON.stringify({ bookingId: bookingID, ...credential }),
       redirect: "manual",
@@ -157,7 +159,7 @@ export async function getTelegramBookingStatus(request: Request, bookingID: stri
     }
     return new Response(text, { status: 200, headers });
   } catch (error) {
-    console.error("telegram-link-status-unreachable", bookingID, error);
+    console.error("telegram-link-status-unreachable");
     return json({ ok: false, error: "TELEGRAM_BOT_UNREACHABLE" }, 502);
   }
 }

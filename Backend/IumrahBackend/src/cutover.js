@@ -1,9 +1,19 @@
-// No writes, no private rows, no counts, no tokens. Presence of schema is not parity.
+// Schema readiness and operator attestation are distinct from live data parity.
 const required = {
-  HOTELS_DB: {catalog:['hotels','hotel_price_cache','primary_hotels'], operations:['pilgrims','pilgrim_trips','iumrah_account_sessions','business_staff_sessions','business_chat_threads','trip_flights','payment_templates']},
-  BOOKINGS_DB: {bookingStore:['bookings','booking_events','booking_documents','chat_threads','chat_messages']},
+  HOTELS_DB: {
+    catalog:['hotels','hotel_price_cache','primary_hotels'],
+    operations:['pilgrims','pilgrim_trips','iumrah_accounts','iumrah_account_sessions','business_staff_sessions','business_chat_threads','business_chat_messages','business_chat_attachments','trip_flights','payment_templates','booking_travelers','booking_payment_receipts','booking_travel_documents','booking_status_history','booking_tombstones','booking_number_sequence','booking_itinerary_items','booking_pricing_overrides','booking_esims','iumrah_security_submissions','iumrah_identity_confirmations','client_notification_devices','client_system_notifications','client_system_notification_reads'],
+    accountSecurity:['iumrah_client_devices','iumrah_client_session_bindings','iumrah_client_apple_links','iumrah_client_apple_assertions','iumrah_client_google_links','iumrah_client_google_assertions','iumrah_client_account_emails','iumrah_client_email_challenges','iumrah_client_account_phones','iumrah_client_sms_challenges','iumrah_client_security_audit','iumrah_client_security_proofs'],
+    gifts:['iumrah_friends_gifts','iumrah_friends_redemptions','iumrah_friends_credit_ledger'],
+    careAndEmail:['iumrah_care_package_requests','iumrah_guest_booking_email_challenges','iumrah_guest_booking_phone_challenges','iumrah_booking_email_subscriptions']},
+  BOOKINGS_DB: {bookingStore:['bookings','booking_events','booking_documents','chat_threads','chat_messages','telegram_booking_consents','booking_telegram_subscriptions','booking_telegram_outbox']},
   FLIGHTS_DB: {flightCatalog:['flights','flight_offers']}
 };
+const bindings=['HOTELS_DB','BOOKINGS_DB','FLIGHTS_DB','HOTELS_MEDIA','PASSPORTS','IUMRAH_SESSION_SECRET','IUMRAH_SUPERADMIN_PASSWORD','PACKAGE_QUOTE_SEAL_KEY'];
+export const migrationAttested = env => /^v21:[a-f0-9]{64}$/.test(env.IUMRAH_CORE_PARITY_ATTESTATION || '');
+export function coreReady(env,core) {
+  return !!core && env.IUMRAH_CORE_CUTOVER_READY === '1' && migrationAttested(env) && bindings.every(key=>!!env[key]);
+}
 export async function cutoverStatus(env,installed=false,enabled=false) {
   const readiness = {};
   for (const [binding, groups] of Object.entries(required)) {
@@ -16,7 +26,21 @@ export async function cutoverStatus(env,installed=false,enabled=false) {
   }
   const missing = [];
   if (!installed) missing.push('coreHandlers');
-  for (const binding of ['HOTELS_DB','BOOKINGS_DB','FLIGHTS_DB','PASSPORTS','IUMRAH_SESSION_SECRET','IUMRAH_SUPERADMIN_PASSWORD','PACKAGE_QUOTE_SEAL_KEY']) if (!env[binding]) missing.push(binding);
+  for (const binding of bindings) if (!env[binding]) missing.push(binding);
   if (env.IUMRAH_CORE_CUTOVER_READY !== '1') missing.push('IUMRAH_CORE_CUTOVER_READY');
-  return {ok:true, missing, service:'iumrah-backend', readiness, coreHandlersInstalled:installed,coreCutoverEnabled:enabled, dataParityVerified:false, legacyRetirementAllowed:false};
+  if (!migrationAttested(env)) missing.push('IUMRAH_CORE_PARITY_ATTESTATION');
+  const has=(...keys)=>keys.every(key=>typeof env[key]==='string'&&env[key].trim().length>0);
+  const providers={
+    sms:has('DEVSMS_API_TOKEN'), email:has('RESEND_API_KEY'),
+    apple:has('APPLE_BUNDLE_ID'), google:has('GOOGLE_SERVER_CLIENT_ID'),
+    wallet:has('WALLET_PASS_TYPE_ID','WALLET_TEAM_ID','WALLET_CERT_PEM','WALLET_KEY_PEM','WALLET_WWDR_CERT_PEM'),
+    push:has('APNS_PRIVATE_KEY','APNS_KEY_ID','APPLE_TEAM_ID'),
+    telegram:has('TELEGRAM_LOGIN_CLIENT_ID','IUMRAH_TELEGRAM_BOT_TOKEN'),
+    telegramBridge:(()=>{try{const url=new URL(env.TELEGRAM_BOT_ORIGIN||env.IUMRAH_TELEGRAM_BOT_WORKER_URL||'');return url.protocol==='https:'&&!url.username&&!url.password&&url.hostname!=='iumrah-backend.helloiumrah.workers.dev';}catch{return false;}})(),
+    telegramRetry:has('IUMRAH_TELEGRAM_RETRY_SECRET')&&env.IUMRAH_TELEGRAM_RETRY_SECRET.length>=24,
+    esim:has('ESIM_ACCESS_CODE','ESIM_ACCESS_SECRET')
+  };
+  const schemaReady=Object.values(readiness).every(Boolean);
+  const providerConfigurationReady=Object.values(providers).every(Boolean);
+  return {ok:true, missing, service:'iumrah-backend', readiness, schemaReady, providers, providerConfigurationReady, coreHandlersInstalled:installed,coreCutoverEnabled:enabled, migrationAttested:migrationAttested(env),dataParityVerified:false, legacyRetirementAllowed:false};
 }

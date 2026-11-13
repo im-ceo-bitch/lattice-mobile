@@ -31,16 +31,23 @@ export async function verifyDeployed(env=process.env, fetcher=fetch) {
   if(health.service!=='iumrah-backend'||!health.bindings?.FLIGHTS_DB||!health.modules?.core||!health.modules?.packages) throw Error('UNIFIED_WORKER_BINDINGS_NOT_READY');
   const packageHealth=await getJSON(origin+'/api/package/health');
   if(packageHealth.service!=='iumrah-package-engine'||!packageHealth.hotelsDbConfigured||!packageHealth.bookingsDbConfigured) throw Error('PACKAGE_DATABASE_SCHEMA_NOT_READY');
-  if(!health.modules?.coreCutoverEnabled) console.warn('Core cutover pending: schema is not data parity; preserve old D1/R2.');
+  const services=await getJSON(origin+'/api/services/health');
+  if(services.service!=='iumrah-public-services'||services.release!=='v21-rc'||services.advisorLanguages<9||services.audioLanguages<9)throw Error('PUBLIC_SERVICES_NOT_READY');
+  const cutover=await getJSON(origin+'/__iumrah/cutover');
   const flightHealth=await getJSON(origin+'/health');
   if(!flightHealth.database_connected) throw Error('FLIGHTS_DB_NOT_CONNECTED');
   const status=await getJSON(origin+'/v1/public/status');
   if(status.ready!==true||!status.counts||!Number.isFinite(status.counts.flights)) throw Error('FLIGHTS_SCHEMA_NOT_READY');
   const catalog=await getJSON(origin+'/v1/public/flights?limit=1');
   if(!Array.isArray(catalog.flights)) throw Error('FLIGHTS_CATALOG_NOT_READY');
+  if(cutover.service!=='iumrah-backend'||!health.modules?.coreCutoverEnabled||!cutover.coreCutoverEnabled||!cutover.schemaReady||!cutover.migrationAttested||!Array.isArray(cutover.missing)||cutover.missing.length) {
+    console.error('Flight catalog verified, but core release gate is blocked:', JSON.stringify({missing:cutover.missing,readiness:cutover.readiness}));
+    throw Error('CORE_CUTOVER_PENDING: Worker deployed; release NOT ready. Verify D1/R2 and attest migration before activation.');
+  }
+  if(!cutover.providerConfigurationReady)throw Error('CORE_PROVIDER_CONFIGURATION_PENDING: '+Object.entries(cutover.providers||{}).filter(([,ready])=>!ready).map(([name])=>name).join(', ')+'; credentials not validated against providers.');
   return {url:origin,flights:status.counts.flights,offers:status.counts.offers,health:health.status};
 }
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)) {
-  try {const result=await verifyDeployed();console.log(`iumrah-backend: ${result.url}`);console.log(`Flight API OK: ${result.flights} flights, ${result.offers} offers, worker ${result.health}`);}
+  try {const result=await verifyDeployed();console.log(`iumrah-backend: ${result.url}`);console.log(`Flight API OK: ${result.flights} flights, ${result.offers} offers, worker ${result.health}`);console.log('Core schema and operator migration attestation present; authenticated production smoke tests still required.');}
   catch(e){console.error('UNIFIED_BACKEND_NOT_READY:',e.message);process.exitCode=1;}
 }

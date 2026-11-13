@@ -12,6 +12,7 @@ const ok=result=>({ok:true,status:200,json:async()=>({success:true,result})});
 function mockFetch(dbs=databases,bucket='iumrah-hotels-media'){
   return async(url,opts={})=>{
     if (url.includes('/d1/database?')) return ok(dbs);
+    if (url.endsWith('/workers/scripts/iumrah-backend/settings')) return {ok:false,status:404};
     if (url.includes('/d1/database/') && url.endsWith('/query')) throw Error('Discovery must not inspect schemas');
     if (url.includes('/r2/buckets/')){
       const name=url.split('/').at(-1);
@@ -49,4 +50,18 @@ test('stops when duplicate D1 names make identity ambiguous',async()=>{
 test('supports optional non-secret exact name overrides',async()=>{
  const result=await discover({...env,BOOKINGS_DB_NAME:'new-bookings'},mockFetch([...databases,{name:'new-bookings',uuid:'44444444-4444-4444-4444-444444444444'}]));
  assert.equal(result.BOOKINGS_DB_NAME,'new-bookings');
+});
+
+test('preserves the deployed exact private R2 binding without guessing',async()=>{
+ const fetcher=async(url,opts)=>{
+   if(url.endsWith('/settings'))return ok({bindings:[{name:'PASSPORTS',type:'r2_bucket',bucket_name:'existing-private-passports'},{name:'HOTELS_MEDIA',type:'r2_bucket',bucket_name:'iumrah-hotels-media'}]});
+   if(url.endsWith('/existing-private-passports'))return ok({name:'existing-private-passports'});
+   return mockFetch()(url,opts);
+ };
+ const result=await discover(env,fetcher);assert.equal(result.PASSPORTS_BUCKET,'existing-private-passports');
+ await assert.rejects(discover({...env,PASSPORTS_BUCKET:'none'},fetcher),/R2_BINDING_CHANGE_REFUSED/);
+});
+test('blocks ambiguous new media binding instead of choosing the wrong bucket',async()=>{
+ const f=async(url,opts)=>url.includes('/r2/buckets/')?ok({name:url.split('/').at(-1)}):mockFetch()(url,opts);
+ await assert.rejects(discover(env,f),/HOTELS_MEDIA_BUCKET_AMBIGUOUS/);
 });

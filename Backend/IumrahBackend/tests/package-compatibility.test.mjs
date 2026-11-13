@@ -32,7 +32,7 @@ function d1(db){return {prepare(sql){const stmt=db.prepare(sql);const numbered=[
 async function fixture(t){
  const h=new DatabaseSync(':memory:'),b=new DatabaseSync(':memory:');t.after(()=>{h.close();b.close();});
  for(const [db,binding] of [[h,'HOTELS_DB'],[b,'BOOKINGS_DB']])await ensureSchema(async sql=>db.prepare(sql).all(),schema[binding],binding);
- const env={HOTELS_DB:d1(h),BOOKINGS_DB:d1(b),FLIGHTS_DB:{},PASSPORTS:{},IUMRAH_CORE_CUTOVER_READY:'1',IUMRAH_SESSION_SECRET:'fixture-session-secret',IUMRAH_SUPERADMIN_PASSWORD:'fixture-password',PACKAGE_QUOTE_SEAL_KEY:'fixture-seal-key'};
+ const env={HOTELS_DB:d1(h),BOOKINGS_DB:d1(b),FLIGHTS_DB:{},PASSPORTS:{},IUMRAH_CORE_CUTOVER_READY:'1',IUMRAH_CORE_PARITY_ATTESTATION:'v21:'+'a'.repeat(64),HOTELS_MEDIA:{},IUMRAH_SESSION_SECRET:'fixture-session-secret',IUMRAH_SUPERADMIN_PASSWORD:'fixture-password',PACKAGE_QUOTE_SEAL_KEY:'fixture-seal-key'};
  const flights={fetch(){throw Error('Unexpected flight request');}};
  const router=createBackendRouter({hotels,flights,packages,core});
  const call=(path,method='GET',headers={},override={})=>router.fetch(new Request(origin+path,{method,headers}),{...env,...override},{waitUntil(){}});
