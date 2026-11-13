@@ -4,6 +4,7 @@ import flights from '../../FlightHubWorker/src/index.js';
 import packages from '../package-engine/src/index.ts';
 import { requestAeroDataBox, aeroDataBoxConfiguration } from '../package-engine/src/flight-detail.ts';
 import core from '../core/index.js';
+import { verifyBookingQuote } from '../package-engine/src/booking-gateway.ts';
 import { createBackendRouter } from './router.js';
 export { HotelImportWorkflow };
-export default createBackendRouter({hotels,flights,packages,core,requestAeroDataBox,aeroDataBoxConfiguration});
+export default createBackendRouter({hotels,flights,packages,core,requestAeroDataBox,aeroDataBoxConfiguration,verifyBookingQuote});

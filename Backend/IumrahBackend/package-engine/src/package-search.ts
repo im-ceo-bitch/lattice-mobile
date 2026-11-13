@@ -677,6 +677,13 @@ export async function generatePackageQuote(request: Request, env: Env): Promise<
       resolveJourneyFare(raw, travelerCount, { adults, children, infants }, env),
       resolveJourneySchedule(raw, { adults, children, infants }, env),
     ]);
+    if (verifiedSchedule) {
+      const verifiedLegs = [verifiedSchedule.outbound,verifiedSchedule.inbound];
+      for (const [index,leg] of (raw.flight?.legs ?? []).entries()) {
+        const verified=verifiedLegs[index];
+        if (!verified || verified.origin!==text(leg.origin,3).toUpperCase() || verified.destination!==text(leg.destination,3).toUpperCase()) throw new Error("FLIGHT_QUOTE_ROUTE_MISMATCH");
+      }
+    }
     const stayPlan = deriveAuthoritativeStayPlan({
       includeMadinah,
       requestedMakkahNights: makkahRequest.nights,
@@ -745,11 +752,17 @@ export async function generatePackageQuote(request: Request, env: Env): Promise<
         }
       }
     }
+    calculated.snapshot.bookingContract = {
+      legs: (raw.flight?.legs ?? []).slice(0,2).map(leg=>({origin:text(leg.origin,3).toUpperCase(),destination:text(leg.destination,3).toUpperCase(),departureDate:text(leg.departureDate,10)})),
+      schedule: verifiedSchedule,
+      makkahRoomId: makkahRequest.roomId,
+      madinahRoomId: madinahRequest?.roomId ?? null,
+    };
     const quoteProof = await sealPricingSnapshot(calculated.snapshot, env);
 
     // Confidential supplier components, markup and estimated profit intentionally
     // never leave the Worker. The sealed proof is opaque to iOS/Android/Web and is
-    // opened only after a real booking exists.
+    // opened only inside the server for booking validation and the private pricing report.
     return json({
       ok: true,
       quote: {

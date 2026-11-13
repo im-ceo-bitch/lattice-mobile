@@ -41,7 +41,7 @@ const json = (value, status = 200) => new Response(JSON.stringify(value), {
 function coreReady(env,core) {
   return env.IUMRAH_CORE_CUTOVER_READY === '1' && !!core && !!env.BOOKINGS_DB && !!env.HOTELS_DB && !!env.PASSPORTS && !!env.IUMRAH_SESSION_SECRET && !!env.IUMRAH_SUPERADMIN_PASSWORD && !!env.PACKAGE_QUOTE_SEAL_KEY;
 }
-export function createBackendRouter({hotels, flights, packages, core, requestAeroDataBox, aeroDataBoxConfiguration}) {
+export function createBackendRouter({hotels, flights, packages, core, requestAeroDataBox, aeroDataBoxConfiguration, verifyBookingQuote}) {
   if (typeof hotels?.fetch !== 'function' || typeof flights?.fetch !== 'function') throw Error('BACKEND_HANDLERS_REQUIRED');
   const router = {
     async fetch(request, env, ctx) {
@@ -55,7 +55,7 @@ export function createBackendRouter({hotels, flights, packages, core, requestAer
       const ready = coreReady(env,core);
       // The operator activates this only after verifying D1/R2 parity and freezing old writes.
       const dispatch = (req) => router.fetch(req,env,ctx);
-      const routedEnv = core ? {...sharedEnv, IUMRAH_CORE_FETCH: (input,init)=>dispatch(new Request(input,init)), AUTH_SESSION_URL:'https://iumrah-backend.helloiumrah.workers.dev/api/auth/staff/session', BOOKINGS_ADMIN_URL:'https://iumrah-backend.helloiumrah.workers.dev/api/admin/bookings', BOOKINGS_PUBLIC_URL:'https://iumrah-backend.helloiumrah.workers.dev/api/bookings'} : sharedEnv;
+      const routedEnv = core ? {...sharedEnv, IUMRAH_VERIFY_BOOKING_QUOTE: verifyBookingQuote ? (booking,proof)=>verifyBookingQuote(booking,proof,env) : undefined, IUMRAH_CORE_FETCH: (input,init)=>dispatch(new Request(input,init)), AUTH_SESSION_URL:'https://iumrah-backend.helloiumrah.workers.dev/api/auth/staff/session', BOOKINGS_ADMIN_URL:'https://iumrah-backend.helloiumrah.workers.dev/api/admin/bookings', BOOKINGS_PUBLIC_URL:'https://iumrah-backend.helloiumrah.workers.dev/api/bookings'} : sharedEnv;
       if (route === 'core') {
         if (!ready && !(core && request.method==='GET' && publicCoreReads.has(pathname))) return json({ok:false,error:'CORE_CUTOVER_PENDING'},503);
         return core.fetch(request,routedEnv,ctx,dispatch);

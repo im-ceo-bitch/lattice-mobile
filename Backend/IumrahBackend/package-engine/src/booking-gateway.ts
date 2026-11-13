@@ -45,7 +45,7 @@ function sameNumber(a: unknown, b: unknown, tolerance = 0.011) {
   return Number.isFinite(left) && Number.isFinite(right) && Math.abs(left - right) <= tolerance;
 }
 
-function assertBookingMatchesSnapshot(booking: Record<string, any>, snapshot: GeneratorPricingSnapshot) {
+export function assertBookingMatchesSnapshot(booking: Record<string, any>, snapshot: GeneratorPricingSnapshot) {
   if (snapshot.bookingAllowed === false) throw new Error("SANDBOX_QUOTE_NOT_BOOKABLE");
   if (!sameNumber(booking.totalUsd, snapshot.totals.publicTotalUsd)) throw new Error("BOOKING_QUOTE_TOTAL_MISMATCH");
   if (!sameNumber(booking.perPilgrimUsd, snapshot.totals.publicPricePerPilgrimUsd)) throw new Error("BOOKING_QUOTE_PER_PERSON_MISMATCH");
@@ -75,6 +75,50 @@ function assertBookingMatchesSnapshot(booking: Record<string, any>, snapshot: Ge
 
   const traceQuoteID = String(booking.generatorTrace?.quoteId ?? "");
   if (traceQuoteID && traceQuoteID !== snapshot.quoteId) throw new Error("BOOKING_QUOTE_ID_MISMATCH");
+}
+
+// Internal only: never expose the decrypted snapshot through a public route.
+export async function verifyBookingQuote(booking: Record<string, any>, proof: unknown, env: Env): Promise<{quoteId:string; totalUsd:number; perPilgrimUsd:number}> {
+  if (typeof proof !== "string" || !proof.trim() || proof.length > 80_000) throw new Error("QUOTE_PROOF_REQUIRED");
+  // The canonical booking path requires the existing dedicated server sealing key.
+  if (!String(env.PACKAGE_QUOTE_SEAL_KEY ?? "").trim()) throw new Error("QUOTE_SEAL_NOT_CONFIGURED");
+  const snapshot = await unsealPricingSnapshot(proof, env);
+  assertBookingMatchesSnapshot(booking, snapshot);
+  if (String(booking.generatorTrace?.quoteId ?? "") !== snapshot.quoteId) throw new Error("BOOKING_QUOTE_ID_MISMATCH");
+  if (Boolean(booking.input?.includeMadinah) !== snapshot.context.includeMadinah) throw new Error("BOOKING_QUOTE_SCOPE_MISMATCH");
+  // New quotes bind the selected itinerary and dates, not just the displayed amount.
+  const contract = snapshot.bookingContract;
+  if (!contract) throw new Error("BOOKING_QUOTE_REFRESH_REQUIRED");
+  const trace = booking.generatorTrace ?? {};
+  const outbound = trace.outbound ?? {};
+  const inbound = trace.inbound ?? {};
+  const sameLeg = (actual: Record<string,any>, expected: {origin:string;destination:string;departureDate:string}) =>
+    actual.origin === expected.origin && actual.destination === expected.destination &&
+    String(actual.departureAt ?? "").slice(0,10) === expected.departureDate;
+  // The client may serialize the time in UTC; use the verified route plus the
+  // actual instant when the supplier provides it (otherwise fail closed on date).
+  const matchesLeg = (actual: Record<string,any>, expected: typeof contract.legs[number], verified?: {origin:string;destination:string;departureAt:string;arrivalAt:string}|null) => {
+    if (actual.origin !== expected.origin || actual.destination !== expected.destination) return false;
+    if (verified && (verified.origin !== expected.origin || verified.destination !== expected.destination)) return false;
+    if (verified && /(?:Z|[+-]\d{2}:?\d{2})$/i.test(verified.departureAt) && Number.isFinite(Date.parse(verified.departureAt)) && Number.isFinite(Date.parse(actual.departureAt))) {
+      return Math.abs(Date.parse(actual.departureAt)-Date.parse(verified.departureAt)) <= 60_000;
+    }
+    if (sameLeg(actual,expected)) return true;
+    const airportZone = ["TAS","FEG","NMA","AZN","SKD","BHK","KSQ","TMJ","UGC","NCU"].includes(expected.origin) ? "Asia/Tashkent" : ["JED","MED","RUH","DMM"].includes(expected.origin) ? "Asia/Riyadh" : null;
+    if (!airportZone || !Number.isFinite(Date.parse(actual.departureAt))) return false;
+    const localDate = new Intl.DateTimeFormat("en-CA",{timeZone:airportZone,year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date(actual.departureAt));
+    return localDate === expected.departureDate;
+  };
+  if (!contract.legs[0] || !matchesLeg(outbound,contract.legs[0],contract.schedule?.outbound)) throw new Error("BOOKING_QUOTE_FLIGHT_MISMATCH");
+  if (contract.legs.length === 2 && !matchesLeg(inbound,contract.legs[1],contract.schedule?.inbound)) throw new Error("BOOKING_QUOTE_FLIGHT_MISMATCH");
+  if (booking.route?.originCode !== contract.legs[0].origin || booking.route?.outboundDestination !== contract.legs[0].destination || (contract.legs[1] && booking.route?.returnOrigin !== contract.legs[1].origin)) throw new Error("BOOKING_QUOTE_ROUTE_MISMATCH");
+  // Exact selected room ids are part of the encrypted contract. Use the trace
+  // because older public selection objects omit the room fields.
+  for (const city of ["makkah", "madinah"] as const) {
+    const expected = city === "makkah" ? contract.makkahRoomId : contract.madinahRoomId;
+    if (expected && String(trace[city+"Hotel"]?.roomId ?? "") !== expected) throw new Error("BOOKING_QUOTE_ROOM_MISMATCH");
+  }
+  return {quoteId:snapshot.quoteId,totalUsd:snapshot.totals.publicTotalUsd,perPilgrimUsd:snapshot.totals.publicPricePerPilgrimUsd};
 }
 
 function parsedObject(value: string | null | undefined): Record<string, unknown> {

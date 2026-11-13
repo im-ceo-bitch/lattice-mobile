@@ -26,6 +26,12 @@ export type PricingHotelInput = {
 };
 
 export type GeneratorPricingSnapshot = {
+  bookingContract?: {
+    legs: Array<{origin:string;destination:string;departureDate:string}>;
+    schedule: import("./itinerary-planner").VerifiedFlightSchedule | null;
+    makkahRoomId: string | null;
+    madinahRoomId: string | null;
+  };
   nuiteeRooms?: import("./nuitee-hotels").NuiteePackageRoom[];
   bookingAllowed?: boolean;
   supplierMode?: "sandbox" | "production";

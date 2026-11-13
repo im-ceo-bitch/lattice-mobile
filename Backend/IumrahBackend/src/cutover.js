@@ -14,5 +14,9 @@ export async function cutoverStatus(env,installed=false,enabled=false) {
       for (const [group, tables] of Object.entries(groups)) readiness[group] = tables.every(table=>names.has(table));
     } catch { for (const group of Object.keys(groups)) readiness[group] = false; }
   }
-  return {ok:true, service:'iumrah-backend', readiness, coreHandlersInstalled:installed,coreCutoverEnabled:enabled, dataParityVerified:false, legacyRetirementAllowed:false};
+  const missing = [];
+  if (!installed) missing.push('coreHandlers');
+  for (const binding of ['HOTELS_DB','BOOKINGS_DB','FLIGHTS_DB','PASSPORTS','IUMRAH_SESSION_SECRET','IUMRAH_SUPERADMIN_PASSWORD','PACKAGE_QUOTE_SEAL_KEY']) if (!env[binding]) missing.push(binding);
+  if (env.IUMRAH_CORE_CUTOVER_READY !== '1') missing.push('IUMRAH_CORE_CUTOVER_READY');
+  return {ok:true, missing, service:'iumrah-backend', readiness, coreHandlersInstalled:installed,coreCutoverEnabled:enabled, dataParityVerified:false, legacyRetirementAllowed:false};
 }

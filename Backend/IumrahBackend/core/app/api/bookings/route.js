@@ -203,12 +203,14 @@ export async function POST(request) {
     let rawBooking;
     let rawLang;
     let rawConsent;
+    let rawQuoteProof;
     let form = null;
     try {
         if (multipart) {
             form = await request.formData();
             rawLang = form.get("lang");
             rawConsent = form.get("telegramConsentTicket");
+            rawQuoteProof = form.get("quoteProof");
             const raw = form.get("booking");
             if (typeof raw !== "string")
                 throw new Error("INVALID_BOOKING");
@@ -219,6 +221,7 @@ export async function POST(request) {
             rawBooking = record(body) ? body.booking : undefined;
             rawLang = record(body) ? body.lang : undefined;
             rawConsent = record(body) ? body.telegramConsentTicket : undefined;
+            rawQuoteProof = record(body) ? body.quoteProof : undefined;
         }
     }
     catch {
@@ -227,6 +230,20 @@ export async function POST(request) {
     const input = parsePayload(rawBooking);
     if (!input)
         return NextResponse.json({ error: "INVALID_BOOKING" }, { status: 400, headers: { "Cache-Control": "no-store" } });
+    // Authenticate the server quote BEFORE any D1 or R2 writes. Never accept a
+    // price or commercial configuration merely because the client supplied it.
+    const verifyQuote = requestEnv().IUMRAH_VERIFY_BOOKING_QUOTE;
+    if (typeof verifyQuote !== "function") return NextResponse.json({error:"QUOTE_VALIDATION_UNAVAILABLE"},{status:503,headers:{"Cache-Control":"no-store"}});
+    let verified;
+    try { verified = await verifyQuote(input, rawQuoteProof ?? rawBooking?.quoteProof); }
+    catch (error) {
+        const code = error?.message;
+        const allowed = typeof code === "string" && /^(BOOKING_QUOTE_[A-Z_]+|QUOTE_PROOF_REQUIRED|QUOTE_EXPIRED|INVALID_QUOTE_PROOF|SANDBOX_QUOTE_NOT_BOOKABLE|QUOTE_SEAL_NOT_CONFIGURED|INVALID_PACKAGE_QUOTE_SEAL_KEY)$/.test(code);
+        return NextResponse.json({error:allowed ? code : "QUOTE_VALIDATION_UNAVAILABLE"},{status:!allowed || code.includes("CONFIGURED") || code.includes("SEAL_KEY") ? 503 : 409,headers:{"Cache-Control":"no-store"}});
+    }
+    // Persist canonical public totals, never the decrypted cost report or proof.
+    input.totalUsd = verified.totalUsd;
+    input.perPilgrimUsd = verified.perPilgrimUsd;
     const db = getBookingDb();
     if (!db)
         return NextResponse.json({ error: "BOOKING_DB_NOT_CONFIGURED" }, { status: 503, headers: { "Cache-Control": "no-store" } });
