@@ -1,0 +1,2 @@
+import {loadSeoCatalog} from '../../../../lib/seo/store.js';
+export async function GET(){const {groups}=await loadSeoCatalog();const origins=new Set();for(const group of groups.values())if(group.descriptor.origin)origins.add(group.descriptor.origin);return Response.json({ok:true,activePages:groups.size,packages:groups.get('')?.items.length??0,origins:[...origins].sort()},{headers:{'cache-control':'no-store','x-robots-tag':'noindex'}});}

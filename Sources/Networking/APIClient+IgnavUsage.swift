@@ -13,13 +13,7 @@ extension APIClient {
             request.setValue(token, forHTTPHeaderField: "X-Iumrah-Business-Session")
         }
 
-        let configuration = URLSessionConfiguration.default
-        configuration.httpCookieStorage = HTTPCookieStorage.shared
-        configuration.httpShouldSetCookies = true
-        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
-        let session = URLSession(configuration: configuration)
-
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await perform(request)
         guard let http = response as? HTTPURLResponse else {
             throw APIError.invalidResponse
         }

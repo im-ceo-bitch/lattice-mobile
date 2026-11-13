@@ -16,11 +16,19 @@ export function mapAero(flight,item) {
   const candidate={...flight,departure_at:dt,arrival_at:at,operational_status:String(item.status||'').slice(0,50)};
   try {normaliseFlight(candidate,'aerodatabox');return candidate;}catch{return null;}
 }
-export async function fetchAeroCandidate(flight,key) {
+export async function fetchAeroCandidate(flight,key,sharedRequest) {
   const url=`https://aerodatabox.p.rapidapi.com/flights/number/${encodeURIComponent(flight.flight_number)}/${encodeURIComponent(flight.departure_date)}?withAircraftImage=false&withLocation=false&dateLocalRole=Departure`;
-  const response=await fetch(url,{headers:{Accept:'application/json','X-RapidAPI-Key':key,'X-RapidAPI-Host':'aerodatabox.p.rapidapi.com'}});
-  if(!response.ok) throw Error(`AERODATABOX_HTTP_${response.status}`);
-  const results=await response.json();
+  let results;
+  if (typeof sharedRequest === 'function') {
+    const result=await sharedRequest(url);
+    if (result.reason === 'no_match') return null;
+    if (result.reason) throw Error(`AERODATABOX_${result.reason.toUpperCase()}`);
+    results=result.payload;
+  } else {
+    const response=await fetch(url,{redirect:'error',headers:{Accept:'application/json','X-RapidAPI-Key':key,'X-RapidAPI-Host':'aerodatabox.p.rapidapi.com'}});
+    if(!response.ok) throw Error(`AERODATABOX_HTTP_${response.status}`);
+    results=await response.json();
+  }
   if(!Array.isArray(results)) throw Error('AERODATABOX_INVALID_RESPONSE');
   return results.map(row=>mapAero(flight,row)).find(Boolean)||null;
 }

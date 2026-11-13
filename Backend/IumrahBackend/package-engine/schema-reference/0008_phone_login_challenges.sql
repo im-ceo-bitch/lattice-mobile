@@ -1,0 +1,2 @@
+-- Superseded by 0008_devsms_phone_verification.sql.
+-- Phone sign-in reuses the live DevSMS challenge table so OTP codes are never stored or returned in plaintext.

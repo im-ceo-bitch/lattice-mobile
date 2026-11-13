@@ -5,8 +5,9 @@ const hotelRoutes = ['/api/admin/hotels','/api/admin/hotels/intelligence','/api/
 const flightRoutes = ['/api/flight-hub/v1/public/flights','/api/flight-hub/health','/v1/public/flights','/v1/ingest/ignav','/health'];
 test('preserves exact existing hotel endpoints',()=>hotelRoutes.forEach(p=>assert.equal(resolveBackendRoute(p),'hotels',p)));
 test('routes old and unified flight API into same flight handler',()=>flightRoutes.forEach(p=>assert.equal(resolveBackendRoute(p),'flights',p)));
-test('does not intercept unrelated website authentication and bookings',()=>{
-  for(const p of ['/api/bookings','/api/auth/staff/session','/api/catalog/hotels-malicious','/api/flight-hubby/v1/public/flights','/favicon.ico']) assert.equal(resolveBackendRoute(p),'missing',p);
+test('routes core contracts and does not intercept unrelated paths',()=>{
+  for(const p of ['/api/bookings','/api/auth/staff/session']) assert.equal(resolveBackendRoute(p),'core',p);
+  for(const p of ['/api/catalog/hotels-malicious','/api/flight-hubby/v1/public/flights','/favicon.ico']) assert.equal(resolveBackendRoute(p),'missing',p);
 });
 test('existing handlers receive original request and environment unchanged',async()=>{
   const calls=[];

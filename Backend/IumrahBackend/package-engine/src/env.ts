@@ -1,0 +1,37 @@
+import type { D1Like, D1PreparedStatementLike } from "./d1";
+
+export type Env = {
+  AUTH_SESSION_URL?: string;
+  IUMRAH_CORE_FETCH?: typeof fetch;
+  NUITEE_API_KEY?: string;
+  HOTEL_TRANSLATION_API_KEY?: string;
+  IGNAV_API_KEY?: string;
+  AERODATABOX_RAPIDAPI_KEY?: string;
+  AERODATABOX_DAILY_REQUEST_LIMIT?: string;
+  AERODATABOX_RAPIDAPI_KEY_BACKUP?: string;
+  AERODATABOX_BACKUP_DAILY_REQUEST_LIMIT?: string;
+  TRAVELPAYOUTS_API_TOKEN?: string;
+  IGNAV_MONTHLY_REQUEST_BUDGET?: string;
+  PACKAGE_QUOTE_SEAL_KEY?: string;
+  APPLE_BUNDLE_ID?: string;
+  APPLE_WEB_CLIENT_ID?: string;
+  GOOGLE_SERVER_CLIENT_ID?: string;
+  IUMRAH_PUBLIC_ID_ORIGIN?: string;
+  TELEGRAM_BOT_ORIGIN?: string;
+  RESEND_API_KEY?: string;
+  ACCOUNT_EMAIL_FROM?: string;
+  ACCOUNT_EMAIL_REPLY_TO?: string;
+  BOOKING_SUPPORT_PHONE_UZ?: string;
+  BOOKING_SUPPORT_PHONE_SA?: string;
+  BOOKING_SUPPORT_TELEGRAM?: string;
+  BOOKING_SUPPORT_WHATSAPP?: string;
+  DEVSMS_API_TOKEN?: string;
+  WALLET_PASS_TYPE_ID?: string;
+  WALLET_TEAM_ID?: string;
+  WALLET_ORGANIZATION_NAME?: string;
+  WALLET_CERT_PEM?: string;
+  WALLET_KEY_PEM?: string;
+  WALLET_WWDR_CERT_PEM?: string;
+  HOTELS_DB?: D1Like;
+  BOOKINGS_DB?: D1Like & { batch(statements: D1PreparedStatementLike[]): Promise<unknown[]> };
+};

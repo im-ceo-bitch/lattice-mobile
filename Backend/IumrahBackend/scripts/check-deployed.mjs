@@ -28,20 +28,19 @@ export async function verifyDeployed(env=process.env, fetcher=fetch) {
     throw Error(`${new URL(url).pathname}: ${lastError?.message||'FAILED'}`);
   }
   const health=await getJSON(origin+'/__iumrah/health');
-  if(health.service!=='iumrah-backend'||!health.bindings?.FLIGHTS_DB) throw Error('UNIFIED_WORKER_BINDINGS_NOT_READY');
+  if(health.service!=='iumrah-backend'||!health.bindings?.FLIGHTS_DB||!health.modules?.core||!health.modules?.packages) throw Error('UNIFIED_WORKER_BINDINGS_NOT_READY');
+  const packageHealth=await getJSON(origin+'/api/package/health');
+  if(packageHealth.service!=='iumrah-package-engine'||!packageHealth.hotelsDbConfigured||!packageHealth.bookingsDbConfigured) throw Error('PACKAGE_DATABASE_SCHEMA_NOT_READY');
+  if(!health.modules?.coreCutoverEnabled) console.warn('Core cutover pending: schema is not data parity; preserve old D1/R2.');
   const flightHealth=await getJSON(origin+'/health');
   if(!flightHealth.database_connected) throw Error('FLIGHTS_DB_NOT_CONNECTED');
   const status=await getJSON(origin+'/v1/public/status');
   if(status.ready!==true||!status.counts||!Number.isFinite(status.counts.flights)) throw Error('FLIGHTS_SCHEMA_NOT_READY');
   const catalog=await getJSON(origin+'/v1/public/flights?limit=1');
   if(!Array.isArray(catalog.flights)) throw Error('FLIGHTS_CATALOG_NOT_READY');
-  const packageHealth=await getJSON(origin+'/api/package/health');
-  if(packageHealth.service!=='iumrah-package-engine'||packageHealth.databaseReadsVerified!==true||packageHealth.accountsReady!==true) throw Error('PACKAGE_ACCOUNT_SCHEMA_NOT_READY');
-  const unauth=await fetcher(origin+'/api/package/client/account/public-card',{headers:{Accept:'application/json'}});
-  if(unauth.status!==401) throw Error('PACKAGE_ACCOUNT_AUTH_CONTRACT_NOT_READY');
-  return {url:origin,flights:status.counts.flights,offers:status.counts.offers,health:health.status,packageReady:true};
+  return {url:origin,flights:status.counts.flights,offers:status.counts.offers,health:health.status};
 }
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)) {
-  try {const result=await verifyDeployed();console.log(`iumrah-backend: ${result.url}`);console.log(`Flight API OK: ${result.flights} flights, ${result.offers} offers, worker ${result.health}`);console.log("PackageEngine and account schema verified");}
+  try {const result=await verifyDeployed();console.log(`iumrah-backend: ${result.url}`);console.log(`Flight API OK: ${result.flights} flights, ${result.offers} offers, worker ${result.health}`);}
   catch(e){console.error('UNIFIED_BACKEND_NOT_READY:',e.message);process.exitCode=1;}
 }

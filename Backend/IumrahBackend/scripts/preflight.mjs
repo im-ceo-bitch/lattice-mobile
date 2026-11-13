@@ -41,16 +41,14 @@ async function check(env = process.env, fetcher = fetch) {
       results.push(`WARNING ${db.binding}: cannot inspect schema (${error.message}); API compatibility not verified`);
     }
   }
-  if (cfg.r2_buckets.length) {
-    const bucket=cfg.r2_buckets[0].bucket_name;
+  for (const {binding,bucket_name:bucket} of cfg.r2_buckets) {
     const info=await get(`${origin}/r2/buckets/${encodeURIComponent(bucket)}`);
-    if (!info || String(info.name||'')!==bucket) throw Error(`HOTELS_MEDIA bucket ${bucket} is absent in this account`);
-    results.push(`HOTELS_MEDIA: found existing ${bucket}`);
-  } else {
-    results.push('WARNING HOTELS_MEDIA: R2 is not connected; media endpoints will be unavailable');
+    if (!info || String(info.name||'')!==bucket) throw Error(`${binding} bucket ${bucket} is absent in this account`);
+    results.push(`${binding}: found existing ${bucket}`);
   }
+  for(const binding of ['HOTELS_MEDIA','PASSPORTS']) if(!cfg.r2_buckets.some(x=>x.binding===binding)) results.push(`WARNING ${binding}: R2 is not connected; related media endpoints will be unavailable`);
   if (cfg.routes.length) throw Error('ONE_CLICK_DEPLOY_MUST_NOT_CHANGE_PRODUCTION_ROUTES');
-  const allowedCrons = ['15 1 * * *', '0 3 * * *'];
+  const allowedCrons = ['*/5 * * * *'];
   if (cfg.triggers.crons.some(cron => !allowedCrons.includes(cron))) throw Error('UNEXPECTED_CRON');
   return results;
 }

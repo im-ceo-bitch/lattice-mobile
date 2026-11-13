@@ -3210,18 +3210,18 @@ async function verifyFlightWithAeroDataBox(env, flightNumber, dateLocal, force =
     }
   }
   const apiKey = String(env.AERODATABOX_RAPIDAPI_KEY || '').trim();
-  if (!apiKey) return { ok: false, response: json({ ok: false, error: 'AERODATABOX_NOT_CONFIGURED' }, 503) };
+  if (!apiKey && typeof env.IUMRAH_AERO_REQUEST !== 'function') return { ok: false, response: json({ ok: false, error: 'AERODATABOX_NOT_CONFIGURED' }, 503) };
   const endpoint = `https://aerodatabox.p.rapidapi.com/flights/number/${encodeURIComponent(normalized)}/${encodeURIComponent(date)}?withAircraftImage=false&withLocation=false&dateLocalRole=Departure`;
   let response;
   try {
-    response = await fetch(endpoint, {
-      method: 'GET',
-      headers: {
-        'accept': 'application/json',
-        'X-RapidAPI-Key': apiKey,
-        'X-RapidAPI-Host': 'aerodatabox.p.rapidapi.com'
-      }
-    });
+    if (typeof env.IUMRAH_AERO_REQUEST === 'function') {
+      const result = await env.IUMRAH_AERO_REQUEST(endpoint);
+      if (result.reason === 'no_match') response = new Response('[]');
+      else if (result.reason) response = new Response(null, {status: result.reason === 'quota_exhausted' || result.reason === 'provider_quota' ? 429 : result.status && result.status >= 400 ? result.status : 503});
+      else response = new Response(JSON.stringify(result.payload));
+    } else {
+      response = await fetch(endpoint, {method: 'GET', redirect: 'error', headers: {'accept': 'application/json', 'X-RapidAPI-Key': apiKey, 'X-RapidAPI-Host': 'aerodatabox.p.rapidapi.com'}});
+    }
   } catch (error) {
     console.error('AERODATABOX_NETWORK_ERROR', error);
     return { ok: false, response: json({ ok: false, error: 'FLIGHT_PROVIDER_UNAVAILABLE' }, 502) };
@@ -3895,7 +3895,7 @@ async function publicTeam(env, parts) {
 
 async function fetchUpstreamBookings(request, env) {
   const cookie = request.headers.get('cookie') || '';
-  const response = await fetch(env.BOOKINGS_ADMIN_URL || 'https://iumrah.app/api/admin/bookings', {
+  const response = await (env.IUMRAH_CORE_FETCH || fetch)(env.BOOKINGS_ADMIN_URL || 'https://iumrah.app/api/admin/bookings', {
     method: 'GET',
     headers: {
       'cookie': cookie,
@@ -6481,7 +6481,7 @@ async function createClientSystemNotification(request, env, user) {
 }
 
 async function requireBookingToken(request,env,bookingID,options={}){
- const bookingToken=cleanText(request.headers.get('x-booking-token'),1024);if(!bookingToken)return {ok:false,response:json({ok:false,error:'UNAUTHORIZED'},401)};const base=String(env.BOOKINGS_PUBLIC_URL||'https://iumrah.app/api/bookings').replace(/\/$/,'');let response;try{response=await fetch(`${base}/${encodeURIComponent(bookingID)}`,{method:'GET',headers:{'x-booking-token':bookingToken,'accept':'application/json','user-agent':request.headers.get('user-agent')||'iumrah-client'},redirect:'manual'});}catch{return {ok:false,response:json({ok:false,error:'BOOKING_AUTH_UNAVAILABLE'},503)}}if(response.status===404)return {ok:false,response:json({ok:false,error:'BOOKING_NOT_FOUND'},404)};if(!response.ok)return {ok:false,response:json({ok:false,error:'BOOKING_ACCESS_DENIED'},403)};const payload=await response.json().catch(()=>null);const booking=payload?.booking||payload;if(!booking||cleanText(booking?.id,180)!==bookingID)return {ok:false,response:json({ok:false,error:'BOOKING_ACCESS_DENIED'},403)};
+ const bookingToken=cleanText(request.headers.get('x-booking-token'),1024);if(!bookingToken)return {ok:false,response:json({ok:false,error:'UNAUTHORIZED'},401)};const base=String(env.BOOKINGS_PUBLIC_URL||'https://iumrah.app/api/bookings').replace(/\/$/,'');let response;try{response=await (env.IUMRAH_CORE_FETCH || fetch)(`${base}/${encodeURIComponent(bookingID)}`,{method:'GET',headers:{'x-booking-token':bookingToken,'accept':'application/json','user-agent':request.headers.get('user-agent')||'iumrah-client'},redirect:'manual'});}catch{return {ok:false,response:json({ok:false,error:'BOOKING_AUTH_UNAVAILABLE'},503)}}if(response.status===404)return {ok:false,response:json({ok:false,error:'BOOKING_NOT_FOUND'},404)};if(!response.ok)return {ok:false,response:json({ok:false,error:'BOOKING_ACCESS_DENIED'},403)};const payload=await response.json().catch(()=>null);const booking=payload?.booking||payload;if(!booking||cleanText(booking?.id,180)!==bookingID)return {ok:false,response:json({ok:false,error:'BOOKING_ACCESS_DENIED'},403)};
  let linked=null;if(options.syncTrip!==false){try{linked=await syncBookingTrip(env,booking);}catch(error){console.error('CLIENT_BOOKING_SYNC_FAILED',bookingID,error);return {ok:false,response:json({ok:false,error:'BOOKING_SYNC_FAILED'},503)}}}if(linked?.deleted)return {ok:false,response:json({ok:false,error:'BOOKING_DELETED'},410)};let trip=linked?.trip||await env.HOTELS_DB.prepare('SELECT * FROM pilgrim_trips WHERE booking_id=?').bind(bookingID).first().catch(()=>null);return {ok:true,booking,trip,user:{displayName:linked?.pilgrim?canonicalPilgrimName(linked.pilgrim):'Паломник'},bootstrap:true};
 }
 
@@ -6756,7 +6756,7 @@ async function requireStaff(request, env, options = {}) {
 
   let response;
   try {
-    response = await fetch(env.AUTH_SESSION_URL || 'https://iumrah.app/api/auth/staff/session', {
+    response = await (env.IUMRAH_CORE_FETCH || fetch)(env.AUTH_SESSION_URL || 'https://iumrah.app/api/auth/staff/session', {
       method: 'GET',
       headers: {
         'cookie': cookie,

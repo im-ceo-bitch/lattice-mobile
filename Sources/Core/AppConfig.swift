@@ -28,22 +28,36 @@ enum AppConfig {
         return url
     }
 
-    // Keep the existing platform API until the new Core Worker and all account/
-    // bookings operations pass smoke tests on the new database.
-    static let apiBaseURL: URL = httpsURL(settings?.platform_api_url) ?? URL(string: "https://iumrah.app")!
-    // The single deployed Worker owns flights, telemetry and supported admin
-    // services. Auth and bookings stay on the existing platform until their
-    // routes and data are fully migrated; switching them prematurely logs users out.
-    static let unifiedBackendURL: URL = httpsURL(settings?.backend_api_url)
-        ?? httpsURL(settings?.flight_hub_url)
-        ?? URL(string: "https://iumrah-backend.helloiumrah.workers.dev")!
+    static let unifiedBackendURL: URL = URL(string: "https://iumrah-backend.helloiumrah.workers.dev")!
+    static let apiBaseURL: URL = unifiedBackendURL
     static let flightHubBaseURL: URL = unifiedBackendURL
+    static func isUnifiedModulePath(_ path: String) -> Bool {
+        path.hasPrefix("/api/") || path == "/v1" || path.hasPrefix("/v1/")
+    }
+    static func routedAPIURL(_ url: URL) -> URL? {
+        guard url.scheme?.lowercased() == "https", url.user == nil, url.password == nil,
+              url.port == nil || url.port == 443, url.fragment == nil,
+              var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        let path = url.path
+        guard !path.contains("\\"), !path.split(separator: "/").contains(where: { $0 == "." || $0 == ".." }) else { return nil }
+        let host = url.host?.lowercased()
+        guard host == unifiedBackendURL.host || host == "iumrah.app" || host == "iumrah.uz" || host == "iumrah-package-api.helloiumrah.workers.dev" || host == "iumrah-flight-hub.helloiumrah.workers.dev" else { return nil }
+        if isUnifiedModulePath(path) {
+            parts.host = unifiedBackendURL.host
+            parts.port = nil
+        } else if path.hasPrefix("/api/") {
+            parts.host = apiBaseURL.host
+            parts.port = nil
+        }
+        return parts.url
+    }
     static let appName = "iumrah Business"
     static let buildChannel = "TestFlight"
 
     static func absoluteURL(_ value: String?) -> URL? {
         guard let value, !value.isEmpty else { return nil }
-        if let direct = URL(string: value), direct.scheme != nil { return direct }
-        return URL(string: value, relativeTo: apiBaseURL)?.absoluteURL
+        if let direct = URL(string: value), direct.scheme != nil { return routedAPIURL(direct) ?? direct }
+        guard let relative = URL(string: value, relativeTo: apiBaseURL)?.absoluteURL else { return nil }
+        return routedAPIURL(relative) ?? relative
     }
 }

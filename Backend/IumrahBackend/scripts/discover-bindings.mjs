@@ -69,6 +69,15 @@ export async function discover(env=process.env, fetcher=fetch) {
     selectedBucket=bucket; break;
   }
   outputs.HOTELS_MEDIA_BUCKET=selectedBucket||'none';
+  // Explicit private bucket only; do not guess or create a replacement for passport files.
+  if (env.PASSPORTS_BUCKET && env.PASSPORTS_BUCKET !== 'none') {
+    if (!nameOK(env.PASSPORTS_BUCKET)) throw Error('PASSPORTS_BUCKET_INVALID');
+    const res=await fetcher(`${origin}/r2/buckets/${encodeURIComponent(env.PASSPORTS_BUCKET)}`,{headers});
+    if (!res.ok) throw Error('PASSPORTS_BUCKET_NOT_FOUND');
+    const data=await res.json(); if(!data.success || data.result?.name!==env.PASSPORTS_BUCKET) throw Error('PASSPORTS_BUCKET_MISMATCH');
+    outputs.PASSPORTS_BUCKET=env.PASSPORTS_BUCKET;
+  }
+
   return outputs;
 }
 

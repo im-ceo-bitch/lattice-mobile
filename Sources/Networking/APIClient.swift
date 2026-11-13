@@ -12,7 +12,7 @@ actor APIClient {
         configuration.httpCookieStorage = HTTPCookieStorage.shared
         configuration.httpShouldSetCookies = true
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
-        session = URLSession(configuration: configuration)
+        session = URLSession(configuration: configuration, delegate: BusinessAPIOriginDelegate(), delegateQueue: nil)
         decoder = JSONDecoder()
         encoder = JSONEncoder()
     }
@@ -825,26 +825,20 @@ actor APIClient {
 
     func perform(_ original: URLRequest) async throws -> (Data, URLResponse) {
         var request = original
-        if let url = request.url {
-            let isPlatform = url.scheme == "https"
-                && url.host?.lowercased() == AppConfig.apiBaseURL.host?.lowercased()
-            // The unified Worker verifies staff identity via the platform
-            // session endpoint. Cookies scoped to iumrah.app are not sent to
-            // workers.dev automatically. Forward them ONLY for the analytics
-            // admin endpoints on our configured HTTPS backend; never to a user URL.
-            let isBackendAnalytics = url.scheme == "https"
-                && url.host?.lowercased() == AppConfig.unifiedBackendURL.host?.lowercased()
-                && (url.path == "/api/admin/hotels/intelligence"
-                    || url.path.hasPrefix("/api/admin/hotels/intelligence/"))
-            if isBackendAnalytics,
-               let cookies = HTTPCookieStorage.shared.cookies(for: AppConfig.apiBaseURL),
-               !cookies.isEmpty {
-                request.setValue(cookies.map { "\($0.name)=\($0.value)" }.joined(separator: "; "),
-                                 forHTTPHeaderField: "Cookie")
+        if let originalURL = request.url, let url = AppConfig.routedAPIURL(originalURL) {
+            request.url = url
+            let isPlatform = url.host?.lowercased() == AppConfig.apiBaseURL.host?.lowercased()
+            let isUnifiedAdmin = url.host?.lowercased() == AppConfig.unifiedBackendURL.host?.lowercased()
+                && AppConfig.isUnifiedModulePath(url.path) && url.path.hasPrefix("/api/admin/")
+            // Only the exact trusted Worker receives the legacy staff cookie until Core is moved.
+            if isUnifiedAdmin {
+                let cookies = (HTTPCookieStorage.shared.cookies(for: AppConfig.apiBaseURL) ?? []).filter { cookie in
+                    let name = cookie.name.lowercased()
+                    return !(name.hasPrefix("_ga") || name.hasPrefix("_gid") || name.hasPrefix("_fbp") || name.hasPrefix("cf_"))
+                }
+                if !cookies.isEmpty { request.setValue(HTTPCookie.requestHeaderFields(with: cookies)["Cookie"], forHTTPHeaderField: "Cookie") }
             }
-            if (isPlatform || isBackendAnalytics),
-               url.path.hasPrefix("/api/admin/"),
-               let token = BusinessSessionVault.sessionToken {
+            if (isPlatform || isUnifiedAdmin), url.path.hasPrefix("/api/admin/"), let token = BusinessSessionVault.sessionToken {
                 request.setValue(token, forHTTPHeaderField: "X-Iumrah-Business-Session")
             }
         }
@@ -870,6 +864,16 @@ actor APIClient {
         guard (200..<300).contains(http.statusCode) else {
             throw APIError.server(serverError ?? "HTTP_\(http.statusCode)")
         }
+    }
+}
+
+private final class BusinessAPIOriginDelegate: NSObject, URLSessionTaskDelegate {
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+        guard let source = response.url, let target = request.url,
+              source.scheme == "https", target.scheme == "https", source.host == target.host,
+              source.port == target.port, target.user == nil, target.password == nil else { completionHandler(nil); return }
+        completionHandler(request)
     }
 }
 

@@ -26,5 +26,5 @@ test('route cutover requires zone ID; crons remain explicit opt in',()=>{
   assert.throws(()=>buildConfig({...IDs,IUMRAH_ENABLE_ROUTE_CUTOVER:'1'}),/CLOUDFLARE_ZONE_ID/);
   const cfg=buildConfig({...IDs,IUMRAH_ENABLE_ROUTE_CUTOVER:'1',CLOUDFLARE_ZONE_ID:'a'.repeat(32),IUMRAH_ENABLE_SCHEDULED_JOBS:'1'});
   assert.ok(cfg.routes.some(x=>x.pattern.includes('/api/flight-hub')));
-  assert.deepEqual(cfg.triggers.crons,['15 1 * * *','0 3 * * *']);
+  assert.deepEqual(cfg.triggers.crons,['*/5 * * * *']);
 });

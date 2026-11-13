@@ -162,29 +162,9 @@ extension APIClient {
         return try decoder.decode(IntelligenceStatusResponse.self, from: data)
     }
 
-    // The unified Worker runs on workers.dev while the staff login cookie is
-    // issued by iumrah.app. Forward only first-party authentication cookies
-    // and the registered Business device-session token to our own Worker.
-    // APIClient.perform only attaches the token to iumrah.app by design.
+    // Central transport owns routing, cookie forwarding and redirect protection.
     private func intelligencePerform(_ original: URLRequest) async throws -> (Data, URLResponse) {
-        var request = original
-        if let token = BusinessSessionVault.sessionToken {
-            request.setValue(token, forHTTPHeaderField: "X-Iumrah-Business-Session")
-        }
-        // The site's authentication cookie name is not controlled by the
-        // Business app. Forward first-party login cookies but omit obvious
-        // advertising/analytics cookies on the request to our own Worker.
-        let loginCookies = (HTTPCookieStorage.shared.cookies(for: AppConfig.apiBaseURL) ?? [])
-            .filter { cookie in
-                let name = cookie.name.lowercased()
-                return !(name.hasPrefix("_ga") || name.hasPrefix("_gid") ||
-                         name.hasPrefix("_fbp") || name.hasPrefix("cf_"))
-            }
-        if !loginCookies.isEmpty {
-            let header = HTTPCookie.requestHeaderFields(with: loginCookies)["Cookie"]
-            request.setValue(header, forHTTPHeaderField: "Cookie")
-        }
-        return try await perform(request)
+        try await perform(original)
     }
 
     func intelligenceOverview(days: Int = 7) async throws -> IntelligenceOverview {

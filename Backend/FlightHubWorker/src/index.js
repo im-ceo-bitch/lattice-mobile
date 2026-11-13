@@ -189,7 +189,7 @@ async function publicStatus(env) {
   const available={
     ignav:{ingest:!!env.IGNAV_INGEST_TOKEN,search:!!env.IGNAV_API_KEY},
     aviasales_data:{ingest:!!env.ADMIN_TOKEN,search:!!env.AVIASALES_DATA_TOKEN},
-    aerodatabox:{ingest:!!env.AERODATABOX_INGEST_TOKEN,search:!!env.AERODATABOX_RAPIDAPI_KEY},
+    aerodatabox:{ingest:!!env.AERODATABOX_INGEST_TOKEN,search:!!(env.AERODATABOX_RAPIDAPI_KEY || (env.IUMRAH_AERO_REQUEST && env.AERODATABOX_RAPIDAPI_KEY_BACKUP))},
     centrum:{ingest:!!env.BOT_INGEST_TOKEN},
     uzbekistan:{ingest:!!env.BOT_INGEST_TOKEN},
     flynas:{ingest:!!env.BOT_INGEST_TOKEN}
@@ -251,7 +251,7 @@ async function publicFlights(request,env) {
 }
 async function refreshAeroDataBox(request,env) {
   if (!env.ADMIN_TOKEN || !bearer(request,env.ADMIN_TOKEN)) return json({ok:false,error:'UNAUTHORIZED'},401);
-  if (!env.AERODATABOX_RAPIDAPI_KEY) return json({ok:false,error:'AERODATABOX_API_KEY_MISSING'},503);
+  if (!env.AERODATABOX_RAPIDAPI_KEY && typeof env.IUMRAH_AERO_REQUEST !== 'function') return json({ok:false,error:'AERODATABOX_API_KEY_MISSING'},503);
   const body=await request.json().catch(()=>({}));
   const limit=Math.min(10,Math.max(1,Number.parseInt(body.limit || 3,10)||3));
   const rows=await env.FLIGHTS_DB.prepare(`SELECT airline_code,flight_number,origin,destination,departure_date FROM flights
@@ -260,7 +260,7 @@ async function refreshAeroDataBox(request,env) {
   const results=[];
   for(const flight of rows.results || []) {
     try {
-      const candidate=await fetchAeroCandidate(flight,env.AERODATABOX_RAPIDAPI_KEY);
+      const candidate=await fetchAeroCandidate(flight,env.AERODATABOX_RAPIDAPI_KEY,env.IUMRAH_AERO_REQUEST);
       if (!candidate) {results.push({flight_number:flight.flight_number,match:false});continue;}
       const result=await importRecord(env.FLIGHTS_DB,candidate,'aerodatabox',nowISO());
       results.push({flight_number:flight.flight_number,match:result==='accepted',result});
@@ -273,7 +273,7 @@ async function refreshAeroDataBox(request,env) {
 async function adminFlightDiagnostics(request,env) {
   if (!env.ADMIN_TOKEN || !bearer(request,env.ADMIN_TOKEN)) return json({ok:false,error:'UNAUTHORIZED'},401);
   const recent=await env.FLIGHTS_DB.prepare(`SELECT provider,checked_at,status,accepted,unmatched,rejected,message
-    FROM monitor_runs ORDER BY checked_at DESC LIMIT 35`).all();
+    FROM monitor_runs ORDER BY checked_at DESC, rowid DESC LIMIT 35`).all();
   const searches=await env.FLIGHTS_DB.prepare(`SELECT source,search_key,searched_at,status,items_count,message
     FROM flight_source_search_runs ORDER BY searched_at DESC LIMIT 35`).all();
   const attempts=await env.FLIGHTS_DB.prepare(`SELECT provider,flight_key,attempted_at,outcome,message,run_id
