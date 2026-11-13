@@ -35,9 +35,13 @@ export async function verifyDeployed(env=process.env, fetcher=fetch) {
   if(status.ready!==true||!status.counts||!Number.isFinite(status.counts.flights)) throw Error('FLIGHTS_SCHEMA_NOT_READY');
   const catalog=await getJSON(origin+'/v1/public/flights?limit=1');
   if(!Array.isArray(catalog.flights)) throw Error('FLIGHTS_CATALOG_NOT_READY');
-  return {url:origin,flights:status.counts.flights,offers:status.counts.offers,health:health.status};
+  const packageHealth=await getJSON(origin+'/api/package/health');
+  if(packageHealth.service!=='iumrah-package-engine'||packageHealth.databaseReadsVerified!==true||packageHealth.accountsReady!==true) throw Error('PACKAGE_ACCOUNT_SCHEMA_NOT_READY');
+  const unauth=await fetcher(origin+'/api/package/client/account/public-card',{headers:{Accept:'application/json'}});
+  if(unauth.status!==401) throw Error('PACKAGE_ACCOUNT_AUTH_CONTRACT_NOT_READY');
+  return {url:origin,flights:status.counts.flights,offers:status.counts.offers,health:health.status,packageReady:true};
 }
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)) {
-  try {const result=await verifyDeployed();console.log(`iumrah-backend: ${result.url}`);console.log(`Flight API OK: ${result.flights} flights, ${result.offers} offers, worker ${result.health}`);}
+  try {const result=await verifyDeployed();console.log(`iumrah-backend: ${result.url}`);console.log(`Flight API OK: ${result.flights} flights, ${result.offers} offers, worker ${result.health}`);console.log("PackageEngine and account schema verified");}
   catch(e){console.error('UNIFIED_BACKEND_NOT_READY:',e.message);process.exitCode=1;}
 }

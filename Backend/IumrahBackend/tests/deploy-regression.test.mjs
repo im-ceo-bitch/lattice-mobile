@@ -10,7 +10,7 @@ const root = new URL('../', import.meta.url);
 
 test('unified deployment never references absent Flight Hub SQL files', () => {
   const pkg = JSON.parse(fs.readFileSync(new URL('package.json', root), 'utf8'));
-  assert.equal(pkg.scripts.deploy, 'node scripts/apply-flights-migrations.mjs && wrangler deploy --config wrangler.generated.jsonc');
+  assert.equal(pkg.scripts.deploy, 'node scripts/apply-package-schema.mjs && node scripts/apply-flights-migrations.mjs && wrangler deploy --config wrangler.generated.jsonc');
   const migration = fs.readFileSync(new URL('scripts/apply-flights-migrations.mjs',root),'utf8');
   assert.match(migration,/0003_monitor_task_checks\.sql/);
   assert.match(migration,/0004_itinerary_catalog\.sql/);

@@ -178,7 +178,7 @@ async function publicStatus(env) {
          AND julianday(o.checked_at) >= julianday('now', CASE WHEN o.provider='ignav' THEN '-4 hours' ELSE '-24 hours' END)
          AND (o.expires_at IS NULL OR julianday(o.expires_at) > julianday('now'))) AS priced_flights`).first();
   const last = await env.FLIGHTS_DB.prepare(`SELECT provider,checked_at,status,accepted,unmatched,rejected,message FROM monitor_runs
-    WHERE id IN (SELECT id FROM (SELECT id,ROW_NUMBER() OVER(PARTITION BY provider ORDER BY checked_at DESC) AS rank FROM monitor_runs) WHERE rank=1)
+    WHERE id IN (SELECT id FROM (SELECT id,ROW_NUMBER() OVER(PARTITION BY provider ORDER BY checked_at DESC, rowid DESC) AS rank FROM monitor_runs) WHERE rank=1)
     ORDER BY provider`).all();
   const tracked = await env.FLIGHTS_DB.prepare(`SELECT airline_code,COUNT(*) AS flights FROM flights
     WHERE departure_date BETWEEN date('now','+5 hours') AND date('now','+5 hours','+30 days')

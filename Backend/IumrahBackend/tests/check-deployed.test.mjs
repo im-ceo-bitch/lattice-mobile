@@ -10,6 +10,8 @@ function fake(url) {
  else if(path==='/health') data={ok:true,database_connected:true};
  else if(path==='/v1/public/status') data={ok:true,ready:true,counts:{flights:12,offers:3}};
  else if(path==='/v1/public/flights') data={ok:true,flights:[]};
+ else if(path==='/api/package/health') data={ok:true,service:'iumrah-package-engine',databaseReadsVerified:true,accountsReady:true};
+ else if(path==='/api/package/client/account/public-card') return Promise.resolve({status:401});
  else throw Error(`Unexpected ${url}`);
  return Promise.resolve({ok:true,json:async()=>data});
 }
@@ -17,4 +19,5 @@ test('verifies all required endpoints on only iumrah-backend',async()=>{
  const result=await verifyDeployed(env,fake);
  assert.equal(result.url,'https://iumrah-backend.helloiumrah.workers.dev');
  assert.equal(result.flights,12);
+ assert.equal(result.packageReady,true);
 });

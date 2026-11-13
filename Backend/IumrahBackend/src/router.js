@@ -14,6 +14,7 @@ export function resolveBackendRoute(pathname) {
   if (pathname === '/__iumrah/health') return 'health';
   if (pathname === '/') return 'root';
   if (matches(pathname, '/api/flight-hub') || matches(pathname, '/v1') || pathname === '/health') return 'flights';
+  if (matches(pathname, '/api/package') || matches(pathname, '/api/admin/package') || pathname === '/.well-known/apple-app-site-association' || /^\/(?:h|hotel)\/[^/]+$/.test(pathname)) return 'package';
   if (hotelPrefixes.some(prefix => matches(pathname, prefix))) return 'hotels';
   return 'missing';
 }
@@ -21,13 +22,17 @@ const json = (value, status = 200) => new Response(JSON.stringify(value), {
   status,
   headers: {'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff'}
 });
-export function createBackendRouter({hotels, flights}) {
+export function createBackendRouter({hotels, flights, packageEngine}) {
   if (typeof hotels?.fetch !== 'function' || typeof flights?.fetch !== 'function') throw Error('BACKEND_HANDLERS_REQUIRED');
   return {
     async fetch(request, env, ctx) {
       const pathname = new URL(request.url).pathname;
       const route = resolveBackendRoute(pathname);
       if (route === 'flights') return flights.fetch(request, env, ctx);
+      if (route === 'package') {
+        if (!packageEngine?.fetch) return json({ok:false,error:'PACKAGE_ENGINE_UNAVAILABLE'},503);
+        return packageEngine.fetch(request, env, ctx);
+      }
       if (route === 'hotels') return hotels.fetch(request, env, ctx);
       if (route === 'root') return json({ok:true,service:'iumrah-backend',apiVersion:1});
       if (route === 'health') {
