@@ -472,11 +472,13 @@ actor APIClient {
         return try decoder.decode(BusinessChatThreadsResponse.self, from: data).threads
     }
 
-    func businessChatMessages(bookingID: String) async throws -> [BusinessChatMessage] {
-        let url = AppConfig.apiBaseURL.appending(path: "/api/admin/hotels/chats/\(bookingID)/messages")
-        let (data, response) = try await perform(from: url)
+    func businessChatMessages(bookingID: String, after: String, scope: String?) async throws -> BusinessChatMessagesResponse {
+        let endpoint = AppConfig.apiBaseURL.appending(path: "/api/admin/hotels/chats/\(bookingID)/messages")
+        var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false)
+        components?.queryItems = [URLQueryItem(name: "after", value: after)] + (scope.map { [URLQueryItem(name: "scope", value: $0)] } ?? [])
+        let (data, response) = try await perform(from: components?.url ?? endpoint)
         try validate(response, data: data)
-        return try decoder.decode(BusinessChatMessagesResponse.self, from: data).messages
+        return try decoder.decode(BusinessChatMessagesResponse.self, from: data)
     }
 
     func sendBusinessChatMessage(bookingID: String, body: String, clientMessageID: String) async throws -> BusinessChatMessage {

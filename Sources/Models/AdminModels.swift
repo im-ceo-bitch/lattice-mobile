@@ -90,8 +90,13 @@ struct BookingSummary: Codable, Identifiable, Hashable {
 struct BookingsResponse: Codable { let bookings: [BookingSummary] }
 
 struct ChatThread: Codable, Identifiable {
-    var id: String { booking.id }
-    let booking: BookingSummary
+    var id: String { conversationID }
+    let conversationID: String
+    let booking: BookingSummary?
+    let pilgrimID: String?
+    let pilgrimName: String?
+    let tripCount: Int
+    let relatedBookings: [BookingSummary]
     let lastMessageAt: String
     let lastMessagePreview: String
     let lastSenderType: String?
@@ -101,8 +106,12 @@ struct ChatThread: Codable, Identifiable {
 struct ChatsResponse: Codable { let threads: [ChatThread] }
 
 struct BusinessChatThreadSummary: Codable, Identifiable, Hashable {
-    var id: String { bookingID }
+    var id: String { conversationID ?? bookingID }
     let bookingID: String
+    let conversationID: String?
+    let pilgrimID: String?
+    let pilgrimName: String?
+    let tripCount: Int?
     let lastMessageAt: String
     let lastMessagePreview: String
     let lastSenderType: String?
@@ -134,6 +143,10 @@ struct BusinessChatMessagesResponse: Codable {
     let ok: Bool
     let bookingID: String
     let messages: [BusinessChatMessage]
+    let nextCursor: String?
+    let hasMore: Bool?
+    let scopeVersion: String?
+    let reset: Bool?
 }
 
 struct BusinessChatMessageResponse: Codable {

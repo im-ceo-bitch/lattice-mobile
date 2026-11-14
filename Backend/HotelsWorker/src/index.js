@@ -1,3 +1,4 @@
+import { accountIDFromChatKey, chatScope, chatScopeSQL, staffChatScope, carePushTargets, persistCarePushResult } from "./care-identity.js";
 import { incrementalChatPage } from "./chat-incremental.js";
 import { ensureBookingIdentity, allocateBookingNumber } from './booking-identity.js';
 import { obtainHotelPrice, propertyKey, safePropertyKey } from './hotel-price-source.js';
@@ -192,67 +193,71 @@ async function handleAdmin(request, env, url, user, businessSession = null) {
 
 async function handleBusinessChats(request, env, parts, user) {
   if (parts.length === 0 && request.method === 'GET') return listBusinessChatThreads(env);
-  const bookingID = cleanText(parts[0], 180);
-  if (!bookingID) return json({ ok: false, error: 'INVALID_BOOKING_ID' }, 400);
-  if (parts.length === 1 && request.method === 'GET') return chatMessages(env, bookingID, true, request);
+  const requested = cleanText(parts[0], 180);
+  if (!requested) return json({ ok:false,error:'INVALID_BOOKING_ID' },400);
+  const scope=await staffChatScope(env.HOTELS_DB,requested);
+  if(!scope)return json({ok:false,error:'CHAT_NOT_FOUND'},404);
+  const bookingID=scope.key;
+  if (parts.length === 1 && request.method === 'GET') return chatMessages(env, scope, true, request);
   if (parts.length === 2 && parts[1] === 'messages') {
-    if (request.method === 'GET') return chatMessages(env, bookingID, true, request);
+    if (request.method === 'GET') return chatMessages(env, scope, true, request);
     if (request.method === 'POST') return sendChatMessage(request, env, bookingID, user);
   }
-  if (parts.length === 2 && parts[1] === 'attachments' && request.method === 'POST') {
-    return sendChatAttachment(request, env, bookingID, user, true);
-  }
-  if (parts.length === 3 && parts[1] === 'media' && request.method === 'GET') {
-    return serveChatAttachment(env, bookingID, parts[2]);
-  }
+  if (parts.length === 2 && parts[1] === 'attachments' && request.method === 'POST') return sendChatAttachment(request,env,bookingID,user,true);
+  if (parts.length === 3 && parts[1] === 'media' && request.method === 'GET') return serveChatAttachment(env,scope,parts[2]);
   if (parts.length === 2 && parts[1] === 'read' && request.method === 'POST') {
+    const q=chatScopeSQL(scope);
     await env.HOTELS_DB.batch([
-      env.HOTELS_DB.prepare('UPDATE business_chat_messages SET read_by_staff=1 WHERE booking_id=?').bind(bookingID),
-      env.HOTELS_DB.prepare('UPDATE business_chat_threads SET unread_for_staff=0, updated_at=? WHERE booking_id=?').bind(new Date().toISOString(), bookingID)
+      env.HOTELS_DB.prepare(`UPDATE business_chat_messages SET read_by_staff=1 WHERE ${q.sql}`).bind(...q.args),
+      env.HOTELS_DB.prepare(`UPDATE business_chat_threads SET unread_for_staff=0, updated_at=? WHERE ${q.sql}`).bind(new Date().toISOString(),...q.args)
     ]);
-    return json({ ok: true });
+    return json({ok:true});
   }
   return methodNotAllowed();
 }
 
 async function listBusinessChatThreads(env) {
-  const result = await env.HOTELS_DB.prepare(`
-    SELECT booking_id, last_message_at, last_message_preview, last_sender_type, unread_for_staff, updated_at
-    FROM business_chat_threads
-    ORDER BY COALESCE(last_message_at, updated_at) DESC
-    LIMIT 300
-  `).all();
-  return json({
-    ok: true,
-    threads: (result.results || []).map(row => ({
-      bookingID: row.booking_id,
-      lastMessageAt: row.last_message_at || row.updated_at,
-      lastMessagePreview: row.last_message_preview || '',
-      lastSenderType: row.last_sender_type || null,
-      unreadForStaff: Number(row.unread_for_staff || 0) === 1
-    }))
-  });
+  // Group existing booking threads and new account threads without rewriting messages/R2 keys.
+  const result=await env.HOTELS_DB.prepare(`WITH mapped AS (
+    SELECT th.*, COALESCE(a.pilgrim_id, direct.pilgrim_id) AS owner_id,
+      CASE WHEN COALESCE(a.pilgrim_id,direct.pilgrim_id) IS NOT NULL THEN 'care-pilgrim:'||COALESCE(a.pilgrim_id,direct.pilgrim_id) ELSE th.booking_id END AS chat_id
+    FROM business_chat_threads th
+    LEFT JOIN pilgrim_trips t ON t.booking_id=th.booking_id
+    LEFT JOIN iumrah_accounts a ON a.pilgrim_id=t.pilgrim_id
+    LEFT JOIN iumrah_accounts direct ON th.booking_id='care-pilgrim:'||direct.pilgrim_id
+    WHERE th.booking_id NOT LIKE 'care-pilgrim:%' OR direct.pilgrim_id IS NOT NULL
+  ), ranked AS (
+    SELECT *,ROW_NUMBER() OVER(PARTITION BY chat_id ORDER BY COALESCE(last_message_at,updated_at) DESC,booking_id DESC) AS rn,
+      MAX(unread_for_staff) OVER(PARTITION BY chat_id) AS unread
+    FROM mapped
+  ) SELECT r.*,p.display_name,p.first_name,p.last_name,
+    CASE WHEN r.owner_id IS NULL THEN r.booking_id ELSE (SELECT booking_id FROM pilgrim_trips WHERE pilgrim_id=r.owner_id ORDER BY CASE WHEN status IN ('completed','cancelled') THEN 1 ELSE 0 END,created_at DESC,booking_id DESC LIMIT 1) END AS representative_booking,
+    CASE WHEN r.owner_id IS NULL THEN 1 ELSE (SELECT COUNT(*) FROM pilgrim_trips WHERE pilgrim_id=r.owner_id) END AS trip_count
+    FROM ranked r LEFT JOIN pilgrims p ON p.id=r.owner_id WHERE r.rn=1
+    ORDER BY COALESCE(r.last_message_at,r.updated_at) DESC LIMIT 300`).all();
+  return json({ok:true,threads:(result.results||[]).map(row=>({
+    bookingID:row.representative_booking||row.chat_id, conversationID:row.chat_id,
+    pilgrimID:row.owner_id?pilgrimPublicID(row.owner_id):null,
+    pilgrimName:row.owner_id?canonicalPilgrimName(row):null,tripCount:Number(row.trip_count||0),
+    lastMessageAt:row.last_message_at||row.updated_at,lastMessagePreview:row.last_message_preview||'',
+    lastSenderType:row.last_sender_type||null,unreadForStaff:Number(row.unread||0)===1
+  }))});
 }
 
-async function chatMessages(env, bookingID, admin = true, request = null) {
+async function chatMessages(env, scope, admin = true, request = null) {
+  const q=chatScopeSQL(scope);
   if (request) {
     let delta;
-    try { delta = await incrementalChatPage(env.HOTELS_DB, bookingID, request.url); }
+    try { delta = await incrementalChatPage(env.HOTELS_DB, scope, request.url); }
     catch (error) { if (error.message === 'INVALID_CHAT_CURSOR') return json({ok:false,error:error.message},400); throw error; }
-    if (delta) return json({ok:true,bookingID,messages:delta.page.map(row=>mapChatMessage(row,admin)),nextCursor:delta.nextCursor,hasMore:delta.hasMore,staffReadMessageIDs:delta.staffReadMessageIDs});
+    if (delta) return json({ok:true,bookingID:scope.key,messages:delta.page.map(row=>mapChatMessage(row,admin,scope)),nextCursor:delta.nextCursor,hasMore:delta.hasMore,staffReadMessageIDs:delta.staffReadMessageIDs,scopeVersion:delta.scopeVersion,reset:delta.reset});
   }
-  const result = await env.HOTELS_DB.prepare(`
-    SELECT id, booking_id, sender_type, sender_name, body, created_at, read_by_staff, message_type, attachment_id
-    FROM business_chat_messages WHERE booking_id=? ORDER BY created_at ASC LIMIT 500
-  `).bind(bookingID).all();
-  return json({
-    ok: true,
-    bookingID,
-    messages: (result.results || []).map(row => mapChatMessage(row, admin))
-  });
+  const result=await env.HOTELS_DB.prepare(`SELECT * FROM business_chat_messages WHERE ${q.sql} ORDER BY created_at ASC,id ASC LIMIT 500`).bind(...q.args).all();
+  return json({ok:true,bookingID:scope.key,messages:(result.results||[]).map(row=>mapChatMessage(row,admin,scope))});
 }
 
-function mapChatMessage(row, admin = true) {
+function mapChatMessage(row, admin = true, scope = null) {
+  const clientKey=scope?.pilgrimID ? "account" : accountIDFromChatKey(row.booking_id) ? "account" : row.booking_id;
   const attachmentID = row.attachment_id || null;
   return {
     id: row.id,
@@ -262,7 +267,7 @@ function mapChatMessage(row, admin = true) {
     body: row.body || '',
     messageType: row.message_type || 'text',
     attachmentID,
-    attachmentURL: attachmentID ? (admin ? `/api/admin/hotels/chats/${encodeURIComponent(row.booking_id)}/media/${encodeURIComponent(attachmentID)}` : `/api/catalog/hotels/client/chats/${encodeURIComponent(row.booking_id)}/media/${encodeURIComponent(attachmentID)}`) : null,
+    attachmentURL: attachmentID ? (admin ? `/api/admin/hotels/chats/${encodeURIComponent(row.booking_id)}/media/${encodeURIComponent(attachmentID)}` : `/api/catalog/hotels/client/chats/${encodeURIComponent(clientKey)}/media/${encodeURIComponent(attachmentID)}`) : null,
     createdAt: row.created_at,
     readByStaff: Number(row.read_by_staff || 0) === 1
   };
@@ -837,23 +842,10 @@ async function deliverCareChatPush(env, bookingID, body, type) {
 }
 
 async function sendClientPush(env, bookingID, title, body, data = {}) {
-  if (!apnsConfigured(env)) return { ok: false, skipped: 'APNS_NOT_CONFIGURED' };
-  const devices = await env.HOTELS_DB.prepare(`
-    SELECT device_token, environment, app_bundle_id, locale
-    FROM client_push_subscriptions
-    WHERE booking_id=? AND enabled=1 AND app_bundle_id=?
-    ORDER BY updated_at DESC LIMIT 50
-  `).bind(bookingID, CLIENT_APP_BUNDLE_ID).all().catch(() => ({ results: [] }));
-  return sendAPNsToRows(env, devices.results || [], title, body, { ...data, bookingID }, async (device, result) => {
-    const now = new Date().toISOString();
-    if (result.ok) {
-      await env.HOTELS_DB.prepare('UPDATE client_push_subscriptions SET last_success_at=?, last_error=NULL, updated_at=? WHERE device_token=? AND booking_id=?')
-        .bind(now, now, device.device_token, bookingID).run().catch(() => {});
-    } else if (result.response) {
-      await env.HOTELS_DB.prepare('UPDATE client_push_subscriptions SET enabled=?, last_error=?, updated_at=? WHERE device_token=? AND booking_id=?')
-        .bind(result.disable ? 0 : 1, result.error.slice(0, 900), now, device.device_token, bookingID).run().catch(() => {});
-    }
-  }, CLIENT_APP_BUNDLE_ID);
+  if (!apnsConfigured(env)) return {ok:false,skipped:'APNS_NOT_CONFIGURED'};
+  const {scope,rows}=await carePushTargets(env.HOTELS_DB,bookingID,CLIENT_APP_BUNDLE_ID);
+  const payload={...data,bookingID:scope.pilgrimID&&String(data.type||'').startsWith('chat_')?'account':bookingID,...(scope.pilgrimID?{pilgrimID:pilgrimPublicID(scope.pilgrimID)}:{})};
+  return sendAPNsToRows(env,rows,title,body,payload,(device,result)=>persistCarePushResult(env.HOTELS_DB,device,bookingID,result).catch(()=>{}),CLIENT_APP_BUNDLE_ID);
 }
 
 async function sendAPNsToRows(env, rows, title, body, data, persistResult, fallbackTopic = BUSINESS_APP_BUNDLE_ID) {
@@ -877,7 +869,7 @@ async function sendAPNsToRows(env, rows, title, body, data, persistResult, fallb
         aps: {
           alert: { title, body },
           sound: 'default',
-          'thread-id': cleanText(data?.bookingID, 180) || 'iumrah'
+          'thread-id': cleanText(data?.pilgrimID ? `care-${data.pilgrimID}` : data?.bookingID, 180) || 'iumrah'
         },
         ...data
       })
@@ -912,13 +904,9 @@ function clientNotificationCopy(localeRaw, type, value) {
 
 async function sendClientStatusPush(env, bookingID, status) {
   if (!apnsConfigured(env)) return { ok: false, skipped: 'APNS_NOT_CONFIGURED' };
-  const devices = await env.HOTELS_DB.prepare(`
-    SELECT device_token, environment, app_bundle_id, locale
-    FROM client_push_subscriptions WHERE booking_id=? AND enabled=1 AND app_bundle_id=?
-    ORDER BY updated_at DESC LIMIT 50
-  `).bind(bookingID, CLIENT_APP_BUNDLE_ID).all().catch(() => ({ results: [] }));
+  const {scope,rows:devices}=await carePushTargets(env.HOTELS_DB,bookingID,CLIENT_APP_BUNDLE_ID);
   const groups = new Map();
-  for (const device of devices.results || []) {
+  for (const device of devices) {
     const copy = clientNotificationCopy(device.locale, 'status', status);
     const key = `${copy.title}\n${copy.body}`;
     if (!groups.has(key)) groups.set(key, { copy, rows: [] });
@@ -927,16 +915,7 @@ async function sendClientStatusPush(env, bookingID, status) {
   let sent = 0;
   let total = 0;
   for (const { copy, rows } of groups.values()) {
-    const result = await sendAPNsToRows(env, rows, copy.title, copy.body, { type: 'booking_status', bookingID, status }, async (device, delivery) => {
-      const now = new Date().toISOString();
-      if (delivery.ok) {
-        await env.HOTELS_DB.prepare('UPDATE client_push_subscriptions SET last_success_at=?, last_error=NULL, updated_at=? WHERE device_token=? AND booking_id=?')
-          .bind(now, now, device.device_token, bookingID).run().catch(() => {});
-      } else if (delivery.response) {
-        await env.HOTELS_DB.prepare('UPDATE client_push_subscriptions SET enabled=?, last_error=?, updated_at=? WHERE device_token=? AND booking_id=?')
-          .bind(delivery.disable ? 0 : 1, delivery.error.slice(0, 900), now, device.device_token, bookingID).run().catch(() => {});
-      }
-    }, CLIENT_APP_BUNDLE_ID);
+    const result=await sendAPNsToRows(env,rows,copy.title,copy.body,{type:'booking_status',bookingID,status,...(scope.pilgrimID?{pilgrimID:pilgrimPublicID(scope.pilgrimID)}:{})},(device,delivery)=>persistCarePushResult(env.HOTELS_DB,device,bookingID,delivery).catch(()=>{}),CLIENT_APP_BUNDLE_ID);
     sent += Number(result.sent || 0);
     total += Number(result.total || 0);
   }
@@ -4169,7 +4148,7 @@ function canonicalPilgrimName(pilgrim, identity=null) {
   const firstName=safeHumanText(pilgrim?.first_name||identity?.firstName||'',120)||''; const lastName=safeHumanText(pilgrim?.last_name||identity?.lastName||'',120)||'';
   return [firstName,lastName].filter(Boolean).join(' ').trim() || safeHumanText(pilgrim?.display_name||identity?.displayName||'',220) || 'Паломник';
 }
-async function bookingPilgrimName(env,bookingID,fallback='') { const row=await env.HOTELS_DB.prepare(`SELECT p.first_name,p.last_name,p.display_name FROM pilgrim_trips t JOIN pilgrims p ON p.id=t.pilgrim_id WHERE t.booking_id=? LIMIT 1`).bind(bookingID).first().catch(()=>null); return canonicalPilgrimName(row,{displayName:fallback}); }
+async function bookingPilgrimName(env,bookingID,fallback='') { const row=await (accountIDFromChatKey(bookingID)?env.HOTELS_DB.prepare('SELECT first_name,last_name,display_name FROM pilgrims WHERE id=?').bind(accountIDFromChatKey(bookingID)):env.HOTELS_DB.prepare(`SELECT p.first_name,p.last_name,p.display_name FROM pilgrim_trips t JOIN pilgrims p ON p.id=t.pilgrim_id WHERE t.booking_id=? LIMIT 1`).bind(bookingID)).first().catch(()=>null); return canonicalPilgrimName(row,{displayName:fallback}); }
 function augmentBooking(raw,linked) { const identity=bookingIdentity(raw); return {...raw,clientName:canonicalPilgrimName(linked?.pilgrim,identity),pilgrimID:linked?.pilgrim?pilgrimPublicID(linked.pilgrim.id):null,bookingNumber:Number(linked?.trip?.booking_number||0)||null,bookingDisplayNumber:bookingPublicNumber(linked?.trip?.booking_number),tripID:linked?.trip?.id||null,operationStatus:linked?.trip?.status||tripStatusFromBooking(raw)}; }
 async function cleanupOrphanLegacyPilgrims(env) { await env.HOTELS_DB.prepare(`DELETE FROM pilgrims WHERE NOT EXISTS (SELECT 1 FROM pilgrim_trips t WHERE t.pilgrim_id=pilgrims.id) AND NOT EXISTS (SELECT 1 FROM iumrah_accounts a WHERE a.pilgrim_id=pilgrims.id)`).run().catch(()=>{}); }
 
@@ -6186,18 +6165,35 @@ async function handleClientOperations(request, env, parts) {
   if(parts[0]==='push'&&parts.length===2&&parts[1]==='devices'&&request.method==='POST')return registerClientPushDevice(request,env);
   if(parts[0]==='notifications')return handleClientSystemNotifications(request,env,parts.slice(1));
   if(parts[0]!=='chats')return json({ok:false,error:'NOT_FOUND'},404);
-  const bookingID=cleanText(parts[1],180); if(!bookingID)return json({ok:false,error:'INVALID_BOOKING_ID'},400);
-  const auth=await requireClientBooking(request,env,bookingID,{syncTrip:false}); if(!auth.ok)return auth.response;
-  if(parts.length===3&&parts[2]==='messages'){if(request.method==='GET')return chatMessages(env,bookingID,false,request);if(request.method==='POST')return sendClientChatMessage(request,env,bookingID,auth.user);}
+  const requested=cleanText(parts[1],180); if(!requested)return json({ok:false,error:'INVALID_BOOKING_ID'},400);
+  const hasAccountProof=String(request.headers.get('authorization')||'').toLowerCase().startsWith('bearer ');
+  let auth,scope;
+  if(requested==='account') {
+    auth=await requireIumrahAccount(request,env);if(!auth.ok)return auth.response;
+    scope=chatScope(requested,auth.pilgrim.id);
+  } else if(hasAccountProof) {
+    auth=await requireIumrahBookingAccount(request,env,requested);if(!auth.ok)return auth.response;
+    scope=chatScope(requested,auth.pilgrim.id);
+  } else {
+    if(accountIDFromChatKey(requested))return json({ok:false,error:'ACCOUNT_AUTH_REQUIRED'},401);
+    auth=await requireBookingToken(request,env,requested,{syncTrip:false});if(!auth.ok)return auth.response;
+    scope=chatScope(requested);
+    if(request.method==='POST' && ['messages','attachments'].includes(parts[2])) {
+      const claimed=await staffChatScope(env.HOTELS_DB,requested);
+      if(claimed?.pilgrimID)return json({ok:false,error:'ACCOUNT_AUTH_REQUIRED'},401);
+    }
+  }
+  const bookingID=scope.key;
+  if(parts.length===3&&parts[2]==='messages'){if(request.method==='GET')return chatMessages(env,scope,false,request);if(request.method==='POST')return sendClientChatMessage(request,env,bookingID,auth.user);}
   if(parts.length===3&&parts[2]==='attachments'&&request.method==='POST')return sendChatAttachment(request,env,bookingID,auth.user,false);
   if(parts.length===3&&parts[2]==='read'&&request.method==='POST')return markClientChatRead(env,bookingID);
-  if(parts.length===4&&parts[2]==='media'&&request.method==='GET')return serveChatAttachment(env,bookingID,parts[3]);
+  if(parts.length===4&&parts[2]==='media'&&request.method==='GET')return serveChatAttachment(env,scope,parts[3]);
   return methodNotAllowed();
 }
 
 async function registerClientPushDevice(request,env){
  const payload=await request.json().catch(()=>null);const bookingID=cleanText(payload?.bookingID||payload?.bookingId,180);const token=cleanText(payload?.deviceToken,256)?.toLowerCase();if(!bookingID)return json({ok:false,error:'BOOKING_ID_REQUIRED'},400);if(!token||!/^[0-9a-f]{32,256}$/.test(token))return json({ok:false,error:'INVALID_DEVICE_TOKEN'},400);
- const auth=await requireClientBooking(request,env,bookingID,{syncTrip:false});if(!auth.ok)return auth.response;const environment=payload?.environment==='development'?'development':'production';const appBundleID=cleanText(payload?.appBundleID||payload?.appBundleId,220)||CLIENT_APP_BUNDLE_ID;if(appBundleID!==CLIENT_APP_BUNDLE_ID)return json({ok:false,error:'INVALID_APP_BUNDLE_ID'},400);const locale=cleanText(payload?.locale,32)||'ru';const now=new Date().toISOString();
+ const auth=await requireClientBooking(request,env,bookingID,{syncTrip:false});if(!auth.ok)return auth.response;if(auth.pilgrim)return json({ok:true,ready:apnsConfigured(env),bookingID,appBundleID:CLIENT_APP_BUNDLE_ID});const environment=payload?.environment==='development'?'development':'production';const appBundleID=cleanText(payload?.appBundleID||payload?.appBundleId,220)||CLIENT_APP_BUNDLE_ID;if(appBundleID!==CLIENT_APP_BUNDLE_ID)return json({ok:false,error:'INVALID_APP_BUNDLE_ID'},400);const locale=cleanText(payload?.locale,32)||'ru';const now=new Date().toISOString();
  await env.HOTELS_DB.prepare(`INSERT INTO client_push_subscriptions(device_token,booking_id,environment,app_bundle_id,locale,enabled,created_at,updated_at,last_error) VALUES(?,?,?,?,?,1,?,?,NULL) ON CONFLICT(device_token,booking_id) DO UPDATE SET environment=excluded.environment,app_bundle_id=excluded.app_bundle_id,locale=excluded.locale,enabled=1,updated_at=excluded.updated_at,last_error=NULL`).bind(token,bookingID,environment,appBundleID,locale,now,now).run();return json({ok:true,ready:apnsConfigured(env),bookingID,appBundleID:CLIENT_APP_BUNDLE_ID});
 }
 
@@ -6214,7 +6210,7 @@ async function optionalIumrahAccount(request, env) {
   if (!header.toLowerCase().startsWith('bearer ')) return { ok: true, authenticated: false, pilgrim: null };
   const auth = await requireIumrahAccount(request, env);
   if (!auth.ok) return { ok: false, response: auth.response };
-  return { ok: true, authenticated: true, pilgrim: auth.pilgrim };
+  return { ok: true, authenticated: true, pilgrim: auth.pilgrim, tokenHash:auth.tokenHash };
 }
 
 function clientNotificationTargetSQL(scope, alias = 'd') {
@@ -6271,14 +6267,15 @@ async function registerClientNotificationDevice(request, env) {
 
   await env.HOTELS_DB.prepare(`
     INSERT INTO client_notification_devices(
-      installation_id,device_token,environment,app_bundle_id,locale,pilgrim_id,is_authenticated,has_trip,enabled,created_at,updated_at,last_seen_at,last_error
-    ) VALUES(?,?,?,?,?,?,?,?,1,?,?,?,NULL)
+      installation_id,device_token,environment,app_bundle_id,locale,pilgrim_id,is_authenticated,has_trip,enabled,created_at,updated_at,last_seen_at,last_error,account_session_hash
+    ) VALUES(?,?,?,?,?,?,?,?,1,?,?,?,NULL,?)
     ON CONFLICT(installation_id) DO UPDATE SET
       device_token=COALESCE(excluded.device_token,client_notification_devices.device_token),
       environment=excluded.environment,
       app_bundle_id=excluded.app_bundle_id,
       locale=excluded.locale,
       pilgrim_id=excluded.pilgrim_id,
+      account_session_hash=excluded.account_session_hash,
       is_authenticated=excluded.is_authenticated,
       has_trip=excluded.has_trip,
       enabled=CASE WHEN excluded.device_token IS NOT NULL THEN 1 ELSE client_notification_devices.enabled END,
@@ -6287,9 +6284,10 @@ async function registerClientNotificationDevice(request, env) {
       last_error=NULL
   `).bind(
     installationID, deviceToken, environment, appBundleID, locale, pilgrimID, authenticated, hasTrip,
-    now, now, now
+    now, now, now, account.tokenHash||null
   ).run();
 
+  if(account.authenticated && deviceToken) await env.HOTELS_DB.prepare('UPDATE client_push_subscriptions SET enabled=0 WHERE device_token=?').bind(deviceToken).run();
   return json({ ok: true, ready: apnsConfigured(env), installationID, appBundleID: CLIENT_APP_BUNDLE_ID, authenticated: !!authenticated, hasTrip: !!hasTrip });
 }
 
@@ -6745,10 +6743,11 @@ async function sendChatAttachment(request, env, bookingID, user, staff = true) {
   return chatMessageDetail(env, messageID, 201, staff);
 }
 
-async function serveChatAttachment(env, bookingID, attachmentID) {
+async function serveChatAttachment(env, scope, attachmentID) {
+  const q=chatScopeSQL(scope);
   const safeAttachmentID = safeID(attachmentID);
   if (!safeAttachmentID) return json({ ok: false, error: 'INVALID_ATTACHMENT_ID' }, 400);
-  const row = await env.HOTELS_DB.prepare('SELECT * FROM business_chat_attachments WHERE id=? AND booking_id=? LIMIT 1').bind(safeAttachmentID, bookingID).first();
+  const row = await env.HOTELS_DB.prepare(`SELECT * FROM business_chat_attachments WHERE id=? AND ${q.sql} LIMIT 1`).bind(safeAttachmentID,...q.args).first();
   if (!row) return json({ ok: false, error: 'ATTACHMENT_NOT_FOUND' }, 404);
   const object = await env.HOTELS_MEDIA.get(row.object_key);
   if (!object) return json({ ok: false, error: 'ATTACHMENT_NOT_FOUND' }, 404);

@@ -3,8 +3,8 @@ import PhotosUI
 import SwiftUI
 import UIKit
 
-private func businessPilgrimName(_ booking: BookingSummary) -> String {
-    let value = booking.clientName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+private func businessPilgrimName(_ booking: BookingSummary?) -> String {
+    let value = booking?.clientName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     return value.isEmpty || value == "Паломник" ? "Имя не синхронизировано" : value
 }
 
@@ -54,7 +54,7 @@ struct ChatsView: View {
         .onChange(of: filter) { _, _ in
             guard layout.supportsTwoPaneWorkspace else { return }
             if let selectedThread,
-               !filteredThreads.contains(where: { $0.booking.id == selectedThread.booking.id }) {
+               !filteredThreads.contains(where: { $0.id == selectedThread.id }) {
                 self.selectedThread = filteredThreads.first
             }
         }
@@ -86,8 +86,8 @@ struct ChatsView: View {
 
             Group {
                 if let selectedThread {
-                    ChatConversationView(booking: selectedThread.booking)
-                        .id(selectedThread.booking.id)
+                    ChatConversationView(thread: selectedThread)
+                        .id(selectedThread.id)
                 } else {
                     ContentUnavailableView(
                         "Выберите чат",
@@ -108,7 +108,7 @@ struct ChatsView: View {
                 Text("Чаты")
                     .font(.system(size: 38, weight: .bold, design: .rounded))
                     .tracking(-1.4)
-                Text("Один чат = одна поездка")
+                Text("Один паломник — один чат")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -131,7 +131,7 @@ struct ChatsView: View {
             } else {
                 ForEach(filteredThreads) { thread in
                     if navigates {
-                        NavigationLink { ChatConversationView(booking: thread.booking) } label: {
+                        NavigationLink { ChatConversationView(thread: thread) } label: {
                             ThreadCard(thread: thread)
                         }
                         .buttonStyle(.plain)
@@ -143,7 +143,7 @@ struct ChatsView: View {
                         }
                         .buttonStyle(.plain)
                         .background(
-                            selectedThread?.booking.id == thread.booking.id
+                            selectedThread?.id == thread.id
                                 ? BusinessDesign.secondarySurface.opacity(0.55)
                                 : Color.clear,
                             in: RoundedRectangle(cornerRadius: 26, style: .continuous)
@@ -196,7 +196,8 @@ struct ChatsView: View {
         }
     }
 
-    private func isCompleted(_ booking: BookingSummary) -> Bool {
+    private func isCompleted(_ booking: BookingSummary?) -> Bool {
+        guard let booking else { return false }
         if let raw = booking.operationStatus, let status = TripStatus(rawValue: raw) { return status.isCompleted }
         return booking.status == .completed
     }
@@ -221,9 +222,15 @@ struct ChatsView: View {
             bookings = resolvedBookings
             let bookingsByID = Dictionary(resolvedBookings.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             threads = cloudThreads.compactMap { cloud in
-                guard let booking = bookingsByID[cloud.bookingID] else { return nil }
+                let booking = bookingsByID[cloud.bookingID]
+                guard booking != nil || cloud.pilgrimID != nil else { return nil }
                 return ChatThread(
+                    conversationID: cloud.id,
                     booking: booking,
+                    pilgrimID: cloud.pilgrimID ?? booking?.pilgrimID,
+                    pilgrimName: cloud.pilgrimName,
+                    tripCount: cloud.tripCount ?? 1,
+                    relatedBookings: cloud.pilgrimID.map { owner in resolvedBookings.filter { $0.pilgrimID == owner } } ?? (booking.map { [$0] } ?? []),
                     lastMessageAt: cloud.lastMessageAt,
                     lastMessagePreview: cloud.lastMessagePreview,
                     lastSenderType: cloud.lastSenderType,
@@ -233,7 +240,7 @@ struct ChatsView: View {
             if threads.filter(\.unreadForStaff).isEmpty, filter == .new { filter = .active }
             if layout.supportsTwoPaneWorkspace {
                 if let selectedThread,
-                   let refreshed = threads.first(where: { $0.booking.id == selectedThread.booking.id }) {
+                   let refreshed = threads.first(where: { $0.id == selectedThread.id }) {
                     self.selectedThread = refreshed
                 } else {
                     selectedThread = filteredThreads.first
@@ -262,7 +269,7 @@ private struct ThreadCard: View {
 
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 8) {
-                    Text(businessPilgrimName(thread.booking))
+                    Text(thread.pilgrimName ?? businessPilgrimName(thread.booking))
                         .font(.subheadline.bold()).lineLimit(1)
                     Spacer(minLength: 8)
                     Text(chatTime(thread.lastMessageAt)).font(.caption2).foregroundStyle(.tertiary)
@@ -271,11 +278,10 @@ private struct ThreadCard: View {
                     .font(.subheadline).foregroundStyle(thread.unreadForStaff ? .primary : .secondary)
                     .fontWeight(thread.unreadForStaff ? .semibold : .regular).lineLimit(2)
                 HStack(spacing: 5) {
-                    Text(thread.booking.bookingDisplayNumber.map { "Бронь \($0)" } ?? "Бронь #----").monospaced()
+                    Text(thread.pilgrimID.map { "iumrah ID \($0)" } ?? "iumrah ID —").monospaced()
                     Text("·")
-                    Text(thread.booking.pilgrimID.map { "Iumrah ID \($0)" } ?? "Iumrah ID —").monospaced()
-                    Text("·")
-                    Text("\(thread.booking.originCode) → \(thread.booking.outboundDestination)")
+                    Text("Поездок: \(thread.tripCount)")
+                    if let number = thread.booking?.bookingDisplayNumber { Text("· \(number)").monospaced() }
                     if thread.unreadForStaff { Spacer(); Circle().fill(BusinessDesign.accent).frame(width: 8, height: 8) }
                 }
                 .font(.caption2).foregroundStyle(.secondary)
@@ -291,7 +297,7 @@ private struct ThreadCard: View {
     }
 
     private var initials: String {
-        let name = businessPilgrimName(thread.booking)
+        let name = thread.pilgrimName ?? businessPilgrimName(thread.booking)
         return name.split(separator: " ").prefix(2).compactMap(\.first).map(String.init).joined().uppercased()
     }
 }
@@ -315,8 +321,35 @@ private struct NewChatBookingPicker: View {
 struct ChatConversationView: View {
     @Environment(\.colorScheme) private var colorScheme
 
-    let booking: BookingSummary
+    let booking: BookingSummary?
+    let conversationID: String
+    let pilgrimID: String?
+    let displayName: String
+    let tripCount: Int
+    let relatedBookings: [BookingSummary]
+
+    init(booking: BookingSummary) {
+        self.booking = booking
+        conversationID = booking.id
+        pilgrimID = booking.pilgrimID
+        displayName = businessPilgrimName(booking)
+        tripCount = 1
+        relatedBookings = [booking]
+    }
+
+    init(thread: ChatThread) {
+        booking = thread.booking
+        conversationID = thread.id
+        pilgrimID = thread.pilgrimID
+        displayName = thread.pilgrimName ?? businessPilgrimName(thread.booking)
+        tripCount = thread.tripCount
+        relatedBookings = thread.relatedBookings
+    }
+
     @State private var messages: [BusinessChatMessage] = []
+    @State private var cursor = "0"
+    @State private var scopeVersion: String?
+    @State private var syncing = false
     @State private var draft = ""
     @State private var loading = true
     @State private var sending = false
@@ -360,36 +393,25 @@ struct ChatConversationView: View {
             .ignoresSafeArea(.container, edges: .bottom)
             .toolbar {
                 ToolbarItem(placement: .principal) {
-                    NavigationLink {
-                        BookingDetailView(bookingID: booking.id)
-                    } label: {
-                        HStack(spacing: 8) {
-                            pilgrimAvatar(size: 32)
-                            VStack(alignment: .leading, spacing: 1) {
-                                HStack(spacing: 3) {
-                                    Text(businessPilgrimName(booking))
-                                        .font(.system(size: 13.5, weight: .semibold))
-                                        .lineLimit(1)
-                                    Image(systemName: "chevron.right")
-                                        .font(.system(size: 7.5, weight: .bold))
-                                }
-                                Text("Паломник · \(booking.bookingDisplayNumber.map { "Бронь \($0)" } ?? "Бронь #----")")
-                                    .font(.system(size: 10.5, weight: .medium))
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                            }
+                    HStack(spacing: 8) {
+                        pilgrimAvatar(size: 32)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(displayName).font(.system(size: 13.5, weight: .semibold)).lineLimit(1)
+                            Text(pilgrimID.map { "iumrah ID \($0)" } ?? "Паломник").font(.system(size: 10.5, weight: .medium)).foregroundStyle(.secondary).lineLimit(1)
                         }
                     }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.primary)
                 }
-
                 ToolbarItem(placement: .topBarTrailing) {
-                    NavigationLink {
-                        BookingDetailView(bookingID: booking.id)
-                    } label: {
-                        Image(systemName: "info.circle")
-                            .font(.system(size: 18, weight: .medium))
+                    if !relatedBookings.isEmpty {
+                        Menu {
+                            ForEach(relatedBookings) { trip in
+                                NavigationLink { BookingDetailView(bookingID: trip.id) } label: {
+                                    Text("\(trip.bookingDisplayNumber ?? "#----") · \(trip.status.shortLabel)")
+                                }
+                            }
+                        } label: {
+                            Image(systemName: "info.circle").font(.system(size: 18, weight: .medium))
+                        }
                     }
                 }
             }
@@ -456,7 +478,7 @@ struct ChatConversationView: View {
 
                         BusinessChatMessageRow(
                             message: message,
-                            pilgrimName: businessPilgrimName(booking),
+                            pilgrimName: displayName,
                             groupStart: isGroupStart(at: index),
                             groupEnd: isGroupEnd(at: index),
                             timestampText: timeLabel(message.createdAt)
@@ -488,7 +510,8 @@ struct ChatConversationView: View {
         .contentMargins(.bottom, max(88, composerPanelHeight + 10), for: .scrollContent)
     }
 
-    private var bookingContext: some View {
+    @ViewBuilder private var bookingContext: some View {
+        if let booking {
         NavigationLink {
             BookingDetailView(bookingID: booking.id)
         } label: {
@@ -511,6 +534,7 @@ struct ChatConversationView: View {
         }
         .buttonStyle(.plain)
         .frame(maxWidth: .infinity)
+        }
     }
 
     private func pilgrimAvatar(size: CGFloat) -> some View {
@@ -525,7 +549,7 @@ struct ChatConversationView: View {
     }
 
     private var pilgrimInitials: String {
-        let name = businessPilgrimName(booking)
+        let name = displayName
         let result = name.split(separator: " ").prefix(2).compactMap(\.first).map(String.init).joined().uppercased()
         return result.isEmpty ? "I" : result
     }
@@ -651,8 +675,32 @@ struct ChatConversationView: View {
         .padding(.horizontal, 12)
     }
 
+    @MainActor private func syncMessages() async throws {
+        guard !syncing else { return }
+        syncing = true
+        defer { syncing = false }
+        var changed = false
+        for _ in 0..<20 {
+            try Task.checkCancellation()
+            let before = cursor
+            let page = try await APIClient.shared.businessChatMessages(bookingID: conversationID, after: cursor, scope: scopeVersion)
+            try Task.checkCancellation()
+            if page.reset == true { messages = []; changed = true }
+            var indexed = Dictionary(messages.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            for message in page.messages { indexed[message.id] = message }
+            if !page.messages.isEmpty {
+                messages = indexed.values.sorted { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }
+                changed = true
+            }
+            scopeVersion = page.scopeVersion
+            cursor = page.nextCursor ?? "0"
+            guard page.hasMore == true, cursor != before || page.reset == true else { break }
+        }
+        if changed { _ = try? await APIClient.shared.markBusinessChatRead(bookingID: conversationID) }
+    }
+
     @MainActor private func reload() async {
-        do { messages = try await APIClient.shared.businessChatMessages(bookingID: booking.id); _ = try? await APIClient.shared.markBusinessChatRead(bookingID: booking.id); errorMessage = nil }
+        do { try await syncMessages(); errorMessage = nil }
         catch is CancellationError { return }
         catch { errorMessage = error.localizedDescription }
         loading = false
@@ -660,11 +708,9 @@ struct ChatConversationView: View {
 
     @MainActor private func poll() async {
         while !Task.isCancelled {
-            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            do { try await Task.sleep(for: .seconds(5)) } catch { break }
             guard !Task.isCancelled, !sending else { continue }
-            if let value = try? await APIClient.shared.businessChatMessages(bookingID: booking.id), value != messages {
-                messages = value; _ = try? await APIClient.shared.markBusinessChatRead(bookingID: booking.id)
-            }
+            try? await syncMessages()
         }
     }
 
@@ -674,7 +720,7 @@ struct ChatConversationView: View {
         draft = ""; sending = true; errorMessage = nil
         Task { @MainActor in
             do {
-                let message = try await APIClient.shared.sendBusinessChatMessage(bookingID: booking.id, body: text, clientMessageID: UUID().uuidString)
+                let message = try await APIClient.shared.sendBusinessChatMessage(bookingID: conversationID, body: text, clientMessageID: UUID().uuidString)
                 if !messages.contains(where: { $0.id == message.id }) { messages.append(message) }
             } catch { draft = text; errorMessage = error.localizedDescription }
             sending = false
@@ -685,7 +731,7 @@ struct ChatConversationView: View {
         sending = true; errorMessage = nil; selectedPhoto = nil
         do {
             guard let raw = try await item.loadTransferable(type: Data.self), let optimized = chatJPEG(raw) else { throw APIError.server("Не удалось подготовить фотографию") }
-            let message = try await APIClient.shared.sendBusinessChatImage(bookingID: booking.id, data: optimized)
+            let message = try await APIClient.shared.sendBusinessChatImage(bookingID: conversationID, data: optimized)
             if !messages.contains(where: { $0.id == message.id }) { messages.append(message) }
         } catch { errorMessage = error.localizedDescription }
         sending = false
