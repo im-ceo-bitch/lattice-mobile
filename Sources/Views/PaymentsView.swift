@@ -63,8 +63,9 @@ struct PaymentsView: View {
         }
         .scrollIndicators(.hidden)
         .background(BusinessDesign.background)
-        .navigationTitle("Payments")
+        .navigationTitle("Платежи")
         .navigationBarTitleDisplayMode(.inline)
+        .businessNavigationSurface()
         .toolbar {
             if !usesPersistentSidebar {
                 ToolbarItem(placement: .topBarLeading) {

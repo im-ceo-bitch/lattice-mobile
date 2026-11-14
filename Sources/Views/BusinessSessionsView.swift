@@ -39,6 +39,7 @@ struct BusinessSessionsView: View {
         }
         .navigationTitle("Устройства и сеансы")
         .navigationBarTitleDisplayMode(.inline)
+        .businessNavigationSurface()
         .toolbar {
             if !usesPersistentSidebar {
                 ToolbarItem(placement: .topBarLeading) {

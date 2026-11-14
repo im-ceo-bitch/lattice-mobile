@@ -43,8 +43,9 @@ struct ZiyaratsView: View {
             .padding(.bottom, 36)
         }
         .background(BusinessDesign.background)
-        .navigationTitle("Ziyarats")
+        .navigationTitle("Зияраты")
         .navigationBarTitleDisplayMode(.inline)
+        .businessNavigationSurface()
         .toolbar {
             if !usesPersistentSidebar {
                 ToolbarItem(placement: .topBarLeading) {

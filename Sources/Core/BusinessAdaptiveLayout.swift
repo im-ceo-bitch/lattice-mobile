@@ -84,15 +84,12 @@ struct BusinessAdaptiveLayout: Equatable, Sendable {
     }
 
     static func resolve(size: CGSize, horizontalSizeClass: UserInterfaceSizeClass?) -> BusinessAdaptiveLayout {
-        #if targetEnvironment(macCatalyst)
-        return BusinessAdaptiveLayout(
-            layoutClass: .desktop,
-            availableSize: size,
-            horizontalSizeClass: horizontalSizeClass
-        )
-        #else
         let width = max(0, size.width)
         let resolved: BusinessLayoutClass
+        #if targetEnvironment(macCatalyst)
+        // The Mac window is wide, but its nested inspector may be narrow.
+        resolved = width < 720 ? .compact : (width < 1024 ? .regular : .desktop)
+        #else
 
         // Compact size class always wins. This protects the existing iPhone UI and
         // makes narrow iPad multitasking behave like the proven phone composition.
@@ -104,12 +101,12 @@ struct BusinessAdaptiveLayout: Equatable, Sendable {
             resolved = .wide
         }
 
+        #endif
         return BusinessAdaptiveLayout(
             layoutClass: resolved,
             availableSize: size,
             horizontalSizeClass: horizontalSizeClass
         )
-        #endif
     }
 }
 

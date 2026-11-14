@@ -24,6 +24,7 @@ struct ClientArchiveView: View {
         .background(BusinessDesign.background)
         .navigationTitle("Архив клиентов")
         .navigationBarTitleDisplayMode(.inline)
+        .businessNavigationSurface()
         .searchable(text: $search, prompt: "Имя, телефон или ID")
         .toolbar {
             if !usesPersistentSidebar {
@@ -68,8 +69,10 @@ struct ClientArchiveView: View {
 
             Group {
                 if let selectedPilgrim {
-                    PilgrimDetailView(pilgrimID: selectedPilgrim.id)
-                        .id(selectedPilgrim.id)
+                    BusinessAdaptivePaneHost {
+                        PilgrimDetailView(pilgrimID: selectedPilgrim.id)
+                    }
+                    .id(selectedPilgrim.id)
                 } else {
                     ContentUnavailableView(
                         "Выберите клиента",

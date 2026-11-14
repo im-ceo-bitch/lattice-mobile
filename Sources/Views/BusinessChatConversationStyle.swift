@@ -272,7 +272,7 @@ struct BusinessChatMessageRow: View {
                 let trimmed = message.body.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !trimmed.isEmpty {
                     Text(message.body)
-                        .font(.system(size: 16.5, weight: .regular))
+                        .font(.body)
                         .foregroundStyle(isMine ? Color.white : Color.primary)
                         .multilineTextAlignment(.leading)
                         .fixedSize(horizontal: false, vertical: true)
@@ -326,8 +326,6 @@ struct BusinessChatMessageRow: View {
     }
 
     private var outgoingColor: Color {
-        colorScheme == .dark
-            ? Color(red: 0.10, green: 0.62, blue: 0.47)
-            : Color(red: 0.055, green: 0.29, blue: 0.24)
+        BusinessDesign.primaryControl
     }
 }

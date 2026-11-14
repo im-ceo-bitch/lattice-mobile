@@ -97,6 +97,7 @@ struct ESIMCenterView: View {
         .background(BusinessDesign.background.ignoresSafeArea())
         .navigationTitle("eSIM")
         .navigationBarTitleDisplayMode(.inline)
+        .businessNavigationSurface()
         .toolbar {
             if !usesPersistentSidebar {
                 ToolbarItem(placement: .topBarLeading) { Button("Закрыть") { dismiss() } }

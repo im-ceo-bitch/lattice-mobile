@@ -20,6 +20,7 @@ struct RootView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background { BusinessDesign.background.ignoresSafeArea() }
+        .tint(BusinessDesign.ink)
         .overlay {
             // Prevent displaying Business data in app-switcher snapshots.
             if auth.state == .signedIn && scenePhase != .active {

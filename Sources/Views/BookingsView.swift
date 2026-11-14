@@ -60,6 +60,7 @@ struct BookingsView: View {
         .background(BusinessDesign.background)
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
+        .businessNavigationSurface()
         .navigationDestination(item: $selectedBooking) { booking in
             if !layout.supportsTwoPaneWorkspace {
                 BookingDetailView(bookingID: booking.id)
@@ -72,7 +73,7 @@ struct BookingsView: View {
             }
         }
         .overlay {
-            if loading || deleting {
+            if (loading && bookings.isEmpty) || deleting {
                 ZStack {
                     BusinessDesign.background.opacity(deleting ? 0.88 : 0.72).ignoresSafeArea()
                     ProgressView(deleting ? "Удаляю…" : "")
@@ -127,8 +128,10 @@ struct BookingsView: View {
 
             Group {
                 if let selectedBooking {
-                    BookingDetailView(bookingID: selectedBooking.id)
-                        .id(selectedBooking.id)
+                    BusinessAdaptivePaneHost {
+                        BookingDetailView(bookingID: selectedBooking.id)
+                    }
+                    .id(selectedBooking.id)
                 } else if !filteredBookings.isEmpty {
                     ContentUnavailableView(
                         "Выберите бронирование",
@@ -151,6 +154,10 @@ struct BookingsView: View {
     private func bookingsList(showsChevron: Bool) -> some View {
         List {
             Section {
+                BusinessPageHeading(title: "Бронирования", subtitle: "Управление поездками и статусами")
+                    .listRowInsets(EdgeInsets(top: 12, leading: 18, bottom: 8, trailing: 18))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
                 filterBar
                     .listRowInsets(EdgeInsets(top: 2, leading: 0, bottom: 8, trailing: 0))
                     .listRowSeparator(.hidden)

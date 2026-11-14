@@ -70,6 +70,7 @@ struct OverviewView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
+                BusinessPageHeading(title: "Обзор", subtitle: "Центр управления iumrah")
                 if let warning = store.refreshWarning {
                     Label(warning, systemImage: "exclamationmark.circle")
                         .font(.footnote).foregroundStyle(.secondary)
@@ -94,10 +95,10 @@ struct OverviewView: View {
                 }.buttonStyle(.plain)
 
                 VStack(alignment: .leading, spacing: 14) {
-                    Text("BOOKING OPERATIONS").font(.caption2.bold()).tracking(2.2).foregroundStyle(.white.opacity(0.52))
+                    Text("БРОНИРОВАНИЯ").font(.caption2.bold()).tracking(2.2).foregroundStyle(.white.opacity(0.52))
                     Text(!store.hasLoadedBookings ? (store.loading ? "Проверяем бронирования…" : "Бронирования не загружены.") : checking == 0 ? "Очередь подтверждений чистая." : "\(checking) бронирований ждут подтверждения.")
-                        .font(.system(size: 38, weight: .bold)).tracking(-1.9).foregroundStyle(.white)
-                    Text("Мобильный центр управления iumrah. Данные бронирований берутся из текущей D1 базы.")
+                        .font(.largeTitle.bold()).foregroundStyle(.white)
+                    Text("Актуальное состояние поездок и очередь подтверждений.")
                         .font(.subheadline).foregroundStyle(.white.opacity(0.62))
                     HStack { Image(systemName: "checkmark.shield.fill"); Text("SUPERADMIN").font(.caption2.bold()).tracking(1.5) }
                         .foregroundStyle(Color.orange).padding(.top, 10)
@@ -152,6 +153,7 @@ struct OverviewView: View {
         .background(BusinessDesign.background)
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
+        .businessNavigationSurface()
         .sheet(isPresented: $showUmrahBuilder) { NavigationStack { UmrahBuilderView(owner: auth.user?.login ?? "") } }
         .toolbar {
             ToolbarItem(placement: .topBarLeading) { BusinessSidebarButton() }

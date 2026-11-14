@@ -101,22 +101,17 @@ struct NotificationsComposerView: View {
 
     private var header: some View {
         HStack(alignment: .center) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Создать уведомление")
-                    .font(.system(size: 30, weight: .bold, design: .rounded))
-                Text("iumrah Signal · системное сообщение клиентам")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
+            BusinessPageHeading(title: "Уведомления", subtitle: "iumrah Signal · системное сообщение клиентам")
             Spacer()
             if !usesPersistentSidebar {
                 Button { dismiss() } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 15, weight: .bold))
-                        .frame(width: 42, height: 42)
+                        .frame(width: 44, height: 44)
                         .businessGlass(in: Circle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Закрыть")
             }
         }
     }

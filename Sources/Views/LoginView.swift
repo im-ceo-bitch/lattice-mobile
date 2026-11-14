@@ -9,6 +9,8 @@ struct LoginView: View {
     @State private var working = false
     private enum Field: Hashable { case login, password }
     @FocusState private var focusedField: Field?
+    @ScaledMetric(relativeTo: .largeTitle) private var compactTitleSize: CGFloat = 36
+    @ScaledMetric(relativeTo: .largeTitle) private var desktopTitleSize: CGFloat = 54
 
     var body: some View {
         GeometryReader { geometry in
@@ -21,7 +23,8 @@ struct LoginView: View {
                             .padding(.vertical, 34)
                     } else {
                         compactComposition
-                            .padding(20)
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 16)
                             .frame(maxWidth: 620)
                     }
                 }
@@ -39,10 +42,11 @@ struct LoginView: View {
         VStack(alignment: .leading, spacing: 0) {
             topBrandRow
 
-            heroCopy
-                .padding(.top, focusedField == nil ? 32 : 18)
+            if focusedField == nil {
+                heroCopy.padding(.top, 24)
+            }
             loginCard
-                .padding(.top, 24)
+                .padding(.top, focusedField == nil ? 24 : 12)
         }
     }
 
@@ -53,7 +57,7 @@ struct LoginView: View {
                     .padding(.bottom, 72)
                 heroCopy
                 Spacer(minLength: 30)
-                Label("Secure business workspace", systemImage: "lock.shield.fill")
+                Label("Защищённое рабочее пространство", systemImage: "lock.shield.fill")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.secondary)
             }
@@ -73,7 +77,7 @@ struct LoginView: View {
                 .frame(width: 150, height: 44)
                 .foregroundStyle(BusinessDesign.ink)
             Spacer()
-            Label("Secure", systemImage: "lock.fill")
+            Label("Защищено", systemImage: "lock.fill")
                 .font(.caption.weight(.semibold))
                 .padding(.horizontal, 13)
                 .frame(height: 42)
@@ -87,9 +91,9 @@ struct LoginView: View {
                 .font(.caption2.weight(.bold))
                 .tracking(2.6)
                 .foregroundStyle(.secondary)
-            Text("Центр\nуправления.")
-                .font(.system(size: layout.supportsDenseDashboard ? 62 : 40, weight: .bold))
-                .tracking(layout.supportsDenseDashboard ? -3.1 : -2.7)
+            Text("Центр управления")
+                .font(.system(size: layout.supportsDenseDashboard ? desktopTitleSize : compactTitleSize, weight: .bold))
+                .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 12)
             Text("Бронирования, чаты и собственная база отелей iumrah — с iPhone, iPad и Mac.")
                 .font(.system(size: 16))
@@ -100,8 +104,9 @@ struct LoginView: View {
     }
 
     private var loginCard: some View {
-        VStack(spacing: 12) {
-            TextField("Логин", text: $login)
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Логин").font(.subheadline.weight(.semibold))
+            TextField("Введите логин", text: $login)
                 .textContentType(.username)
                 .focused($focusedField, equals: .login)
                 .submitLabel(.next)
@@ -109,15 +114,17 @@ struct LoginView: View {
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .padding(.horizontal, 18)
-                .frame(height: 58)
+                .frame(minHeight: 52)
                 .background(BusinessDesign.secondarySurface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-            SecureField("Пароль", text: $password)
+            Text("Пароль").font(.subheadline.weight(.semibold))
+                .padding(.top, 4)
+            SecureField("Введите пароль", text: $password)
                 .textContentType(.password)
                 .focused($focusedField, equals: .password)
                 .submitLabel(.go)
                 .onSubmit { submitLogin() }
                 .padding(.horizontal, 18)
-                .frame(height: 58)
+                .frame(minHeight: 52)
                 .background(BusinessDesign.secondarySurface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
             if let error = auth.errorMessage {
                 Text(error)
@@ -132,7 +139,7 @@ struct LoginView: View {
                 }
                 .font(.headline)
                 .frame(maxWidth: .infinity)
-                .frame(height: 56)
+                .frame(minHeight: 52)
                 .foregroundStyle(BusinessDesign.onPrimaryControl)
                 .background(BusinessDesign.primaryControl, in: Capsule())
             }
@@ -151,7 +158,7 @@ struct LoginView: View {
             }
         }
         .padding(18)
-        .businessCard(radius: 30)
+        .businessCard(radius: 24)
     }
 
     private func submitLogin() {

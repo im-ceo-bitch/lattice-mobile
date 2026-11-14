@@ -74,6 +74,7 @@ struct BookingDetailView: View {
         .background(BusinessDesign.background)
         .navigationTitle("Бронирование")
         .navigationBarTitleDisplayMode(.inline)
+        .businessNavigationSurface()
         .task {
             await load(showLoading: true)
             while !Task.isCancelled {

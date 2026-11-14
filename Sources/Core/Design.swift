@@ -148,3 +148,43 @@ struct BusinessGlassGroup<Content: View>: View {
         }
     }
 }
+
+
+/// Shared navigation treatment: native bars, opaque semantic surface and
+/// system-managed status indicators. Do not extend interactive content into safe areas.
+extension View {
+    func businessNavigationSurface() -> some View {
+        self
+            .toolbarBackground(BusinessDesign.background, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .tint(BusinessDesign.ink)
+    }
+}
+
+struct BusinessPageHeading: View {
+    let title: String
+    let subtitle: String?
+    @ScaledMetric(relativeTo: .largeTitle) private var titleSize: CGFloat = 34
+
+    init(title: String, subtitle: String? = nil) {
+        self.title = title
+        self.subtitle = subtitle
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(title)
+                .font(.system(size: titleSize, weight: .bold))
+                .foregroundStyle(BusinessDesign.ink)
+                .accessibilityAddTraits(.isHeader)
+                .fixedSize(horizontal: false, vertical: true)
+            if let subtitle {
+                Text(subtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(BusinessDesign.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}

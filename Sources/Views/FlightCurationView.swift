@@ -307,6 +307,7 @@ struct FlightCurationView: View {
         .background(BusinessDesign.background.ignoresSafeArea())
         .navigationTitle(tabMode ? "" : "Авиабилеты")
         .navigationBarTitleDisplayMode(.inline)
+        .businessNavigationSurface()
         .toolbar {
             if tabMode {
                 ToolbarItem(placement: .principal) { BusinessBrandLogo(width: 150).frame(height: 36) }
@@ -451,15 +452,10 @@ struct FlightCurationView: View {
     }
 
     private var intro: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text("Поиск и публикация рейсов")
-                .font(.system(size: 26, weight: .bold))
-                .tracking(-0.6)
-            Text("Поиск, массовый ONE WAY, импорт чартеров и отдельная вкладка опубликованных рейсов. Round-trip остаётся отдельной линейкой внутри ручного поиска.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
+        BusinessPageHeading(
+            title: "Авиабилеты",
+            subtitle: "Поиск, импорт чартеров и публикация рейсов."
+        )
         .padding(.top, 10)
     }
 

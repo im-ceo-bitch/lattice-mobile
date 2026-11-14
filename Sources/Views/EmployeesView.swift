@@ -2,6 +2,7 @@ import SwiftUI
 
 struct EmployeesView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.businessUsesPersistentSidebar) private var usesPersistentSidebar
     @State private var members: [BusinessTeamMember] = []
     @State private var loading = true
     @State private var errorMessage: String?
@@ -56,8 +57,11 @@ struct EmployeesView: View {
         .background(BusinessDesign.background)
         .navigationTitle("Сотрудники")
         .navigationBarTitleDisplayMode(.inline)
+        .businessNavigationSurface()
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) { Button("Закрыть") { dismiss() } }
+            if !usesPersistentSidebar {
+                ToolbarItem(placement: .topBarLeading) { Button("Закрыть") { dismiss() } }
+            }
             ToolbarItem(placement: .topBarTrailing) { Button { showAdd = true } label: { Image(systemName: "plus") } }
         }
         .sheet(isPresented: $showAdd) {

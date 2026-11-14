@@ -88,6 +88,7 @@ struct BusinessSecuritySettingsView: View {
         .background(BusinessDesign.background)
         .navigationTitle("Безопасность")
         .navigationBarTitleDisplayMode(.inline)
+        .businessNavigationSurface()
         .sheet(isPresented: $editPIN) {
             NavigationStack {
                 BusinessPINEditView(account: auth.user?.login ?? "", replacing: appLock.hasPIN)

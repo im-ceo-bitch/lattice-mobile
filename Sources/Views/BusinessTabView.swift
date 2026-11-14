@@ -39,8 +39,8 @@ enum BusinessWorkspaceSection: String, Identifiable, CaseIterable, Hashable {
         case .sessions: return "Устройства и сеансы"
         case .employees: return "Сотрудники"
         case .archive: return "Архив клиентов"
-        case .payments: return "Payments"
-        case .ziyarats: return "Ziyarats"
+        case .payments: return "Платежи"
+        case .ziyarats: return "Зияраты"
         case .notifications: return "Создать уведомление"
         case .esimCenter: return "eSIM Center"
         }
@@ -124,6 +124,12 @@ private struct BusinessCompactTabView: View {
                     .tabItem { Label("Авиабилеты", systemImage: "airplane") }
             }
             .tint(BusinessDesign.ink)
+            .onAppear {
+                // A compact iPad window can inherit a desktop-only selection.
+                if !BusinessWorkspaceSection.primary.contains(navigation.selection) {
+                    navigation.selection = .overview
+                }
+            }
             .onChange(of: navigation.selection) { _, value in
                 // Admin destinations live in the compact drawer rather than tabs.
                 if !BusinessWorkspaceSection.primary.contains(value) {
@@ -230,20 +236,20 @@ struct BusinessNavigationCommands: Commands {
 
     var body: some Commands {
         CommandMenu("Navigate") {
-            Button("Overview") { navigation.navigate(to: .overview) }
+            Button("Обзор") { navigation.navigate(to: .overview) }
                 .keyboardShortcut("1", modifiers: .command)
-            Button("Bookings") { navigation.navigate(to: .bookings) }
+            Button("Бронирования") { navigation.navigate(to: .bookings) }
                 .keyboardShortcut("2", modifiers: .command)
-            Button("Chats") { navigation.navigate(to: .chats) }
+            Button("Чаты") { navigation.navigate(to: .chats) }
                 .keyboardShortcut("3", modifiers: .command)
-            Button("Flights") { navigation.navigate(to: .flights) }
+            Button("Авиабилеты") { navigation.navigate(to: .flights) }
                 .keyboardShortcut("4", modifiers: .command)
 
             Divider()
 
-            Button("Search clients") { navigation.navigate(to: .archive) }
+            Button("Архив клиентов") { navigation.navigate(to: .archive) }
                 .keyboardShortcut("f", modifiers: .command)
-            Button("New notification") { navigation.navigate(to: .notifications) }
+            Button("Новое уведомление") { navigation.navigate(to: .notifications) }
                 .keyboardShortcut("n", modifiers: [.command, .shift])
         }
     }

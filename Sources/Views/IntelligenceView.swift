@@ -120,8 +120,9 @@ struct IntelligenceView: View {
             .padding(16)
         }
         .background(BusinessDesign.background)
-        .navigationTitle("Intelligence")
+        .navigationTitle("Аналитика")
         .navigationBarTitleDisplayMode(.inline)
+        .businessNavigationSurface()
         .toolbar {
             ToolbarItem(placement: .topBarLeading) { BusinessSidebarButton() }
             ToolbarItem(placement: .topBarTrailing) {

@@ -9,6 +9,7 @@ private func businessPilgrimName(_ booking: BookingSummary?) -> String {
 }
 
 private enum ChatFilter: String, CaseIterable, Identifiable {
+    case all = "Все"
     case new = "Новые"
     case active = "В процессе"
     case completed = "Завершённые"
@@ -20,7 +21,7 @@ struct ChatsView: View {
 
     @State private var threads: [ChatThread] = []
     @State private var bookings: [BookingSummary] = []
-    @State private var filter: ChatFilter = .new
+    @State private var filter: ChatFilter = .all
     @State private var loading = true
     @State private var errorMessage: String?
     @State private var selectedThread: ChatThread?
@@ -39,6 +40,7 @@ struct ChatsView: View {
         .background(BusinessDesign.background)
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
+        .businessNavigationSurface()
         .toolbar {
             ToolbarItem(placement: .topBarLeading) { BusinessSidebarButton() }
             ToolbarItem(placement: .principal) { BusinessBrandLogo(width: 150).frame(height: 36) }
@@ -49,7 +51,7 @@ struct ChatsView: View {
                 .disabled(bookings.isEmpty)
             }
         }
-        .overlay { if loading { ProgressView() } }
+        .overlay { if loading && !hasLoadedThreads { ProgressView() } }
         .task { await load() }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("iumrah.business.bookingOperationsChanged"))) { _ in
             Task { await load() }
@@ -98,8 +100,10 @@ struct ChatsView: View {
 
             Group {
                 if let selectedThread {
-                    ChatConversationView(thread: selectedThread)
-                        .id(selectedThread.id)
+                    BusinessAdaptivePaneHost {
+                        ChatConversationView(thread: selectedThread)
+                    }
+                    .id(selectedThread.id)
                 } else {
                     ContentUnavailableView(
                         "Выберите чат",
@@ -116,14 +120,7 @@ struct ChatsView: View {
     @ViewBuilder
     private func threadListContent(navigates: Bool) -> some View {
         LazyVStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 5) {
-                Text("Чаты")
-                    .font(.system(size: 38, weight: .bold, design: .rounded))
-                    .tracking(-1.4)
-                Text("Один паломник — один чат")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
+            BusinessPageHeading(title: "Чаты", subtitle: "Персональная переписка с паломниками")
 
             filterBar
 
@@ -202,6 +199,7 @@ struct ChatsView: View {
 
     private var filteredThreads: [ChatThread] {
         switch filter {
+        case .all: return threads
         case .new: return threads.filter(\.unreadForStaff)
         case .active: return threads.filter { !isCompleted($0.booking) }
         case .completed: return threads.filter { isCompleted($0.booking) }
@@ -215,11 +213,20 @@ struct ChatsView: View {
     }
 
     private var emptyTitle: String {
-        filter == .new ? "Новых сообщений нет" : filter == .active ? "Активных чатов нет" : "Завершённых чатов нет"
+        switch filter {
+        case .all: return "Чатов пока нет"
+        case .new: return "Новых сообщений нет"
+        case .active: return "Активных чатов нет"
+        case .completed: return "Завершённых чатов нет"
+        }
     }
 
     private var emptySubtitle: String {
-        filter == .new ? "Непрочитанные сообщения появятся здесь." : "Чаты автоматически группируются по статусу поездки."
+        switch filter {
+        case .all: return "Здесь появятся диалоги с паломниками."
+        case .new: return "Непрочитанные сообщения появятся здесь."
+        case .active, .completed: return "Чаты сгруппированы по статусу связанной поездки."
+        }
     }
 
     @MainActor private func load() async {
@@ -387,41 +394,23 @@ struct ChatConversationView: View {
     @State private var errorMessage: String?
     @State private var selectedPhoto: PhotosPickerItem?
     @FocusState private var composerFocused: Bool
-    @State private var composerPanelHeight: CGFloat = 76
 
     private let bottomAnchorID = "business-chat-bottom"
 
     var body: some View {
         ScrollViewReader { proxy in
-            ZStack(alignment: .bottom) {
-                Color(uiColor: .systemBackground)
-                    .ignoresSafeArea()
-
-                conversation(proxy: proxy)
-                    .ignoresSafeArea(.container, edges: .bottom)
-
-                VStack(spacing: 6) {
-                    if let errorMessage {
-                        errorBar(errorMessage)
+            conversation(proxy: proxy)
+                .background { BusinessDesign.background.ignoresSafeArea() }
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    VStack(spacing: 6) {
+                        if let errorMessage { errorBar(errorMessage) }
+                        composer(proxy: proxy)
                     }
-                    composer(proxy: proxy)
+                    .businessAdaptiveDetailWidth()
+                    .padding(.vertical, 8)
+                    .background(BusinessDesign.background)
+                    .overlay(alignment: .top) { Divider() }
                 }
-                .businessAdaptiveDetailWidth()
-                .padding(.bottom, composerFocused ? 8 : 12)
-                .background {
-                    GeometryReader { geometry in
-                        Color.clear
-                            .onAppear { composerPanelHeight = geometry.size.height }
-                            .onChange(of: geometry.size.height) { _, value in
-                                composerPanelHeight = value
-                            }
-                    }
-                }
-                .zIndex(10)
-            }
-            // Match the client Care chat: content runs through the physical
-            // bottom edge while the keyboard safe area remains active.
-            .ignoresSafeArea(.container, edges: .bottom)
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     HStack(spacing: 8) {
@@ -478,7 +467,7 @@ struct ChatConversationView: View {
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .tabBar)
-        .toolbarBackground(.hidden, for: .navigationBar)
+        .businessNavigationSurface()
     }
 
     private func conversation(proxy: ScrollViewProxy) -> some View {
@@ -547,7 +536,7 @@ struct ChatConversationView: View {
         }
         .scrollIndicators(.hidden)
         .scrollDismissesKeyboard(.interactively)
-        .contentMargins(.bottom, max(88, composerPanelHeight + 10), for: .scrollContent)
+
     }
 
     @ViewBuilder private var bookingContext: some View {
@@ -609,23 +598,24 @@ struct ChatConversationView: View {
                         }
                     }
                     .foregroundStyle(.primary)
-                    .frame(width: 42, height: 42)
+                    .frame(width: 44, height: 44)
                     .contentShape(Circle())
                 }
                 .businessChatGlassButton()
+                .accessibilityLabel("Прикрепить фотографию")
                 .disabled(sending)
 
                 HStack(alignment: .center, spacing: 6) {
                     TextField("Сообщение…", text: $draft, axis: .vertical)
                         .focused($composerFocused)
-                        .font(.system(size: 16.5))
+                        .font(.body)
                         .textFieldStyle(.plain)
                         .lineLimit(1...3)
                         // Keep an empty vertical TextField at its true single-line
                         // height on iOS 26; grow only when actual extra lines exist.
                         .fixedSize(horizontal: false, vertical: true)
                         .submitLabel(.send)
-                        .tint(outgoingAccent)
+                        .tint(BusinessDesign.ink)
                         .onSubmit {
                             guard canSend else { return }
                             send()
@@ -653,12 +643,13 @@ struct ChatConversationView: View {
                             .contentShape(Circle())
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel("Отправить сообщение")
                         .disabled(!canSend)
                         .padding(.trailing, 5)
                         .transition(.scale(scale: 0.82).combined(with: .opacity))
                     }
                 }
-                .frame(minHeight: 48, maxHeight: 72, alignment: .center)
+                .frame(minHeight: 48, alignment: .center)
                 .contentShape(RoundedRectangle(cornerRadius: 21, style: .continuous))
                 .onTapGesture { composerFocused = true }
                 .businessChatGlassSurface(
@@ -683,9 +674,7 @@ struct ChatConversationView: View {
     }
 
     private var outgoingAccent: Color {
-        colorScheme == .dark
-            ? Color(red: 0.10, green: 0.62, blue: 0.47)
-            : Color(red: 0.055, green: 0.29, blue: 0.24)
+        BusinessDesign.primaryControl
     }
 
     private var composerGlassTint: Color? {

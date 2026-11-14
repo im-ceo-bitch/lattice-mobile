@@ -24,6 +24,7 @@ struct ProfileView: View {
         .background(BusinessDesign.background)
         .navigationTitle("Мой профиль")
         .navigationBarTitleDisplayMode(.inline)
+        .businessNavigationSurface()
         .toolbar {
             if !usesPersistentSidebar {
                 ToolbarItem(placement: .topBarLeading) { Button("Закрыть") { dismiss() } }

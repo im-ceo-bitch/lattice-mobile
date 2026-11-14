@@ -64,14 +64,14 @@ struct BusinessSidebarButton: View {
 struct BusinessSidebarHost<Content: View>: View {
     @EnvironmentObject private var auth: AuthStore
     @StateObject private var sidebar = BusinessSidebarStore()
+    @Environment(\.businessAdaptiveLayout) private var layout
     let content: Content
 
     init(@ViewBuilder content: () -> Content) {
         self.content = content()
     }
 
-    private var screenWidth: CGFloat { UIScreen.main.bounds.width }
-    private var drawerWidth: CGFloat { min(326, screenWidth * 0.76) }
+    private var drawerWidth: CGFloat { min(326, max(0, layout.availableSize.width) * 0.82) }
 
     private var contentOffset: CGFloat {
         sidebar.isOpen ? drawerWidth : 0
@@ -133,6 +133,7 @@ struct BusinessSidebarHost<Content: View>: View {
         // never remains invisibly on top of the revealed drawer.
         content
             .environmentObject(sidebar)
+            .accessibilityHidden(sidebar.isOpen)
             .background(BusinessDesign.background)
             .overlay {
                 if sidebar.isOpen {
@@ -160,49 +161,64 @@ struct BusinessSidebarHost<Content: View>: View {
     // compete with scrolling, carousels, cards, or any other screen interaction.
 
     private var drawerContent: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 12) {
-                BusinessBrandLogo(width: 138)
-                Text(auth.user?.displayName ?? "iumrah Business")
-                    .font(.title3.bold())
-                Text(auth.user?.login ?? "")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 22)
-            .padding(.top, 22)
-            .padding(.bottom, 24)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        BusinessBrandLogo(width: min(138, max(70, drawerWidth - 116)))
+                        Spacer(minLength: 4)
+                        Button { sidebar.close() } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 14, weight: .semibold))
+                                .frame(width: 44, height: 44)
+                                .background(BusinessDesign.secondarySurface, in: Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Закрыть меню")
+                    }
+                    Text(auth.user?.displayName ?? "iumrah Business")
+                        .font(.title3.bold())
+                    Text(auth.user?.login ?? "")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 22)
+                .padding(.top, 22)
+                .padding(.bottom, 24)
 
-            if auth.user?.role.lowercased() == "superadmin" {
-                sidebarButton("Аналитика", icon: "chart.xyaxis.line", route: .intelligence)
-            }
-            sidebarButton("Мой профиль", icon: "person.crop.circle", route: .profile)
-            sidebarButton("Безопасность", icon: "lock.shield.fill", route: .security)
-            sidebarButton("Устройства и сеансы", icon: "lock.shield", route: .sessions)
-            sidebarButton("Сотрудники", icon: "person.2", route: .employees)
-            sidebarButton("Архив клиентов", icon: "archivebox", route: .archive)
-            sidebarButton("Payments", icon: "creditcard.and.123", route: .payments)
-            sidebarButton("Ziyarats", icon: "map.fill", route: .ziyarats)
-            if auth.user?.role.lowercased() == "superadmin" {
-                sidebarButton("eSIM Center", icon: "simcard.2.fill", route: .esimCenter)
-            }
-            sidebarButton("Создать уведомление", icon: "bell.badge.fill", route: .notifications)
+                if auth.user?.role.lowercased() == "superadmin" {
+                    sidebarButton("Аналитика", icon: "chart.xyaxis.line", route: .intelligence)
+                }
+                sidebarButton("Мой профиль", icon: "person.crop.circle", route: .profile)
+                sidebarButton("Безопасность", icon: "lock.shield.fill", route: .security)
+                sidebarButton("Устройства и сеансы", icon: "lock.shield", route: .sessions)
+                sidebarButton("Сотрудники", icon: "person.2", route: .employees)
+                sidebarButton("Архив клиентов", icon: "archivebox", route: .archive)
+                sidebarButton("Платежи", icon: "creditcard.and.123", route: .payments)
+                sidebarButton("Зияраты", icon: "map.fill", route: .ziyarats)
+                if auth.user?.role.lowercased() == "superadmin" {
+                    sidebarButton("eSIM Center", icon: "simcard.2.fill", route: .esimCenter)
+                }
+                sidebarButton("Создать уведомление", icon: "bell.badge.fill", route: .notifications)
 
-            Spacer(minLength: 12)
+                Spacer(minLength: 12)
 
-            Button(role: .destructive) {
-                Task { await auth.logout() }
-            } label: {
-                Label("Выйти", systemImage: "rectangle.portrait.and.arrow.right")
-                    .font(.body.weight(.semibold))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 18)
-                    .frame(height: 52)
+                Button(role: .destructive) {
+                    Task { await auth.logout() }
+                } label: {
+                    Label("Выйти", systemImage: "rectangle.portrait.and.arrow.right")
+                        .font(.body.weight(.semibold))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 18)
+                        .frame(minHeight: 48)
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 10)
+                .padding(.bottom, 18)
             }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 10)
-            .padding(.bottom, 18)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
+        .scrollIndicators(.hidden)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
@@ -221,7 +237,7 @@ struct BusinessSidebarHost<Content: View>: View {
             }
             .foregroundStyle(.primary)
             .padding(.horizontal, 18)
-            .frame(height: 54)
+            .frame(minHeight: 48)
             .background(
                 BusinessDesign.secondarySurface,
                 in: RoundedRectangle(cornerRadius: 18, style: .continuous)
