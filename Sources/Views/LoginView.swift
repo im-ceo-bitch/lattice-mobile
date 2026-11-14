@@ -7,7 +7,15 @@ struct LoginView: View {
     @State private var login = ""
     @State private var password = ""
     @State private var working = false
-    private enum Field: Hashable { case login, password }
+    @State private var recovering = false
+    @State private var recoveryEmail = ""
+    @State private var recoveryChallenge: String?
+    @State private var recoveryCode = ""
+    @State private var newPassword = ""
+    @State private var confirmPassword = ""
+    @State private var recoveryError: String?
+    @State private var recoveryNotice: String?
+    private enum Field: Hashable { case login, password, recoveryEmail, recoveryCode, newPassword, confirmPassword }
     @FocusState private var focusedField: Field?
     @ScaledMetric(relativeTo: .largeTitle) private var compactTitleSize: CGFloat = 36
     @ScaledMetric(relativeTo: .largeTitle) private var desktopTitleSize: CGFloat = 54
@@ -104,9 +112,15 @@ struct LoginView: View {
     }
 
     private var loginCard: some View {
+        Group {
+            if recovering { recoveryCard } else { passwordCard }
+        }
+    }
+
+    private var passwordCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Логин").font(.subheadline.weight(.semibold))
-            TextField("Введите логин", text: $login)
+            TextField("Введите логин или Email", text: $login)
                 .textContentType(.username)
                 .focused($focusedField, equals: .login)
                 .submitLabel(.next)
@@ -126,6 +140,9 @@ struct LoginView: View {
                 .padding(.horizontal, 18)
                 .frame(minHeight: 52)
                 .background(BusinessDesign.secondarySurface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            if let notice = recoveryNotice {
+                Text(notice).font(.footnote).foregroundStyle(.secondary)
+            }
             if let error = auth.errorMessage {
                 Text(error)
                     .font(.footnote)
@@ -145,6 +162,19 @@ struct LoginView: View {
             }
             .disabled(login.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || password.isEmpty || working)
             .opacity(working || login.isEmpty || password.isEmpty ? 0.55 : 1)
+            Button("Забыли пароль?") {
+                guard !working else { return }
+                auth.errorMessage = nil
+                recoveryNotice = nil
+                recoveryEmail = login.contains("@") ? login : ""
+                password = ""
+                recovering = true
+                focusedField = .recoveryEmail
+            }
+            .font(.subheadline.weight(.semibold))
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .disabled(working)
             if BusinessStaffAuthPersistence.hasSavedLogin && !working {
                 Button("Повторить проверку сохранённого сеанса") {
                     working = true
@@ -159,6 +189,136 @@ struct LoginView: View {
         }
         .padding(18)
         .businessCard(radius: 24)
+    }
+
+    private var recoveryCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Восстановление доступа").font(.title2.bold())
+            Text(recoveryChallenge == nil ? "Введите почту владельца, настроенную в Cloudflare. Отправим на неё код." : "Введите код из письма и задайте новый пароль. Старые сеансы будут недействительны.")
+                .font(.subheadline).foregroundStyle(.secondary)
+            recoveryFields
+            if let error = recoveryError {
+                Text(error).font(.footnote).foregroundStyle(.red)
+            }
+            recoveryActions
+        }
+        .padding(18)
+        .businessCard(radius: 24)
+    }
+
+    @ViewBuilder
+    private var recoveryFields: some View {
+            if recoveryChallenge == nil {
+                TextField("Email владельца", text: $recoveryEmail)
+                    .keyboardType(.emailAddress)
+                    .textContentType(.emailAddress)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .focused($focusedField, equals: .recoveryEmail)
+                    .padding(.horizontal, 18).frame(minHeight: 52)
+                    .background(BusinessDesign.secondarySurface, in: RoundedRectangle(cornerRadius: 20))
+                    .disabled(working)
+            } else {
+                Text(recoveryEmail).font(.footnote).foregroundStyle(.secondary)
+                TextField("Шестизначный код", text: $recoveryCode)
+                    .keyboardType(.numberPad).textContentType(.oneTimeCode)
+                    .focused($focusedField, equals: .recoveryCode)
+                    .disabled(working)
+                    .padding(.horizontal, 18).frame(minHeight: 52)
+                    .background(BusinessDesign.secondarySurface, in: RoundedRectangle(cornerRadius: 20))
+                SecureField("Новый пароль (от 12 символов)", text: $newPassword)
+                    .textContentType(.newPassword)
+                    .focused($focusedField, equals: .newPassword)
+                    .disabled(working)
+                    .padding(.horizontal, 18).frame(minHeight: 52)
+                    .background(BusinessDesign.secondarySurface, in: RoundedRectangle(cornerRadius: 20))
+                SecureField("Повторите пароль", text: $confirmPassword)
+                    .textContentType(.newPassword)
+                    .focused($focusedField, equals: .confirmPassword)
+                    .disabled(working)
+                    .padding(.horizontal, 18).frame(minHeight: 52)
+                    .background(BusinessDesign.secondarySurface, in: RoundedRectangle(cornerRadius: 20))
+                Button("Отправить код повторно", action: requestRecoveryCode)
+                    .font(.subheadline.weight(.medium)).disabled(working)
+            }
+    }
+
+    private var recoveryActions: some View {
+        VStack(spacing: 12) {
+            Button {
+                if recoveryChallenge == nil { requestRecoveryCode() } else { confirmRecovery() }
+            } label: {
+                HStack {
+                    if working { ProgressView().tint(BusinessDesign.onPrimaryControl) }
+                    Text(recoveryChallenge == nil ? "Получить код" : "Изменить пароль и войти")
+                }
+                .font(.headline).frame(maxWidth: .infinity).frame(minHeight: 52)
+                .foregroundStyle(BusinessDesign.onPrimaryControl)
+                .background(BusinessDesign.primaryControl, in: Capsule())
+            }
+            .disabled(working || (recoveryChallenge == nil ? recoveryEmail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty : !recoveryInputValid))
+            Button("Вернуться ко входу") {
+                clearRecovery()
+                recovering = false
+                focusedField = nil
+            }
+            .font(.subheadline.weight(.medium)).frame(maxWidth: .infinity).padding(.vertical, 8)
+            .disabled(working)
+        }
+    }
+
+    private var recoveryInputValid: Bool {
+        recoveryCode.utf8.count == 6 && recoveryCode.utf8.allSatisfy { (48...57).contains($0) } &&
+        (12...128).contains(newPassword.utf16.count) && newPassword == confirmPassword &&
+        !newPassword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func requestRecoveryCode() {
+        guard !working else { return }
+        let email = recoveryEmail.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !email.isEmpty else { return }
+        working = true
+        recoveryError = nil
+        focusedField = nil
+        Task {
+            defer { working = false }
+            do {
+                recoveryChallenge = try await APIClient.shared.startStaffRecovery(email: email)
+                recoveryEmail = email
+                recoveryCode = ""
+                focusedField = .recoveryCode
+            } catch { recoveryError = error.localizedDescription }
+        }
+    }
+
+    private func confirmRecovery() {
+        guard !working, recoveryInputValid, let challenge = recoveryChallenge else { return }
+        let email = recoveryEmail
+        let chosenPassword = newPassword
+        let code = recoveryCode
+        working = true
+        recoveryError = nil
+        focusedField = nil
+        Task {
+            defer { working = false }
+            do {
+                try await APIClient.shared.resetStaffPassword(email: email, challengeID: challenge, code: code, password: chosenPassword)
+                clearRecovery()
+                recovering = false
+                login = email
+                recoveryNotice = "Пароль изменён. Войдите с новым паролем, если автоматический вход не выполнен."
+                await auth.login(login: email, password: chosenPassword)
+            } catch { recoveryError = error.localizedDescription }
+        }
+    }
+
+    private func clearRecovery() {
+        recoveryEmail = ""
+        recoveryChallenge = nil
+        recoveryCode = ""
+        newPassword = ""
+        confirmPassword = ""
+        recoveryError = nil
     }
 
     private func submitLogin() {

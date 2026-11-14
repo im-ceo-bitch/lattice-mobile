@@ -1,6 +1,7 @@
 // Ported from iumrah-web-main 5.zip: lib/staff-auth.ts
 import { requestEnv, backendFetch } from "../runtime.js";
 import { getCloudflareContext } from "../runtime.js";
+import { staffCredentialState, ownerRecoveryEmail, verifyRecoveredPassword } from "./staff-recovery.js";
 export const STAFF_SESSION_COOKIE = "iumrah_staff_session";
 export const STAFF_SESSION_MAX_AGE = 60 * 60 * 24 * 7;
 function normalize(value) {
@@ -83,25 +84,34 @@ export async function verifyStaffCredentials(login, password) {
     if (!config.ready || !config.password || !config.sessionSecret) {
         return { ok: false, reason: "NOT_CONFIGURED" };
     }
+    const state = await staffCredentialState();
     const normalizedLogin = login.trim().toLowerCase();
     const expectedLogin = config.login.trim().toLowerCase();
+    const owner = ownerRecoveryEmail();
+    const loginMatches = normalizedLogin === expectedLogin || (owner && normalizedLogin === owner);
+    const version = Number(state?.credential_version || 0);
+    if (version > 0) {
+        const valid = await verifyRecoveredPassword(state, password, config.sessionSecret);
+        return loginMatches && valid ? {ok:true, login:config.login, credentialVersion:version} : {ok:false, reason:"INVALID_CREDENTIALS"};
+    }
     const [loginDigest, expectedLoginDigest, passwordDigest, expectedPasswordDigest] = await Promise.all([
         hmac(config.sessionSecret, `login:${normalizedLogin}`),
         hmac(config.sessionSecret, `login:${expectedLogin}`),
         hmac(config.sessionSecret, `password:${password}`),
         hmac(config.sessionSecret, `password:${config.password}`),
     ]);
-    const valid = constantTimeEqual(loginDigest, expectedLoginDigest) && constantTimeEqual(passwordDigest, expectedPasswordDigest);
+    const valid = (constantTimeEqual(loginDigest, expectedLoginDigest) || Boolean(owner && normalizedLogin === owner)) && constantTimeEqual(passwordDigest, expectedPasswordDigest);
     return valid
-        ? { ok: true, login: config.login }
+        ? { ok: true, login: config.login, credentialVersion: 0 }
         : { ok: false, reason: "INVALID_CREDENTIALS" };
 }
-export async function createStaffSession(login) {
+export async function createStaffSession(login, credentialVersion = 0) {
     const config = staffAuthConfig();
     if (!config.sessionSecret)
         throw new Error("IUMRAH_SESSION_SECRET is not configured");
     const payload = {
         v: 1,
+        credentialVersion,
         sub: login,
         role: "superadmin",
         displayName: "Super Administrator",
@@ -136,6 +146,8 @@ export async function verifyStaffSessionToken(token) {
         return null;
     if (payload.exp <= Math.floor(Date.now() / 1000))
         return null;
+    const state = await staffCredentialState();
+    if (Number(payload.credentialVersion || 0) !== Number(state?.credential_version || 0)) return null;
     return payload;
 }
 export function readCookie(cookieHeader, name) {

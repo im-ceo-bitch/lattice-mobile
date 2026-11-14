@@ -45,7 +45,10 @@ import * as r43 from "./app/api/telegram/link/route.js";
 import * as seoCatalog from "./app/api/seo/catalog/route.js";
 import * as seoStatus from "./app/api/seo/status/route.js";
 import * as telegramWebhook from "./app/api/telegram/webhook/route.js";
+import { startStaffRecovery, finishStaffRecovery } from "./lib/staff-recovery.js";
 export const routes = [
+  {pattern:/^\/api\/auth\/staff\/recovery\/start$/,keys:[],handlers:{POST:startStaffRecovery}},
+  {pattern:/^\/api\/auth\/staff\/recovery\/confirm$/,keys:[],handlers:{POST:finishStaffRecovery}},
   {pattern:/^\/api\/telegram\/webhook$/,keys:[],handlers:telegramWebhook},
   {pattern:/^\/api\/seo\/catalog$/,keys:[],handlers:seoCatalog},
   {pattern:/^\/api\/seo\/status$/,keys:[],handlers:seoStatus},
