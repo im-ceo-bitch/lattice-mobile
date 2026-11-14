@@ -5,6 +5,9 @@ struct HotelsView: View {
     @Environment(\.businessAdaptiveLayout) private var layout
     @State private var hotels: [HotelListItem] = []
     @State private var loading = false
+    @State private var loadGeneration = UUID()
+    @State private var showingCachedCatalog = false
+    @Environment(\.scenePhase) private var scenePhase
     @State private var showAdd = false
     @State private var backendUnavailable = false
     @State private var cloudHealth: HotelCloudHealthResponse?
@@ -23,9 +26,9 @@ struct HotelsView: View {
                 priceMonitoringEntry
                 cloudStatus
                 importsSection
-                hotelCatalog
+                hotelCatalog.disabled(showingCachedCatalog)
                 if !unclassifiedHotels.isEmpty {
-                    unclassifiedCatalog
+                    unclassifiedCatalog.disabled(showingCachedCatalog)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -43,8 +46,14 @@ struct HotelsView: View {
             AddHotelView()
         }
         .task {
-            await BusinessNotifications.prepare()
+            // Show a recent catalogue snapshot while revalidating against D1.
+            if hotels.isEmpty, let cached = await APIClient.shared.cachedHotelCatalog(), !Task.isCancelled {
+                hotels = cached
+                showingCachedCatalog = true
+            }
+            async let prepareNotifications: Void = BusinessNotifications.prepare()
             await load()
+            _ = await prepareNotifications
             await monitorImports()
         }
         .refreshable { await load() }
@@ -150,6 +159,10 @@ struct HotelsView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(backendUnavailable ? "Hotels Cloud недоступен" : "Hotels Cloud подключён")
                     .font(.subheadline.weight(.semibold))
+                if showingCachedCatalog {
+                    Text(loading ? "Сохранённый каталог · обновляем данные" : "Сохранённый каталог · данные не обновлены")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 if let cloudHealth, !backendUnavailable {
                     Text("D1 · R2 · \(cloudHealth.hotels) отелей")
                         .font(.caption)
@@ -560,64 +573,57 @@ struct HotelsView: View {
         return parts.joined(separator: " · ")
     }
 
-    func load() async {
+    @MainActor func load() async {
         guard !Task.isCancelled else { return }
-        await MainActor.run {
-            loading = true
-            backendUnavailable = false
-            backendMessage = nil
-        }
+        let generation = UUID()
+        loadGeneration = generation
+        loading = true
+        backendUnavailable = false
+        backendMessage = nil
+        defer { if loadGeneration == generation { loading = false } }
 
+        // Independent reads run concurrently; an unavailable catalogue must not
+        // prevent the health or import-job sections from receiving their results.
+        async let catalogue = APIClient.shared.hotels()
+        async let health = APIClient.shared.hotelCloudHealth()
+        async let jobs = APIClient.shared.hotelImportJobs()
         do {
-            // Catalogue availability is authoritative for this screen. Health contains
-            // additional bindings (for example BOOKINGS_DB) and must not blank a healthy
-            // HOTELS_DB catalogue when an unrelated dependency reports 503.
-            let resolvedHotels = try await APIClient.shared.hotels()
-            guard !Task.isCancelled else { return }
-            await MainActor.run {
-                hotels = resolvedHotels
-                backendUnavailable = false
-            }
-
-            if let resolvedHealth = try? await APIClient.shared.hotelCloudHealth() {
-                guard !Task.isCancelled else { return }
-                await MainActor.run { cloudHealth = resolvedHealth }
-            } else {
-                await MainActor.run { cloudHealth = nil }
-            }
-
-            do {
-                let jobs = try await APIClient.shared.hotelImportJobs()
-                guard !Task.isCancelled else { return }
-                await MainActor.run {
-                    importJobs = jobs
-                    importJobsError = nil
-                }
-            } catch is CancellationError {
-                return
-            } catch {
-                await MainActor.run { importJobsError = "Не удалось получить прогресс импортов: \(error.localizedDescription)" }
-            }
-        } catch is CancellationError {
-            return
+            let resolved = try await catalogue
+            guard !Task.isCancelled, loadGeneration == generation else { return }
+            hotels = resolved
+            showingCachedCatalog = false
         } catch {
-            guard !Task.isCancelled else { return }
-            await MainActor.run {
-                backendUnavailable = true
-                backendMessage = error.localizedDescription
-                cloudHealth = nil
-            }
+            guard !Task.isCancelled, loadGeneration == generation else { return }
+            backendUnavailable = true
+            backendMessage = error.localizedDescription
+            showingCachedCatalog = !hotels.isEmpty
         }
-        await MainActor.run { loading = false }
+        let resolvedHealth = try? await health
+        guard !Task.isCancelled, loadGeneration == generation else { return }
+        cloudHealth = resolvedHealth
+        do {
+            let resolvedJobs = try await jobs
+            guard !Task.isCancelled, loadGeneration == generation else { return }
+            importJobs = resolvedJobs
+            importJobsError = nil
+        } catch {
+            guard !Task.isCancelled, loadGeneration == generation else { return }
+            importJobsError = "Не удалось получить прогресс импортов: \(error.localizedDescription)"
+        }
     }
 
     @MainActor
     private func monitorImports() async {
         var previousActive = Set(importJobs.filter(\.isActive).map(\.id))
         while !Task.isCancelled {
+            let hasActive = importJobs.contains(where: \.isActive)
+            do { try await Task.sleep(for: .seconds(hasActive ? 3 : 20)) } catch { return }
+            guard !Task.isCancelled, scenePhase == .active, !loading, jobActionID == nil else { continue }
+            let generation = loadGeneration
             do {
                 let jobs = try await APIClient.shared.hotelImportJobs()
                 guard !Task.isCancelled else { return }
+                guard loadGeneration == generation, jobActionID == nil else { continue }
                 let currentActive = Set(jobs.filter(\.isActive).map(\.id))
                 let finishedSomething = !previousActive.subtracting(currentActive).isEmpty
                 previousActive = currentActive
@@ -625,45 +631,52 @@ struct HotelsView: View {
                 importJobsError = nil
                 await BusinessNotifications.trackActiveHotelImports(jobs)
                 await BusinessNotifications.notifyUnseenTerminalJobs(jobs)
-                if finishedSomething, let refreshed = try? await APIClient.shared.hotels() { hotels = refreshed }
+                if finishedSomething { await load() }
             } catch is CancellationError {
                 return
             } catch {
                 guard !Task.isCancelled else { return }
+                guard loadGeneration == generation, jobActionID == nil else { continue }
                 importJobsError = "Прогресс временно недоступен: \(error.localizedDescription)"
             }
-            let hasActive = importJobs.contains(where: \.isActive)
-            try? await Task.sleep(nanoseconds: UInt64(hasActive ? 2_000_000_000 : 8_000_000_000))
         }
     }
 
     @MainActor private func retryJob(_ job: HotelImportJob) async {
+        guard jobActionID == nil else { return }
         jobActionID = job.id
+        loadGeneration = UUID()
+        loading = false
         defer { jobActionID = nil }
         do {
             let retried = try await APIClient.shared.retryHotelImportJob(id: job.id)
             await BusinessNotifications.hotelImportStarted(retried)
-            importJobs = try await APIClient.shared.hotelImportJobs()
-            hotels = try await APIClient.shared.hotels()
+            await load()
         } catch { importJobsError = error.localizedDescription }
     }
 
     @MainActor private func cancelJob(_ job: HotelImportJob) async {
+        guard jobActionID == nil else { return }
         jobActionID = job.id
+        loadGeneration = UUID()
+        loading = false
         defer { jobActionID = nil }
         do {
             _ = try await APIClient.shared.cancelHotelImportJob(id: job.id)
-            importJobs = try await APIClient.shared.hotelImportJobs()
-            hotels = try await APIClient.shared.hotels()
+            await load()
         } catch { importJobsError = error.localizedDescription }
     }
 
     @MainActor private func deleteJob(_ job: HotelImportJob) async {
+        guard jobActionID == nil else { return }
         jobActionID = job.id
+        loadGeneration = UUID()
+        loading = false
         defer { jobActionID = nil }
         do {
             try await APIClient.shared.deleteHotelImportJob(id: job.id)
             importJobs.removeAll { $0.id == job.id }
+            await load()
         } catch { importJobsError = error.localizedDescription }
     }
 

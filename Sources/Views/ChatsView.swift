@@ -374,6 +374,8 @@ struct ChatConversationView: View {
     @State private var cursor = "0"
     @State private var scopeVersion: String?
     @State private var syncing = false
+    @State private var pendingSync = false
+    @State private var attemptedHistoryCache = false
     @State private var acknowledgedCursor: String?
     @State private var acknowledgedScope: String?
     @State private var retryText: String?
@@ -714,27 +716,60 @@ struct ChatConversationView: View {
     }
 
     @MainActor private func syncMessages() async throws {
-        guard !syncing else { return }
-        syncing = true
-        defer { syncing = false }
+        guard let sessionToken = BusinessSessionVault.sessionToken else { throw APIError.unauthorized }
+        // Validate the conversation and scope with the server before displaying
+        // cached staff messages. A new session never receives another session's cache.
+        var snapshot: BusinessChatHistorySnapshot?
+        if !attemptedHistoryCache, messages.isEmpty, cursor == "0" {
+            attemptedHistoryCache = true
+            snapshot = await APIClient.shared.cachedChatHistory(conversationID: conversationID)
+        }
+        var historyChanged = false
         for _ in 0..<20 {
             try Task.checkCancellation()
-            let before = cursor
-            let page = try await APIClient.shared.businessChatMessages(bookingID: conversationID, after: cursor, scope: scopeVersion)
+            let before = snapshot?.cursor ?? cursor
+            let requestedScope = snapshot?.scope ?? scopeVersion
+            let page = try await APIClient.shared.businessChatMessages(bookingID: conversationID, after: before, scope: requestedScope)
             try Task.checkCancellation()
-            if page.reset == true { messages = []; acknowledgedCursor = nil; acknowledgedScope = nil }
-            var indexed = Dictionary(messages.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-            for message in page.messages { indexed[message.id] = message }
+            guard BusinessSessionVault.sessionToken == sessionToken else { throw CancellationError() }
+            guard page.ok, let next = page.nextCursor, let scope = page.scopeVersion else {
+                throw APIError.invalidResponse
+            }
+            // Unexpected scope changes must never append to a stale local history.
+            if let requestedScope, requestedScope != scope, page.reset != true {
+                historyChanged = true
+                snapshot = nil; messages = []; cursor = "0"; scopeVersion = nil
+                acknowledgedCursor = nil; acknowledgedScope = nil
+                continue
+            }
+            if page.reset == true {
+                historyChanged = true
+                messages = []; acknowledgedCursor = nil; acknowledgedScope = nil
+            } else if let snapshot {
+                messages = snapshot.messages
+            }
+            snapshot = nil
             if !page.messages.isEmpty {
+                historyChanged = true
+                var indexed = Dictionary(messages.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+                for message in page.messages { indexed[message.id] = message }
                 messages = indexed.values.sorted { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }
             }
-            scopeVersion = page.scopeVersion
-            cursor = page.nextCursor ?? "0"
+            scopeVersion = scope
+            cursor = next
             guard page.hasMore == true, cursor != before || page.reset == true else { break }
+        }
+        // Encode only when history changed, not on each empty polling response.
+        // The snapshot contains the full fetched prefix, never a truncated cursor.
+        if historyChanged, let scope = scopeVersion {
+            await APIClient.shared.saveChatHistory(
+                BusinessChatHistorySnapshot(messages: messages, cursor: cursor, scope: scope),
+                conversationID: conversationID, sessionToken: sessionToken)
         }
         if let scope = scopeVersion, cursor != "0",
            acknowledgedCursor != cursor || acknowledgedScope != scope {
             try Task.checkCancellation()
+            guard BusinessSessionVault.sessionToken == sessionToken else { throw CancellationError() }
             try await APIClient.shared.markBusinessChatRead(bookingID: conversationID, through: cursor, scope: scope)
             acknowledgedCursor = cursor
             acknowledgedScope = scope
@@ -743,15 +778,22 @@ struct ChatConversationView: View {
     }
 
     @MainActor private func reload() async {
-        do { try await syncMessages(); errorMessage = nil }
-        catch is CancellationError { return }
-        catch { errorMessage = error.localizedDescription }
-        loading = false
+        if syncing { pendingSync = true; return }
+        syncing = true
+        defer { syncing = false; loading = false }
+        // A push arriving during a request schedules a follow-up rather than being lost.
+        for _ in 0..<3 {
+            pendingSync = false
+            do { try await syncMessages(); errorMessage = nil }
+            catch is CancellationError { return }
+            catch { errorMessage = error.localizedDescription; return }
+            if !pendingSync { break }
+        }
     }
 
     @MainActor private func poll() async {
         while !Task.isCancelled {
-            do { try await Task.sleep(for: .seconds(5)) } catch { break }
+            do { try await Task.sleep(for: .seconds(errorMessage == nil ? 15 : 30)) } catch { break }
             guard !Task.isCancelled, !sending, scenePhase == .active else { continue }
             await reload()
         }

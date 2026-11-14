@@ -8,6 +8,8 @@ struct PrimaryHotelsView: View {
     @State private var hotels: [HotelListItem] = []
     @State private var assignments: [PrimaryHotelAssignment] = []
     @State private var loading = true
+    @State private var loadGeneration = UUID()
+    @State private var loadedCity: String?
     @State private var errorMessage: String?
     @State private var priceEditor: PrimaryHotelPriceEditorContext?
     @State private var priceNotice: String?
@@ -38,10 +40,11 @@ struct PrimaryHotelsView: View {
                         categoryCard(stars)
                     }
                     .buttonStyle(.plain)
+                    .disabled(loading || loadedCity != city || errorMessage != nil)
                 }
 
                 if !primaryPricingAssignments.isEmpty {
-                    primaryPricingSection
+                    primaryPricingSection.disabled(loading || loadedCity != city || errorMessage != nil)
                 }
 
                 if let priceNotice {
@@ -62,7 +65,8 @@ struct PrimaryHotelsView: View {
         }
         .overlay { if loading { ProgressView() } }
         .task { await load() }
-        .onChange(of: city) { _, _ in Task { await load() } }
+        .refreshable { await load() }
+        .onChange(of: city) { _, _ in Task { await load(reloadCatalog: false) } }
         .sheet(item: $priceEditor) { context in
             PrimaryHotelManualPriceSheet(context: context) {
                 priceNotice = "Ручная цена Primary Hotel сохранена и уже используется как текущая."
@@ -180,16 +184,31 @@ struct PrimaryHotelsView: View {
         .padding(16).businessCard(radius: 26)
     }
 
-    @MainActor private func load() async {
+    @MainActor private func load(reloadCatalog: Bool = true) async {
+        let generation = UUID()
+        loadGeneration = generation
+        let requestedCity = city
         loading = true
+        defer { if loadGeneration == generation { loading = false } }
         do {
-            async let hotelRequest = APIClient.shared.hotels()
-            async let primaryRequest = APIClient.shared.primaryHotels(city: city)
-            hotels = try await hotelRequest
-            assignments = try await primaryRequest
+            async let primaryRequest = APIClient.shared.primaryHotels(city: requestedCity)
+            // Switching cities only changes assignments; the hotel catalogue covers both.
+            let resolvedHotels: [HotelListItem]
+            if reloadCatalog || hotels.isEmpty { resolvedHotels = try await APIClient.shared.hotels() }
+            else { resolvedHotels = hotels }
+            let resolvedAssignments = try await primaryRequest
+            guard !Task.isCancelled, loadGeneration == generation, city == requestedCity else { return }
+            hotels = resolvedHotels
+            assignments = resolvedAssignments
+            loadedCity = requestedCity
             errorMessage = nil
-        } catch { errorMessage = error.localizedDescription }
-        loading = false
+        } catch {
+            guard !Task.isCancelled, loadGeneration == generation, city == requestedCity else { return }
+            errorMessage = error.localizedDescription
+            // Do not offer editing from another city's stale selection.
+            assignments = []
+            loadedCity = nil
+        }
     }
 }
 

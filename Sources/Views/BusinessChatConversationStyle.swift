@@ -259,21 +259,11 @@ struct BusinessChatMessageRow: View {
         // so the conversation reads naturally without the old swipe-to-reveal gesture.
         VStack(alignment: .trailing, spacing: 5) {
             VStack(alignment: .leading, spacing: 6) {
-                if message.isImage, let url = AppConfig.absoluteURL(message.attachmentURL) {
-                    AsyncImage(url: url) { phase in
-                        if let image = phase.image {
-                            image.resizable().scaledToFit()
-                        } else if phase.error != nil {
-                            Color.primary.opacity(0.045)
-                                .overlay(Image(systemName: "photo.badge.exclamationmark").foregroundStyle(.secondary))
-                                .frame(width: 220, height: 150)
-                        } else {
-                            ZStack {
-                                Color.primary.opacity(0.035)
-                                ProgressView()
-                            }
+                if message.isImage, let path = message.attachmentURL {
+                    BusinessPrivateImage(path: path, contentMode: .fit, chatAttachment: true) {
+                        Color.primary.opacity(0.045)
+                            .overlay(Image(systemName: "photo").foregroundStyle(.secondary))
                             .frame(width: 220, height: 150)
-                        }
                     }
                     .frame(maxWidth: 258)
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))

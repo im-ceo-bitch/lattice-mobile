@@ -9,6 +9,9 @@ final class OverviewStore: ObservableObject {
     @Published var ignavUsage: IgnavUsageSnapshot?
     @Published var loading = false
     @Published var recentSecurityEvent: BusinessSecurityLoginEvent?
+    @Published var refreshWarning: String?
+    @Published var hasLoadedBookings = false
+    private var refreshGeneration = UUID()
 
     func reloadSecurityEvents() async {
         guard let response = try? await APIClient.shared.businessSecurityEvents(limit: 8) else { return }
@@ -16,14 +19,27 @@ final class OverviewStore: ObservableObject {
     }
 
     func reload() async {
+        let generation = UUID()
+        refreshGeneration = generation
         loading = true
+        defer { if refreshGeneration == generation { loading = false } }
         async let bookingsTask = APIClient.shared.bookings()
         async let chatsTask = APIClient.shared.businessChatThreads()
         async let usageTask = APIClient.shared.ignavUsage()
-        bookings = (try? await bookingsTask) ?? []
-        unreadChats = ((try? await chatsTask) ?? []).filter(\.unreadForStaff).count
-        ignavUsage = try? await usageTask
-        loading = false
+        var failed: [String] = []
+        let newBookings = try? await bookingsTask
+        guard !Task.isCancelled, refreshGeneration == generation else { return }
+        if let newBookings { bookings = newBookings; hasLoadedBookings = true }
+        else { failed.append("бронирования") }
+        let newChats = try? await chatsTask
+        guard !Task.isCancelled, refreshGeneration == generation else { return }
+        if let newChats { unreadChats = newChats.filter(\.unreadForStaff).count }
+        else { failed.append("чаты") }
+        let newUsage = try? await usageTask
+        guard !Task.isCancelled, refreshGeneration == generation else { return }
+        if let newUsage { ignavUsage = newUsage }
+        else { failed.append("Ignav") }
+        refreshWarning = failed.isEmpty ? nil : "Не обновлено: " + failed.joined(separator: ", ") + ". Показаны последние доступные данные."
     }
 }
 
@@ -54,6 +70,11 @@ struct OverviewView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
+                if let warning = store.refreshWarning {
+                    Label(warning, systemImage: "exclamationmark.circle")
+                        .font(.footnote).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
                 if let event = store.recentSecurityEvent, event.id != dismissedSecurityEvent {
                     securityBanner(event)
                 }
@@ -74,7 +95,7 @@ struct OverviewView: View {
 
                 VStack(alignment: .leading, spacing: 14) {
                     Text("BOOKING OPERATIONS").font(.caption2.bold()).tracking(2.2).foregroundStyle(.white.opacity(0.52))
-                    Text(checking == 0 ? "Очередь подтверждений чистая." : "\(checking) бронирований ждут подтверждения.")
+                    Text(!store.hasLoadedBookings ? (store.loading ? "Проверяем бронирования…" : "Бронирования не загружены.") : checking == 0 ? "Очередь подтверждений чистая." : "\(checking) бронирований ждут подтверждения.")
                         .font(.system(size: 38, weight: .bold)).tracking(-1.9).foregroundStyle(.white)
                     Text("Мобильный центр управления iumrah. Данные бронирований берутся из текущей D1 базы.")
                         .font(.subheadline).foregroundStyle(.white.opacity(0.62))
@@ -121,7 +142,7 @@ struct OverviewView: View {
                         }
                         .buttonStyle(.plain)
                     }
-                    if store.bookings.isEmpty && !store.loading { Text("Заявок пока нет.").foregroundStyle(.secondary).padding(.vertical, 30).frame(maxWidth: .infinity) }
+                    if store.hasLoadedBookings && store.bookings.isEmpty && !store.loading { Text("Заявок пока нет.").foregroundStyle(.secondary).padding(.vertical, 30).frame(maxWidth: .infinity) }
                 }
                 .padding(18).businessCard(radius: 30)
             }

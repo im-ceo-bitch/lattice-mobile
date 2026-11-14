@@ -6,18 +6,69 @@ actor APIClient {
     private let session: URLSession
     let decoder: JSONDecoder
     let encoder: JSONEncoder
+    private var chatHistoryCache = BusinessSessionMemoryCache<BusinessChatHistorySnapshot>(maxEntries: 12, maxCost: 8 * 1024 * 1024, ttl: 300)
+    private var chatImageCache = BusinessSessionMemoryCache<Data>(maxEntries: 40, maxCost: 24 * 1024 * 1024, ttl: 120)
+    private var catalogCache = BusinessSessionMemoryCache<[HotelListItem]>(maxEntries: 1, maxCost: 4 * 1024 * 1024, ttl: 60)
+    private var cacheGeneration = UUID()
+    private var catalogGeneration = UUID()
+
+    func discardPerformanceCaches() {
+        cacheGeneration = UUID()
+        catalogGeneration = UUID()
+        chatHistoryCache.clear()
+        chatImageCache.clear()
+        catalogCache.clear()
+    }
+
+    func cachedHotelCatalog() -> [HotelListItem]? {
+        catalogCache.value(for: "hotels", token: BusinessSessionVault.sessionToken)
+    }
+
+    func cachedChatHistory(conversationID: String) -> BusinessChatHistorySnapshot? {
+        chatHistoryCache.value(for: conversationID, token: BusinessSessionVault.sessionToken)
+    }
+
+    func saveChatHistory(_ snapshot: BusinessChatHistorySnapshot, conversationID: String, sessionToken: String) {
+        guard BusinessSessionVault.sessionToken == sessionToken,
+              snapshot.messages.count <= 2_000,
+              let data = try? encoder.encode(snapshot) else { return }
+        chatHistoryCache.insert(snapshot, for: conversationID, token: sessionToken, cost: data.count)
+    }
+
+    // Only immutable chat attachments use this short-lived memory cache. Never cache
+    // passports, payment receipts, session endpoints, or arbitrary remote URLs here.
+    func privateChatImage(path: String) async throws -> Data {
+        guard let url = AppConfig.absoluteURL(path), let routed = AppConfig.routedAPIURL(url),
+              routed.host == AppConfig.apiBaseURL.host, routed.query == nil,
+              routed.path.split(separator: "/").count == 7,
+              routed.path.hasPrefix("/api/admin/hotels/chats/"),
+              routed.path.split(separator: "/")[5] == "media",
+              let token = BusinessSessionVault.sessionToken else { throw APIError.unauthorized }
+        let key = routed.absoluteString
+        if let cached = chatImageCache.value(for: key, token: token) { return cached }
+        let generation = cacheGeneration
+        let (data, response) = try await perform(from: routed)
+        try validate(response, data: data)
+        guard BusinessSessionVault.sessionToken == token, cacheGeneration == generation else { throw CancellationError() }
+        guard let http = response as? HTTPURLResponse,
+              http.mimeType?.hasPrefix("image/") == true else { throw APIError.invalidResponse }
+        chatImageCache.insert(data, for: key, token: token, cost: data.count)
+        return data
+    }
 
     init() {
         let configuration = URLSessionConfiguration.default
         configuration.httpCookieStorage = HTTPCookieStorage.shared
         configuration.httpShouldSetCookies = true
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        configuration.urlCache = nil
         session = URLSession(configuration: configuration, delegate: BusinessAPIOriginDelegate(), delegateQueue: nil)
         decoder = JSONDecoder()
         encoder = JSONEncoder()
     }
 
     func login(login: String, password: String) async throws -> SessionUser {
+        discardPerformanceCaches()
         var request = URLRequest(url: AppConfig.apiBaseURL.appending(path: "/api/auth/staff/login"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -47,6 +98,7 @@ actor APIClient {
     }
 
     func logout() async {
+        discardPerformanceCaches()
         if BusinessSessionVault.sessionToken != nil {
             var sessionRequest = URLRequest(url: AppConfig.apiBaseURL.appending(path: "/api/admin/hotels/security/sessions/current"))
             sessionRequest.httpMethod = "DELETE"
@@ -57,9 +109,11 @@ actor APIClient {
         _ = try? await perform(request)
         BusinessSessionVault.clearSessionToken()
         BusinessStaffAuthPersistence.clearStaffCookies()
+        discardPerformanceCaches()
     }
 
     func clearLocalBusinessSession() {
+        discardPerformanceCaches()
         BusinessSessionVault.clearSessionToken()
     }
 
@@ -93,7 +147,7 @@ actor APIClient {
         let (data, response) = try await perform(request)
         try validate(response, data: data)
         let result = try decoder.decode(BusinessSessionActionResponse.self, from: data)
-        if result.signedOut == true { BusinessSessionVault.clearSessionToken() }
+        if result.signedOut == true { clearLocalBusinessSession() }
         return result.signedOut == true
     }
 
@@ -535,9 +589,15 @@ actor APIClient {
     }
 
     func hotels() async throws -> [HotelListItem] {
+        let token = BusinessSessionVault.sessionToken
+        let generation = catalogGeneration
         let (data, response) = try await perform(from: AppConfig.apiBaseURL.appending(path: "/api/admin/hotels"))
         try validate(response, data: data)
-        return try decoder.decode(HotelsResponse.self, from: data).hotels
+        let hotels = try decoder.decode(HotelsResponse.self, from: data).hotels
+        if token != nil, BusinessSessionVault.sessionToken == token, generation == catalogGeneration {
+            catalogCache.insert(hotels, for: "hotels", token: token, cost: data.count)
+        }
+        return hotels
     }
 
     func hotelDetail(id: String) async throws -> HotelAdminDetail {
@@ -854,6 +914,21 @@ actor APIClient {
             }
         }
         let sentToken = request.value(forHTTPHeaderField: "X-Iumrah-Business-Session")
+        // A write may change prices, media, or catalogue membership. Invalidate
+        // catalogue snapshots before AND after it, including ambiguous failures.
+        let method = request.httpMethod ?? "GET"
+        let changesCatalog = method != "GET" && method != "HEAD" &&
+            request.url?.host == AppConfig.apiBaseURL.host &&
+            request.url?.path.hasPrefix("/api/admin/hotels") == true &&
+            request.url?.path.hasPrefix("/api/admin/hotels/chats") != true &&
+            request.url?.path.hasPrefix("/api/admin/hotels/push") != true &&
+            request.url?.path.hasPrefix("/api/admin/hotels/security") != true
+        if changesCatalog { catalogCache.clear(); catalogGeneration = UUID() }
+        defer { if changesCatalog { catalogCache.clear(); catalogGeneration = UUID() } }
+        let deletesBooking = method == "DELETE" && request.url?.host == AppConfig.apiBaseURL.host &&
+            request.url?.path.hasPrefix("/api/admin/hotels/operations/bookings/") == true
+        if deletesBooking { discardPerformanceCaches() }
+        defer { if deletesBooking { discardPerformanceCaches() } }
         let (data, response) = try await session.data(for: request)
         if let http = response as? HTTPURLResponse, http.statusCode == 401,
            let url = request.url, url.host == AppConfig.apiBaseURL.host,
@@ -861,6 +936,7 @@ actor APIClient {
            let sentToken,
            let code = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? String,
            ["BUSINESS_SESSION_REQUIRED", "SESSION_REAUTH_REQUIRED", "UNAUTHORIZED"].contains(code) {
+            if BusinessSessionVault.sessionToken == sentToken { discardPerformanceCaches() }
             DispatchQueue.main.async {
                 NotificationCenter.default.post(name: .iumrahBusinessSessionInvalidated, object: sentToken)
             }
@@ -936,7 +1012,6 @@ enum APIError: LocalizedError {
             case "PRIMARY_SESSION_REQUIRED": return "Только основное устройство может завершать другие сеансы."
             case "PRIMARY_SESSION_PROTECTED": return "Основной сеанс защищён и не может быть завершён с другого устройства."
             case "DEVICE_BLOCKED": return "Это устройство было отключено с основного устройства."
-            case "DEVICE_PROOF_INVALID": return "Не удалось подтвердить защищённую идентичность этого устройства."
             case "BUSINESS_SESSION_TOKEN_MISSING": return "Сервер не выдал защищённый ключ сеанса. Попробуйте войти снова."
             case "ESIM_ACCESS_NOT_CONFIGURED": return "API eSIM Access ещё не подключён к Cloudflare Worker."
             case "ESIM_ACCESS_AUTH_FAILED": return "eSIM Access отклонил API-аутентификацию. Проверьте ESIM_ACCESS_CODE и при необходимости ESIM_ACCESS_SECRET в Cloudflare."

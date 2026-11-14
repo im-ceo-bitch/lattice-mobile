@@ -24,6 +24,10 @@ final class BusinessAppDelegate: NSObject, UIApplicationDelegate, UNUserNotifica
         return true
     }
 
+    func applicationDidReceiveMemoryWarning(_ application: UIApplication) {
+        Task { await APIClient.shared.discardPerformanceCaches() }
+    }
+
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
         let token = deviceToken.map { String(format: "%02x", $0) }.joined()
         UserDefaults.standard.set(token, forKey: "iumrah.push.deviceToken")

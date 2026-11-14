@@ -139,6 +139,12 @@ struct BusinessChatMessage: Codable, Identifiable, Hashable {
     var isImage: Bool { messageType == "image" && attachmentURL != nil }
 }
 
+struct BusinessChatHistorySnapshot: Codable {
+    let messages: [BusinessChatMessage]
+    let cursor: String
+    let scope: String
+}
+
 struct BusinessChatMessagesResponse: Codable {
     let ok: Bool
     let bookingID: String
