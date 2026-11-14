@@ -8,6 +8,12 @@ final class OverviewStore: ObservableObject {
     @Published var unreadChats = 0
     @Published var ignavUsage: IgnavUsageSnapshot?
     @Published var loading = false
+    @Published var recentSecurityEvent: BusinessSecurityLoginEvent?
+
+    func reloadSecurityEvents() async {
+        guard let response = try? await APIClient.shared.businessSecurityEvents(limit: 8) else { return }
+        recentSecurityEvent = response.events.first(where: { !$0.isCurrent })
+    }
 
     func reload() async {
         loading = true
@@ -26,6 +32,7 @@ struct OverviewView: View {
     @Environment(\.businessAdaptiveLayout) private var layout
     @StateObject private var store = OverviewStore()
     @State private var showUmrahBuilder = false
+    @AppStorage("iumrah.business.security.dismissedEvent") private var dismissedSecurityEvent = ""
 
     var checking: Int { store.bookings.filter { operationalStatus($0) == .availabilityCheck }.count }
     var payment: Int { store.bookings.filter { operationalStatus($0) == .paymentPending }.count }
@@ -47,6 +54,9 @@ struct OverviewView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
+                if let event = store.recentSecurityEvent, event.id != dismissedSecurityEvent {
+                    securityBanner(event)
+                }
                 Button { showUmrahBuilder = true } label: {
                     HStack(spacing: 16) {
                         Image(systemName: "plus").font(.title2.weight(.medium))
@@ -132,11 +142,49 @@ struct OverviewView: View {
                 } label: { Image(systemName: "ellipsis.circle") }
             }
         }
-        .task { await store.reload() }
+        .task {
+            await store.reload()
+            await store.reloadSecurityEvents()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .iumrahBusinessSecurityNewSession)) { _ in
+            Task { await store.reloadSecurityEvents() }
+        }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("iumrah.business.bookingOperationsChanged"))) { _ in
             Task { await store.reload() }
         }
-        .refreshable { await store.reload() }
+        .refreshable {
+            await store.reload()
+            await store.reloadSecurityEvents()
+        }
+    }
+
+    private func securityBanner(_ event: BusinessSecurityLoginEvent) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "lock.shield")
+                .font(.title2)
+                .foregroundStyle(BusinessDesign.ink)
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Новый вход").font(.headline)
+                Text(event.deviceName.isEmpty ? event.deviceModel : event.deviceName)
+                    .font(.subheadline).foregroundStyle(.secondary)
+                NavigationLink {
+                    BusinessSessionsView()
+                } label: {
+                    Text("Проверить устройства").font(.subheadline.weight(.semibold))
+                }
+                .foregroundStyle(BusinessDesign.ink)
+            }
+            Spacer(minLength: 0)
+            Button {
+                dismissedSecurityEvent = event.id
+            } label: {
+                Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Закрыть уведомление о входе")
+        }
+        .padding(16)
+        .businessCard(radius: 22)
     }
 }
 

@@ -33,3 +33,26 @@ test('staff authorization forwarding remains confined to trusted unified admin r
     assert.doesNotMatch(extension,/URLSession\(configuration:/);
   }
 });
+
+test('Business persistence uses the exact Worker staff cookie and logout clears it',()=>{
+ const persistence=read('Sources/Core/BusinessStaffAuthPersistence.swift');
+ const api=read('Sources/Networking/APIClient.swift');
+ assert.match(persistence,/cookie\.name == staffCookieName && cookie\.isSecure/);
+ assert.match(persistence,/normalizedHost\(cookie\.domain\) == AppConfig\.apiBaseURL\.host\?\.lowercased\(\)/);
+ assert.match(persistence,/HTTPCookieStorage\.shared\.cookies\(for: AppConfig\.apiBaseURL\)/);
+ assert.match(persistence,/try save\(passwordLoginAt: read\(\)\?\.passwordLoginAt \?\? Date\(\)\)/);
+ assert.match(api,/BusinessStaffAuthPersistence\.clearStaffCookies\(\)/);
+ assert.match(api,/let sentToken = request\.value\(forHTTPHeaderField: "X-Iumrah-Business-Session"\)/);
+ assert.match(api,/object: sentToken/);
+ assert.match(read('Sources/App/AuthStore.swift'),/token == BusinessSessionVault\.sessionToken/);
+});
+
+test('login errors are distinct and push only registers after a device session exists',()=>{
+ const api=read('Sources/Networking/APIClient.swift');
+ assert.match(api,/serverError == "INVALID_CREDENTIALS"/);
+ assert.match(api,/case "AUTH_SERVICE_UNAVAILABLE", "CORE_CUTOVER_PENDING"/);
+ assert.match(read('Sources/Core/BusinessNotifications.swift'),/guard BusinessSessionVault\.sessionToken != nil/);
+ const login=read('Sources/Views/LoginView.swift');
+ assert.match(login,/\.focused\(\$focusedField, equals: \.password\)/);
+ assert.match(login,/\.defaultScrollAnchor\(\.top\)/);
+});

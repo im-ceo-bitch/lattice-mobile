@@ -25,7 +25,7 @@ final class BusinessAppDelegate: NSObject, UIApplicationDelegate, UNUserNotifica
         UserDefaults.standard.set(token, forKey: "iumrah.push.deviceToken")
         UserDefaults.standard.removeObject(forKey: "iumrah.push.lastRegistrationError")
         Task {
-            _ = try? await APIClient.shared.registerPushDevice(token: token, environment: "production")
+            await BusinessNotifications.registerCurrentDeviceIfPossible()
         }
     }
 
@@ -79,8 +79,18 @@ enum BusinessNotifications {
     }
 
     static func registerCurrentDeviceIfPossible() async {
-        guard let token = UserDefaults.standard.string(forKey: "iumrah.push.deviceToken"), !token.isEmpty else { return }
-        _ = try? await APIClient.shared.registerPushDevice(token: token, environment: "production")
+        guard BusinessSessionVault.sessionToken != nil,
+              let token = UserDefaults.standard.string(forKey: "iumrah.push.deviceToken"), !token.isEmpty else { return }
+        do {
+            let registration = try await APIClient.shared.registerPushDevice(token: token, environment: "production")
+            if registration.ok && registration.ready != false {
+                UserDefaults.standard.removeObject(forKey: "iumrah.push.lastRegistrationError")
+            } else {
+                UserDefaults.standard.set("Устройство не готово к получению push. Проверьте настройки APNs на сервере.", forKey: "iumrah.push.lastRegistrationError")
+            }
+        } catch {
+            UserDefaults.standard.set("Не удалось зарегистрировать устройство для push. Повторите вход или откройте приложение снова.", forKey: "iumrah.push.lastRegistrationError")
+        }
     }
 
     static func hotelImportStarted(_ job: HotelImportJob) async {

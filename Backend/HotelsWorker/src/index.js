@@ -533,6 +533,8 @@ async function requireBusinessSession(request, env, user) {
     WHERE staff_login=? AND revoked_at IS NULL
   `).bind(staffLogin).first().catch(() => null);
 
+  if (!row) return { ok: false, response: json({ ok: false, error: 'AUTH_SERVICE_UNAVAILABLE' }, 503) };
+
   // Backward-compatible rollout: the old application continues to work until
   // this account registers its first protected device. From that moment onward,
   // every admin call requires an active per-device credential.
@@ -550,8 +552,15 @@ async function registerBusinessSession(request, env, user) {
 
   const staffLogin = businessStaffLogin(user);
   if (!staffLogin) return json({ ok: false, error: 'INVALID_STAFF_SESSION' }, 401);
-  const reauthenticated = request.headers.get('x-iumrah-business-reauthenticated') === '1';
   const now = new Date();
+  // The header alone is not proof of a password login. The user comes from the
+  // verified, signed Core staff cookie; old cookies without a timestamp cannot
+  // reactivate a revoked session.
+  const authenticatedAt = Number(user?.authenticatedAt || 0);
+  const reauthenticated = request.headers.get('x-iumrah-business-reauthenticated') === '1'
+    && Number.isFinite(authenticatedAt) && authenticatedAt > 0
+    && authenticatedAt <= now.getTime() && now.getTime() - authenticatedAt <= 5 * 60_000;
+  const freshAfter = revokedAt => reauthenticated && authenticatedAt > Date.parse(revokedAt || '');
   const nowISO = now.toISOString();
   const secretHash = await sha256Hex(value.installationSecret);
   let device = await env.HOTELS_DB.prepare(`
@@ -566,7 +575,15 @@ async function registerBusinessSession(request, env, user) {
     // Older builds permanently revoked the device row when the primary device
     // ended a session. A verified password login is now allowed to reactivate
     // that same installation; passive cookie restore is not.
-    if (device.revoked_at && !reauthenticated) {
+    if (device.revoked_at && !freshAfter(device.revoked_at)) {
+      return json({ ok: false, error: 'SESSION_REAUTH_REQUIRED' }, 401);
+    }
+    const lastSession = await env.HOTELS_DB.prepare(`
+      SELECT revoked_at, revocation_reason FROM business_staff_sessions
+      WHERE device_id=? ORDER BY created_at DESC, rowid DESC LIMIT 1
+    `).bind(device.id).first();
+    if (lastSession?.revoked_at && ['revoked_by_primary', 'self_logout'].includes(lastSession.revocation_reason)
+        && !freshAfter(lastSession.revoked_at)) {
       return json({ ok: false, error: 'SESSION_REAUTH_REQUIRED' }, 401);
     }
     await env.HOTELS_DB.prepare(`
@@ -619,9 +636,9 @@ async function registerBusinessSession(request, env, user) {
 
   const previousSession = await env.HOTELS_DB.prepare(`
     SELECT revoked_at, revocation_reason FROM business_staff_sessions
-    WHERE device_id=? ORDER BY created_at DESC LIMIT 1
+    WHERE device_id=? ORDER BY created_at DESC, rowid DESC LIMIT 1
   `).bind(device.id).first();
-  if (previousSession?.revoked_at && previousSession.revocation_reason === 'revoked_by_primary' && !reauthenticated) {
+  if (previousSession?.revoked_at && ['revoked_by_primary', 'self_logout'].includes(previousSession.revocation_reason) && !freshAfter(previousSession.revoked_at)) {
     return json({ ok: false, error: 'SESSION_REAUTH_REQUIRED' }, 401);
   }
 
@@ -6781,7 +6798,8 @@ async function requireStaff(request, env, options = {}) {
   }
 
   if (!response.ok) {
-    return { ok: false, response: json({ ok: false, error: 'UNAUTHORIZED' }, 401) };
+    const temporary = response.status >= 500 || response.status === 429;
+    return { ok: false, response: json({ ok: false, error: temporary ? 'AUTH_SERVICE_UNAVAILABLE' : 'UNAUTHORIZED' }, temporary ? 503 : 401) };
   }
 
   const payload = await response.json().catch(() => null);

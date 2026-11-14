@@ -7,7 +7,6 @@ struct RootView: View {
 
     var body: some View {
         ZStack {
-            BusinessDesign.background.ignoresSafeArea()
             switch auth.state {
             case .checking: LaunchView()
             case .signedOut: LoginView()
@@ -19,14 +18,16 @@ struct RootView: View {
                 }
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background { BusinessDesign.background.ignoresSafeArea() }
         .overlay {
             // Prevent displaying Business data in app-switcher snapshots.
             if auth.state == .signedIn && scenePhase != .active {
                 BusinessAppPrivacyShield()
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .iumrahBusinessSessionInvalidated)) { _ in
-            auth.handleSessionInvalidated()
+        .onReceive(NotificationCenter.default.publisher(for: .iumrahBusinessSessionInvalidated)) { notification in
+            auth.handleSessionInvalidated(token: notification.object as? String)
         }
         .onChange(of: auth.state) { _, state in
             if state == .signedIn, let login = auth.user?.login {
@@ -43,7 +44,10 @@ struct RootView: View {
             switch next {
             case .active:
                 appLock.sceneDidBecomeActive(authenticated: auth.state == .signedIn)
-                Task { await auth.expireWeeklySessionIfNeeded() }
+                Task {
+                    await auth.expireWeeklySessionIfNeeded()
+                    if auth.state == .signedIn { await BusinessNotifications.registerCurrentDeviceIfPossible() }
+                }
             case .background:
                 // Face ID temporarily moves a scene into .inactive. Only a real
                 // background transition counts towards automatic PIN locking.

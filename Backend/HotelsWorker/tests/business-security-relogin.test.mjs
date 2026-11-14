@@ -7,7 +7,9 @@ import { HOTEL_PRICE_TTL_MS, HOTEL_PRICE_RETRY_MS } from '../src/hotel-price.js'
 const source = fs.readFileSync(new URL('../src/index.js', import.meta.url), 'utf8')
   .replace(/^import .*;\n/gm, '')
   .replace('export default {', 'const workerDefault = {')
-  .replace(/export class /g, 'class ');
+  .replace(/export class /g, 'class ')
+  .replace(/^export (?=async function )/gm, '')
+  .replace(/^export \{[^}]+\};\s*$/gm, '');
 
 function bindingFor(db) {
   const wrap = sql => {
@@ -108,7 +110,12 @@ test('primary termination revokes only the session; the same device can log in a
   assert.equal(passiveRestore.status, 401);
   assert.equal((await passiveRestore.json()).error, 'SESSION_REAUTH_REQUIRED');
 
-  const reloginResponse = await f.api.registerBusinessSession(registrationRequest(macPayload, true), f.env, user);
+  const forged = await f.api.registerBusinessSession(registrationRequest(macPayload, true), f.env, user);
+  assert.equal(forged.status, 401, 'a client header alone cannot reactivate');
+  const beforeRevocation = await f.api.registerBusinessSession(registrationRequest(macPayload, true), f.env, {...user, authenticatedAt: Date.now()-60_000});
+  assert.equal(beforeRevocation.status, 401, 'a cookie issued before revocation cannot reactivate');
+  await new Promise(resolve => setTimeout(resolve, 5));
+  const reloginResponse = await f.api.registerBusinessSession(registrationRequest(macPayload, true), f.env, {...user, authenticatedAt: Date.now()});
   assert.equal(reloginResponse.status, 201);
   const relogin = await reloginResponse.json();
   assert.notEqual(relogin.currentSession.id, mac.currentSession.id);
@@ -130,9 +137,9 @@ test('client contains native Mac Catalyst identification and Telegram-style new-
   const api = fs.readFileSync(new URL('../../../Sources/Networking/APIClient.swift', import.meta.url), 'utf8');
 
   assert.match(descriptor, /targetEnvironment\(macCatalyst\)/);
-  assert.match(descriptor, /platform: "macos"/);
-  assert.match(descriptor, /osName: "macOS"/);
-  assert.match(descriptor, /friendlyMacModelName/);
+  assert.match(descriptor, /let platform = "macos"/);
+  assert.match(descriptor, /let osName = "macOS"/);
+  assert.match(descriptor, /friendlyModelName/);
   assert.match(sessionsView, /laptopcomputer/);
   assert.match(overview, /Text\("Новый вход"\)/);
   assert.match(overview, /businessSecurityEvents/);

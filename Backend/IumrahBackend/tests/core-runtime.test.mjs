@@ -14,3 +14,26 @@ test('static snapshot route is not swallowed by the dynamic package id route',()
 test('account facade calls package module inside same router rather than legacy network',async()=>{const res=await go('/api/account/register/start','POST',{email:'fixture@example.test',locale:'ru'});assert.equal(res.status,200);assert.ok(calls.includes('/api/package/client/account/register/email/start'));});
 test('airport API and real request adaptation',async()=>{const res=await go('/api/airports?q=Tashkent');assert.equal(res.status,200);assert.ok(Array.isArray((await res.json()).airports));});
 test('public airport and catalog reads can reach the unified worker before private cutover; private mutations remain blocked',async()=>{const pending={...env,IUMRAH_CORE_CUTOVER_READY:'0'};assert.equal((await go('/api/airports?q=Tashkent','GET',undefined,{},pending)).status,200);assert.equal((await go('/api/account/session','GET',undefined,{},pending)).status,503);assert.equal((await go('/api/bookings','POST',{}, {},pending)).status,503);});
+
+
+test('staff password cookie lasts seven days, carries signed authentication time, and expires without sliding',async()=>{
+ const original=Date.now; const start=original();
+ try {
+  Date.now=()=>start;
+  const login=await go('/api/auth/staff/login','POST',{login:'operator',password:'test-password'});
+  const setCookie=login.headers.get('set-cookie');assert.match(setCookie,/Max-Age=604800/);
+  const cookie=setCookie.split(';')[0];
+  const session=await go('/api/auth/staff/session','GET',undefined,{cookie});
+  assert.equal((await session.json()).user.authenticatedAt,start);
+  Date.now=()=>start+6*24*60*60*1000;
+  assert.equal((await go('/api/auth/staff/session','GET',undefined,{cookie})).status,200);
+  Date.now=()=>start+7*24*60*60*1000+1000;
+  assert.equal((await go('/api/auth/staff/session','GET',undefined,{cookie})).status,401);
+  assert.equal((await go('/api/auth/staff/session','GET',undefined,{cookie:'iumrah_staff_session=%zz'})).status,401);
+ } finally {Date.now=original;}
+});
+
+test('wrong staff password has its own error code; never issues a cookie',async()=>{
+ const result=await go('/api/auth/staff/login','POST',{login:'operator',password:'wrong'});
+ assert.equal(result.status,401);assert.equal((await result.json()).error,'INVALID_CREDENTIALS');assert.equal(result.headers.get('set-cookie'),null);
+});

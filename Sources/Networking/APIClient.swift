@@ -27,7 +27,13 @@ actor APIClient {
         let result = try decoder.decode(LoginResponse.self, from: data)
         guard result.ok == true, let resolvedLogin = result.login else { throw APIError.server(result.error ?? "LOGIN_FAILED") }
         BusinessSessionVault.clearSessionToken()
-        _ = try await ensureBusinessSession(reauthenticated: true)
+        do {
+            _ = try await ensureBusinessSession(reauthenticated: true)
+        } catch {
+            BusinessSessionVault.clearSessionToken()
+            BusinessStaffAuthPersistence.clear()
+            throw error
+        }
         return SessionUser(login: resolvedLogin, role: result.role ?? "superadmin", displayName: "Super Administrator")
     }
 
@@ -50,9 +56,7 @@ actor APIClient {
         request.httpMethod = "POST"
         _ = try? await perform(request)
         BusinessSessionVault.clearSessionToken()
-        HTTPCookieStorage.shared.cookies?.forEach { cookie in
-            if cookie.domain.contains("iumrah.app") { HTTPCookieStorage.shared.deleteCookie(cookie) }
-        }
+        BusinessStaffAuthPersistence.clearStaffCookies()
     }
 
     func clearLocalBusinessSession() {
@@ -513,6 +517,7 @@ actor APIClient {
         var request = URLRequest(url: AppConfig.apiBaseURL.appending(path: "/api/admin/hotels/push/devices"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        guard BusinessSessionVault.sessionToken != nil else { throw APIError.unauthorized }
         request.httpBody = try encoder.encode(PushDeviceRegistrationPayload(deviceToken: token, environment: environment))
         let (data, response) = try await perform(request)
         try validate(response, data: data)
@@ -844,7 +849,19 @@ actor APIClient {
                 request.setValue(token, forHTTPHeaderField: "X-Iumrah-Business-Session")
             }
         }
-        return try await session.data(for: request)
+        let sentToken = request.value(forHTTPHeaderField: "X-Iumrah-Business-Session")
+        let (data, response) = try await session.data(for: request)
+        if let http = response as? HTTPURLResponse, http.statusCode == 401,
+           let url = request.url, url.host == AppConfig.apiBaseURL.host,
+           url.path.hasPrefix("/api/admin/"), url.path != "/api/admin/hotels/security/sessions/register",
+           let sentToken,
+           let code = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? String,
+           ["BUSINESS_SESSION_REQUIRED", "SESSION_REAUTH_REQUIRED", "UNAUTHORIZED"].contains(code) {
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: .iumrahBusinessSessionInvalidated, object: sentToken)
+            }
+        }
+        return (data, response)
     }
 
     func perform(from url: URL) async throws -> (Data, URLResponse) {
@@ -855,11 +872,9 @@ actor APIClient {
         guard let http = response as? HTTPURLResponse else { throw APIError.invalidResponse }
         let serverError = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? String
         if http.statusCode == 401 {
-            if serverError == "BUSINESS_SESSION_REQUIRED" || serverError == "SESSION_REAUTH_REQUIRED" {
-                BusinessSessionVault.clearSessionToken()
-                DispatchQueue.main.async {
-                    NotificationCenter.default.post(name: .iumrahBusinessSessionInvalidated, object: nil)
-                }
+            if serverError == "INVALID_CREDENTIALS" { throw APIError.server("INVALID_CREDENTIALS") }
+            if let serverError, ["SESSION_REAUTH_REQUIRED", "BUSINESS_SESSION_REQUIRED"].contains(serverError) {
+                throw APIError.server(serverError)
             }
             throw APIError.unauthorized
         }
@@ -896,7 +911,14 @@ enum APIError: LocalizedError {
         case .hotelAlreadyExists(let hotel): return "Этот отель уже есть в базе: \(hotel.name)."
         case .server(let value):
             switch value {
-            case "SESSION_REAUTH_REQUIRED": return "Этот сеанс был завершён на другом устройстве. Войдите снова."
+            case "INVALID_CREDENTIALS": return "Неверный логин или пароль."
+            case "AUTH_NOT_CONFIGURED": return "Авторизация администратора не настроена на сервере."
+            case "AUTH_SERVICE_UNAVAILABLE", "CORE_CUTOVER_PENDING": return "Сервис авторизации временно недоступен. Повторите попытку."
+            case "STAFF_COOKIE_MISSING": return "Сервер не выдал cookie авторизации. Повторите вход."
+            case "STAFF_SESSION_STORAGE_FAILED": return "Не удалось сохранить сеанс в защищённом хранилище."
+            case "DEVICE_PROOF_INVALID": return "Не удалось подтвердить это устройство. Обратитесь к администратору."
+            case "BUSINESS_SESSION_REQUIRED": return "Не удалось подтвердить сеанс устройства. Войдите снова."
+            case "SESSION_REAUTH_REQUIRED": return "Этот сеанс был завершён. Войдите снова с паролем."
             case "PAYMENT_INSTRUCTIONS_REQUIRED": return "Сначала сохраните хотя бы один способ оплаты: Visa, PayMe или Humo."
             case "PAYMENT_TEMPLATE_NOT_FOUND": return "Шаблон реквизитов больше не существует. Обновите список Payments."
             case "PAYMENT_TEMPLATE_QR_NOT_FOUND": return "QR шаблона не найден в хранилище. Откройте Payments и загрузите QR заново."

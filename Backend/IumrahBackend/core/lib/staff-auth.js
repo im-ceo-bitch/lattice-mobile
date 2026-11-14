@@ -2,7 +2,7 @@
 import { requestEnv, backendFetch } from "../runtime.js";
 import { getCloudflareContext } from "../runtime.js";
 export const STAFF_SESSION_COOKIE = "iumrah_staff_session";
-export const STAFF_SESSION_MAX_AGE = 60 * 60 * 12;
+export const STAFF_SESSION_MAX_AGE = 60 * 60 * 24 * 7;
 function normalize(value) {
     const trimmed = value?.trim();
     if (!trimmed)
@@ -105,6 +105,7 @@ export async function createStaffSession(login) {
         sub: login,
         role: "superadmin",
         displayName: "Super Administrator",
+        authenticatedAt: Date.now(),
         exp: Math.floor(Date.now() / 1000) + STAFF_SESSION_MAX_AGE,
     };
     const encoded = encodeJson(payload);
@@ -144,7 +145,7 @@ export function readCookie(cookieHeader, name) {
     for (const part of parts) {
         const [rawName, ...rest] = part.trim().split("=");
         if (rawName === name)
-            return decodeURIComponent(rest.join("="));
+            { try { return decodeURIComponent(rest.join("=")); } catch { return null; } }
     }
     return null;
 }

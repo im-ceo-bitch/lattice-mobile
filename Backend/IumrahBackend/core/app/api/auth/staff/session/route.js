@@ -9,5 +9,5 @@ export async function GET(request) {
     if (!session) {
         return NextResponse.json({ authenticated: false }, { status: 401, headers: { "Cache-Control": "no-store" } });
     }
-    return NextResponse.json({ authenticated: true, user: { login: session.sub, role: session.role, displayName: session.displayName } }, { headers: { "Cache-Control": "no-store" } });
+    return NextResponse.json({ authenticated: true, user: { login: session.sub, role: session.role, displayName: session.displayName, authenticatedAt: session.authenticatedAt ?? null } }, { headers: { "Cache-Control": "no-store" } });
 }

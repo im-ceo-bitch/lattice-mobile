@@ -7,6 +7,8 @@ struct LoginView: View {
     @State private var login = ""
     @State private var password = ""
     @State private var working = false
+    private enum Field: Hashable { case login, password }
+    @FocusState private var focusedField: Field?
 
     var body: some View {
         GeometryReader { geometry in
@@ -24,19 +26,23 @@ struct LoginView: View {
                     }
                 }
                 .frame(maxWidth: .infinity)
-                .frame(minHeight: max(0, geometry.size.height - 30), alignment: .center)
+                .frame(minHeight: layout.supportsDenseDashboard ? max(0, geometry.size.height - 30) : 0,
+                       alignment: layout.supportsDenseDashboard ? .center : .top)
             }
+            .scrollDismissesKeyboard(.interactively)
+            .defaultScrollAnchor(.top)
         }
+        .background(BusinessDesign.background)
     }
 
     private var compactComposition: some View {
         VStack(alignment: .leading, spacing: 0) {
             topBrandRow
 
-            Spacer(minLength: 48)
             heroCopy
+                .padding(.top, focusedField == nil ? 32 : 18)
             loginCard
-                .padding(.top, 34)
+                .padding(.top, 24)
         }
     }
 
@@ -82,7 +88,7 @@ struct LoginView: View {
                 .tracking(2.6)
                 .foregroundStyle(.secondary)
             Text("Центр\nуправления.")
-                .font(.system(size: layout.supportsDenseDashboard ? 62 : 52, weight: .bold))
+                .font(.system(size: layout.supportsDenseDashboard ? 62 : 40, weight: .bold))
                 .tracking(layout.supportsDenseDashboard ? -3.1 : -2.7)
                 .padding(.top, 12)
             Text("Бронирования, чаты и собственная база отелей iumrah — с iPhone, iPad и Mac.")
@@ -96,12 +102,20 @@ struct LoginView: View {
     private var loginCard: some View {
         VStack(spacing: 12) {
             TextField("Логин", text: $login)
+                .textContentType(.username)
+                .focused($focusedField, equals: .login)
+                .submitLabel(.next)
+                .onSubmit { focusedField = .password }
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .padding(.horizontal, 18)
                 .frame(height: 58)
                 .background(BusinessDesign.secondarySurface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
             SecureField("Пароль", text: $password)
+                .textContentType(.password)
+                .focused($focusedField, equals: .password)
+                .submitLabel(.go)
+                .onSubmit { submitLogin() }
                 .padding(.horizontal, 18)
                 .frame(height: 58)
                 .background(BusinessDesign.secondarySurface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
@@ -111,13 +125,7 @@ struct LoginView: View {
                     .foregroundStyle(.red)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            Button {
-                working = true
-                Task {
-                    await auth.login(login: login, password: password)
-                    working = false
-                }
-            } label: {
+            Button(action: submitLogin) {
                 HStack {
                     if working { ProgressView().tint(BusinessDesign.onPrimaryControl) }
                     Text(working ? "Входим…" : "Войти")
@@ -128,7 +136,8 @@ struct LoginView: View {
                 .foregroundStyle(BusinessDesign.onPrimaryControl)
                 .background(BusinessDesign.primaryControl, in: Capsule())
             }
-            .disabled(login.isEmpty || password.isEmpty || working)
+            .disabled(login.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || password.isEmpty || working)
+            .opacity(working || login.isEmpty || password.isEmpty ? 0.55 : 1)
             if BusinessStaffAuthPersistence.hasSavedLogin && !working {
                 Button("Повторить проверку сохранённого сеанса") {
                     working = true
@@ -143,5 +152,17 @@ struct LoginView: View {
         }
         .padding(18)
         .businessCard(radius: 30)
+    }
+
+    private func submitLogin() {
+        let username = login.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !username.isEmpty, !password.isEmpty, !working else { return }
+        focusedField = nil
+        working = true
+        Task {
+            await auth.login(login: username, password: password)
+            password = ""
+            working = false
+        }
     }
 }
