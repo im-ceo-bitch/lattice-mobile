@@ -29,3 +29,7 @@ test('published Worker must not report success when core is pending',async()=>{
 test('release check refuses missing provider configuration, without blocking core request handling',async()=>{
  await assert.rejects(verifyDeployed(env,async url=>url.endsWith('/__iumrah/cutover')?Response.json({ok:true,service:'iumrah-backend',coreCutoverEnabled:true,schemaReady:true,migrationAttested:true,missing:[],providerConfigurationReady:false,providers:{sms:false,email:true}}):fake(url)),/CORE_PROVIDER_CONFIGURATION_PENDING: sms/);
 });
+
+test('deferred eSIM and Telegram OAuth do not fail deployment while configured core services remain required',async()=>{
+ const result=await verifyDeployed(env,async url=>url.endsWith('/__iumrah/cutover')?Response.json({ok:true,service:'iumrah-backend',coreCutoverEnabled:true,schemaReady:true,migrationAttested:true,missing:[],providerConfigurationReady:true,providers:{email:true,telegram:true,esim:false,telegramOAuth:false},optionalProviders:['esim','telegramOAuth'],requiredProviderGaps:[]}):fake(url));assert.equal(result.flights,12);
+});

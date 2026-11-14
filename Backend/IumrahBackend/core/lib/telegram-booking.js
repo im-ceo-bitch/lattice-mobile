@@ -137,9 +137,11 @@ const notices = {
     ms: { AVAILABILITY_CHECK: "Tempahan dibuat. Ketersediaan sedang disemak.", PAYMENT_PENDING: "Semakan selesai. Menunggu pembayaran.", BOOKING_CONFIRMED: "Tempahan anda telah disahkan.", READY_TO_TRAVEL: "Perjalanan anda sudah tersedia. Semak dokumen di iumrah.", COMPLETED: "Perjalanan selesai. Terima kasih kerana memilih iumrah." },
 };
 function noticeText(bookingId, status, lang) {
-    const label = (notices[lang.toLowerCase()] || notices.en)[status] || notices.en[status] || status;
+    const extra={ru:{IN_TRIP:'Вы в поездке.',CANCELLED:'Бронирование отменено.'},en:{IN_TRIP:'Your trip is in progress.',CANCELLED:'Your booking was cancelled.'},uz:{IN_TRIP:'Safaringiz davom etmoqda.',CANCELLED:'Bron bekor qilindi.'},'uz-cyrl':{IN_TRIP:'Сафарингиз давом этмоқда.',CANCELLED:'Брон бекор қилинди.'}};
+    const language=String(lang||'en').toLowerCase();
+    const label = (notices[language] || notices.en)[status] || (extra[language]||extra.en)[status] || notices.en[status] || status;
     const details = { ru: "Подробности", en: "Details", uz: "Batafsil", "uz-cyrl": "Батафсил", tr: "Ayrıntılar", id: "Rincian", ms: "Butiran" };
-    return `✈️ IUMRAH · ${bookingId}\n\n${label}\n\n${details[lang.toLowerCase()] || "Details"}: https://iumrah.app/booking`;
+    return `✈️ IUMRAH · ${bookingId}\n\n${label}\n\n${details[language] || "Details"}: https://iumrah.app/booking`;
 }
 export async function deliverTelegramNotice(db, bookingId, status) {
     const { botToken } = telegramConfiguration();

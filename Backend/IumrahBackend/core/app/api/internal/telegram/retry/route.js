@@ -3,20 +3,15 @@ import { requestEnv, backendFetch } from "../../../../../runtime.js";
 import { NextResponse } from "../../../../../runtime.js";
 import { ensureBookingSchema, getBookingDb, isBookingStatus } from "../../../../../lib/booking-store.js";
 import { deliverTelegramNotice, ensureTelegramBookingSchema } from "../../../../../lib/telegram-booking.js";
-import { getCloudflareContext } from "../../../../../runtime.js";
+import { retryAuthorized, botConfigured } from "../../../../../lib/telegram-native.js";
 export const dynamic = "force-dynamic";
 // Optional secure cron endpoint (every 1-5 minutes) for transient Telegram/network failures.
 // Never expose the retry secret to clients. Does NOT send messages to unconsented users.
 export async function POST(request) {
-    let secret = "";
-    try {
-        secret = getCloudflareContext().env.IUMRAH_TELEGRAM_RETRY_SECRET || "";
-    }
-    catch {
-        secret = requestEnv().IUMRAH_TELEGRAM_RETRY_SECRET || "";
-    }
-    if (!secret || secret.length < 24 || request.headers.get("authorization") !== `Bearer ${secret}`)
-        return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
+    const env=requestEnv();
+    if(!await retryAuthorized(env,request.headers.get('authorization')))
+        return NextResponse.json({error:'UNAUTHORIZED'},{status:401});
+    if(!botConfigured(env))return NextResponse.json({error:'TELEGRAM_BOT_NOT_CONFIGURED'},{status:503});
     const db = getBookingDb();
     if (!db)
         return NextResponse.json({ error: "BOOKING_DB_NOT_CONFIGURED" }, { status: 503 });
@@ -30,7 +25,7 @@ export async function POST(request) {
       ORDER BY o.created_at ASC LIMIT 25`).all();
         let delivered = 0;
         for (const row of pending.results) {
-            if (isBookingStatus(row.status) && await deliverTelegramNotice(db, row.booking_id, row.status))
+            if ((isBookingStatus(row.status)||["IN_TRIP","CANCELLED"].includes(row.status)) && await deliverTelegramNotice(db, row.booking_id, row.status))
                 delivered += 1;
         }
         return NextResponse.json({ processed: pending.results.length, delivered }, { headers: { "Cache-Control": "no-store" } });

@@ -1,0 +1,302 @@
+{
+  "version": "V25-email-telegram",
+  "baseline": "V24 cumulative",
+  "productionVerified": false,
+  "changed": [
+    "Backend/IumrahBackend/core/lib/telegram-native.js",
+    "Backend/IumrahBackend/core/lib/telegram-booking.js",
+    "Backend/IumrahBackend/core/routes.js",
+    "Backend/IumrahBackend/core/app/api/telegram/link/route.js",
+    "Backend/IumrahBackend/core/app/api/telegram/webhook/route.js",
+    "Backend/IumrahBackend/core/app/api/telegram/consent/attach/route.js",
+    "Backend/IumrahBackend/core/app/api/internal/telegram/retry/route.js",
+    "Backend/IumrahBackend/package-engine/src/telegram-bridge.ts",
+    "Backend/IumrahBackend/package-engine/src/env.ts",
+    "Backend/IumrahBackend/package-engine/src/index.ts",
+    "Backend/IumrahBackend/package-engine/src/booking-email.ts",
+    "Backend/IumrahBackend/package-engine/test/telegram-native-bridge.runtime.mjs",
+    "Backend/IumrahBackend/schema/bootstrap-v21.json",
+    "Backend/IumrahBackend/src/index.js",
+    "Backend/IumrahBackend/src/cutover.js",
+    "Backend/IumrahBackend/src/router.js",
+    "Backend/IumrahBackend/scripts/check-deployed.mjs",
+    "Backend/IumrahBackend/tests/check-deployed.test.mjs",
+    "Backend/IumrahBackend/tests/package-cutover.test.mjs",
+    "Backend/IumrahBackend/tests/public-services.test.mjs",
+    "Backend/IumrahBackend/tests/telegram-native.test.mjs",
+    "Backend/HotelsWorker/src/index.js",
+    "IUMRAH_V25_EMAIL_TELEGRAM_RU.md"
+  ],
+  "files": [
+    {
+      "path": "Backend/CoreMigration/final_cutover.py",
+      "bytes": 12659,
+      "sha256": "f28df5eb32fca94fd54d6f963677755d932041585cfd9bd5018282c11e267765"
+    },
+    {
+      "path": "Backend/CoreMigration/release_cutover.py",
+      "bytes": 15005,
+      "sha256": "f1d392eda0f2e075415763478dbd9a486994c1c54bb62ef7a498470550582799"
+    },
+    {
+      "path": "Backend/CoreMigration/tests/test_final_cutover.py",
+      "bytes": 7348,
+      "sha256": "4e3bacd4d5ab58e7659c222a0af7ef4579b1a394a4af224dd523c08a0f70a468"
+    },
+    {
+      "path": "Backend/CoreMigration/tests/test_release_cutover.py",
+      "bytes": 2525,
+      "sha256": "d96e06a0001b9492e73ec4d0a17a8018e049cd5bc45d88d34a21e975ed5d3f62"
+    },
+    {
+      "path": "Backend/HotelsWorker/src/index.js",
+      "bytes": 543694,
+      "sha256": "f7ac3ef0244c0b313942601f910b3cfe3a59d1b9b5a3fab381f5c60f327a0571"
+    },
+    {
+      "path": "Backend/IumrahBackend/clean-launch.json",
+      "bytes": 339,
+      "sha256": "17dbbdc52d71fec8566022c33ae133f63c5b96bb612bfd4eed102ebdf4ac16dc"
+    },
+    {
+      "path": "Backend/IumrahBackend/core-bindings.example.json",
+      "bytes": 154,
+      "sha256": "66bf7c38825bcf1ef85e6fffe64e0895cf0015bdca925f21b044368624f1be6a"
+    },
+    {
+      "path": "Backend/IumrahBackend/core/app/api/internal/telegram/retry/route.js",
+      "bytes": 2181,
+      "sha256": "666dc074cce55fd1df931c19bd7002d85ccdc7cbfa673a50800b4f91b4a22b7f"
+    },
+    {
+      "path": "Backend/IumrahBackend/core/app/api/telegram/consent/attach/route.js",
+      "bytes": 5666,
+      "sha256": "cb146275baea135f5a33625b8e02cc78eebdd43bf1096a38046b6aa0f3f21cf4"
+    },
+    {
+      "path": "Backend/IumrahBackend/core/app/api/telegram/link/route.js",
+      "bytes": 137,
+      "sha256": "d5feb9bd4841681683ee342db857027eed8792391fce62b73b0729470310b321"
+    },
+    {
+      "path": "Backend/IumrahBackend/core/app/api/telegram/webhook/route.js",
+      "bytes": 74,
+      "sha256": "182ffb5fa35ea3601ad8538fc8ac812c234cc5d7ff102efd270409b882a3a4a7"
+    },
+    {
+      "path": "Backend/IumrahBackend/core/lib/telegram-booking.js",
+      "bytes": 13661,
+      "sha256": "ce6d104f211028b8154e941035db17ef6a695b64305cd3fc5cb763f65125bde0"
+    },
+    {
+      "path": "Backend/IumrahBackend/core/lib/telegram-native.js",
+      "bytes": 8283,
+      "sha256": "5205db31b13fca80a58d7953c447e2f1cd27dd0f866499848b9f6f69f206c7a0"
+    },
+    {
+      "path": "Backend/IumrahBackend/core/routes.js",
+      "bytes": 6519,
+      "sha256": "e2c695fb6caa0a0b1701465e4b3cb000242d78614e1be21858cb5834a57a92a8"
+    },
+    {
+      "path": "Backend/IumrahBackend/package-engine/src/booking-email.ts",
+      "bytes": 43735,
+      "sha256": "d37cf31eb07dc092ae2410722cafda7261dd4193766d60695b08f6f7e04aeffa"
+    },
+    {
+      "path": "Backend/IumrahBackend/package-engine/src/env.ts",
+      "bytes": 1344,
+      "sha256": "77577974e35741f2f514a0f6f69aba869a1e260dca8ceacdb8a75d36daaf5e86"
+    },
+    {
+      "path": "Backend/IumrahBackend/package-engine/src/index.ts",
+      "bytes": 17135,
+      "sha256": "22c07a77df7a5d30f703be1bec3f45f88d6a15b8840090c3840b0c62677c529e"
+    },
+    {
+      "path": "Backend/IumrahBackend/package-engine/src/telegram-bridge.ts",
+      "bytes": 1160,
+      "sha256": "4561931d068ca8ed5d3f1d0f88448e013f13a909c0abc4ab009e22cd1019eac7"
+    },
+    {
+      "path": "Backend/IumrahBackend/package-engine/test/private-booking-quote.runtime.mjs",
+      "bytes": 6273,
+      "sha256": "48702f2bcc6a0fbe1f7d965286a61c578c9cc8200a9a969181745e7c174466de"
+    },
+    {
+      "path": "Backend/IumrahBackend/package-engine/test/telegram-native-bridge.runtime.mjs",
+      "bytes": 1475,
+      "sha256": "f10bc35cb1f8d300eefa2f7d72bb1248895ef5c479229148be2ea0e0f042d57b"
+    },
+    {
+      "path": "Backend/IumrahBackend/package.json",
+      "bytes": 1061,
+      "sha256": "7b569e3e61b606c4e78efb21040f53e9c528b141c32d851fa8d8097e40c2fb71"
+    },
+    {
+      "path": "Backend/IumrahBackend/schema/bootstrap-v21.json",
+      "bytes": 281522,
+      "sha256": "604f7c33ccfe9ac9e77b15697e1f8099e0de1744abe56b43fe1c0546fe35014c"
+    },
+    {
+      "path": "Backend/IumrahBackend/scripts/apply-package-schema.mjs",
+      "bytes": 3903,
+      "sha256": "f574a18fd36a328ef0beb1e9801b7395b2480370b133bf427ca64f8b973768ae"
+    },
+    {
+      "path": "Backend/IumrahBackend/scripts/check-deployed.mjs",
+      "bytes": 6376,
+      "sha256": "5d9777ec72ceb4d78ccbf8d43b8c177b8ff05c66cf14df8e517003c909ad5dab"
+    },
+    {
+      "path": "Backend/IumrahBackend/scripts/clean-launch.mjs",
+      "bytes": 12031,
+      "sha256": "9774eaa47df0e6f63b8aeb3568db96a0239e91bd1186b634fb7d11ba7557f785"
+    },
+    {
+      "path": "Backend/IumrahBackend/scripts/discover-bindings.mjs",
+      "bytes": 6275,
+      "sha256": "830fb5c198d8080673c9ecec61f33f5bdd64306513457dff9523a5b8c8766df8"
+    },
+    {
+      "path": "Backend/IumrahBackend/scripts/release-smoke.mjs",
+      "bytes": 7076,
+      "sha256": "a189b9d027d880e94db68227b61b584e3b38fc33027c8fad6912324d4838f853"
+    },
+    {
+      "path": "Backend/IumrahBackend/scripts/render-config.mjs",
+      "bytes": 5335,
+      "sha256": "8ae13d599c4e2661917bb4de3e603be9e17cd88b685343207bbb1c81827933a8"
+    },
+    {
+      "path": "Backend/IumrahBackend/scripts/resource-fingerprint.mjs",
+      "bytes": 380,
+      "sha256": "95f98451577cde6710b03e4f44b24c8e5b22291fa36429489fae32be0a5cfedf"
+    },
+    {
+      "path": "Backend/IumrahBackend/src/advisor-catalog.js",
+      "bytes": 196147,
+      "sha256": "781eb9226cf24f3989c561205c832ad558cbd7d46f57d06177aa72e09a7c8d67"
+    },
+    {
+      "path": "Backend/IumrahBackend/src/advisor-provider.js",
+      "bytes": 2021,
+      "sha256": "55249643392874720b574b1c60eeacdd399a879741df637a23f8fac5a2561841"
+    },
+    {
+      "path": "Backend/IumrahBackend/src/cutover.js",
+      "bytes": 5678,
+      "sha256": "e317884a6d63602d2b6a11fab7e44669b39e84f65a70dba8dec5fb4480e5a6a5"
+    },
+    {
+      "path": "Backend/IumrahBackend/src/index.js",
+      "bytes": 862,
+      "sha256": "a6eb0e3f9d40433303b5757e34187a1d3eaa78ad4b9e0cb44941622689097374"
+    },
+    {
+      "path": "Backend/IumrahBackend/src/public-services.js",
+      "bytes": 4695,
+      "sha256": "3290be9e71199ccc69e7eba90b70f3be71d32fd0b31c2a474f49f4f2e23b8a00"
+    },
+    {
+      "path": "Backend/IumrahBackend/src/router.js",
+      "bytes": 9174,
+      "sha256": "b4f0c1dfbb6e9dc6f7ba56af17869dfc4aac3b5f8dc71aae87bf70689340eaef"
+    },
+    {
+      "path": "Backend/IumrahBackend/tests/check-deployed.test.mjs",
+      "bytes": 2983,
+      "sha256": "f053ead69f19968378af050c07a0d5508121cdbe17a53d09fdc2f8399cc07775"
+    },
+    {
+      "path": "Backend/IumrahBackend/tests/clean-launch.test.mjs",
+      "bytes": 11893,
+      "sha256": "35fd0dad5ad284443646a1a78062d4dd3e611f2b6e8687314146fe3f1261cc7c"
+    },
+    {
+      "path": "Backend/IumrahBackend/tests/core-runtime.test.mjs",
+      "bytes": 5524,
+      "sha256": "59d43c6397435300938e689e84049fd7bcbe2e2d991912f6dada9d1ef06251e0"
+    },
+    {
+      "path": "Backend/IumrahBackend/tests/discover-bindings.test.mjs",
+      "bytes": 3760,
+      "sha256": "9ff6060aeb03a77833e93fbb7ac88aea46b127209ea2063e0cac5c66c62d3dc6"
+    },
+    {
+      "path": "Backend/IumrahBackend/tests/package-compatibility.test.mjs",
+      "bytes": 8258,
+      "sha256": "da61c35558ff59c9df6628ae22a62225665885686e9c5463aba8c3c8333d8bb2"
+    },
+    {
+      "path": "Backend/IumrahBackend/tests/package-cutover.test.mjs",
+      "bytes": 5298,
+      "sha256": "cafa977b2197a338052279477bb20518ebf408cea6ee4b4a6f214c2c5876077c"
+    },
+    {
+      "path": "Backend/IumrahBackend/tests/public-services.test.mjs",
+      "bytes": 6755,
+      "sha256": "865a9f133f8300d4044f321f6b1c500504fcab0973b45b49c4fc23678ea4e74f"
+    },
+    {
+      "path": "Backend/IumrahBackend/tests/release-smoke.test.mjs",
+      "bytes": 3944,
+      "sha256": "ad467683339fe7384169299b0c585bf0fc5b8bd2c9b43574e1886adde968b755"
+    },
+    {
+      "path": "Backend/IumrahBackend/tests/schema-bootstrap.test.mjs",
+      "bytes": 5231,
+      "sha256": "dc945a6d4be2ca8ccb1efc6748df5ca2485c8fc35993b0499e80ba672f2fc3ce"
+    },
+    {
+      "path": "Backend/IumrahBackend/tests/telegram-native.test.mjs",
+      "bytes": 7257,
+      "sha256": "9a7b23472a7548d456ae2f2a3dfe412cf5ad416cb0a9d089e650793ca031c107"
+    },
+    {
+      "path": "IUMRAH_V21_FINAL_CUTOVER_RU.md",
+      "bytes": 19778,
+      "sha256": "78a83fa1dc9177d3d924f891ffc16c929baf71fd3fd5f646db3d53416ea9098f"
+    },
+    {
+      "path": "IUMRAH_V21_RELEASE_RC_RU.md",
+      "bytes": 12073,
+      "sha256": "51953abbb145205696fbfd229b4f5addf83fc27dcbe8d6b18bb4440c81431913"
+    },
+    {
+      "path": "IUMRAH_V22_CLEAN_PRODUCTION_RU.md",
+      "bytes": 5668,
+      "sha256": "ded2aa198b9825a0a0e51705a662e729c89180b6345dfe28a90fc6775775f38d"
+    },
+    {
+      "path": "IUMRAH_V22_MANIFEST.json",
+      "bytes": 5850,
+      "sha256": "28949f4ace9101c2a5dd1e1abf4ad79804ca841d2300f6d6c8df7d63a7916ebb"
+    },
+    {
+      "path": "IUMRAH_V23_D1_ACTIVATION_HOTFIX_RU.md",
+      "bytes": 2479,
+      "sha256": "421159258cc46326434edf730a22d6a6168dc36ea12b03b2d84f5ffa5f5ee36a"
+    },
+    {
+      "path": "IUMRAH_V23_MANIFEST.json",
+      "bytes": 6157,
+      "sha256": "df8547c173ee58db45ab8cbda34ea7020d8acb71250cbad54f87fda7f7eb305d"
+    },
+    {
+      "path": "IUMRAH_V24_GUEST_DEVICE_ACTIVATION_RU.md",
+      "bytes": 994,
+      "sha256": "f219db018ed559ef6fc2f7d0974444875984ba9d777acd3d530a9c64045aa517"
+    },
+    {
+      "path": "IUMRAH_V24_MANIFEST.json",
+      "bytes": 6520,
+      "sha256": "b9d270ef88e34a4aa581e26d8b98c253009fad2c5ff27f73d8773fe35d56cc92"
+    },
+    {
+      "path": "IUMRAH_V25_EMAIL_TELEGRAM_RU.md",
+      "bytes": 2868,
+      "sha256": "1738a34206cf466a51c10b6e6dc7a3a6aec1e2adf5a6e170729962f2714a4820"
+    }
+  ]
+}

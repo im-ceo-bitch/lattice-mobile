@@ -65,7 +65,9 @@ export async function verifyDeployed(env=process.env, fetcher=fetch, activation=
     console.error('Flight catalog verified, but core release gate is blocked:', JSON.stringify({missing:cutover.missing,readiness:cutover.readiness}));
     throw Error('CORE_CUTOVER_PENDING: Worker deployed; release NOT ready. Verify D1/R2 and attest migration or verified new-account launch before activation.');
   }
-  if(!cutover.providerConfigurationReady)throw Error('CORE_PROVIDER_CONFIGURATION_PENDING: '+Object.entries(cutover.providers||{}).filter(([,ready])=>!ready).map(([name])=>name).join(', ')+'; credentials not validated against providers.');
+  if(!cutover.providerConfigurationReady)throw Error('CORE_PROVIDER_CONFIGURATION_PENDING: '+(cutover.requiredProviderGaps||Object.entries(cutover.providers||{}).filter(([,ready])=>!ready).map(([name])=>name)).join(', ')+'; credentials not validated against providers.');
+  const optionalMissing=(cutover.optionalProviders||[]).filter(name=>cutover.providers?.[name]!==true);
+  if(optionalMissing.length)console.log('Optional integrations deferred (not release blockers): '+optionalMissing.join(', '));
   return {url:origin,flights:status.counts.flights,offers:status.counts.offers,health:health.status};
 }
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)) {

@@ -44,7 +44,9 @@ import * as r42 from "./app/api/telegram/consent/verify/route.js";
 import * as r43 from "./app/api/telegram/link/route.js";
 import * as seoCatalog from "./app/api/seo/catalog/route.js";
 import * as seoStatus from "./app/api/seo/status/route.js";
+import * as telegramWebhook from "./app/api/telegram/webhook/route.js";
 export const routes = [
+  {pattern:/^\/api\/telegram\/webhook$/,keys:[],handlers:telegramWebhook},
   {pattern:/^\/api\/seo\/catalog$/,keys:[],handlers:seoCatalog},
   {pattern:/^\/api\/seo\/status$/,keys:[],handlers:seoStatus},
   { pattern: /^\/api\/account\/apple\/sign-in$/, keys: [], handlers: r0 },

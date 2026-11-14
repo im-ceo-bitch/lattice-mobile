@@ -44,3 +44,10 @@ test('legacy activation flag alone cannot unlock private data or mutations',asyn
   const res=await router.fetch(new Request('https://example.test'+path,{method:'POST'}),env,{});assert.equal(res.status,503);
  }
 });
+
+test('Resend retry can run independently of package maintenance, only with active Core',async()=>{
+ let retries=0,packagesRuns=0;const handler={fetch(){return Response.json({ok:true})},scheduled(){packagesRuns++}};const router=createBackendRouter({hotels:handler,flights:handler,packages:handler,core:handler,retryBookingStatusEmails:async()=>{retries++;}});
+ const event={cron:'*/5 * * * *',scheduledTime:Date.UTC(2026,10,13,5,5)};
+ const env={IUMRAH_CORE_CUTOVER_READY:'1',IUMRAH_CORE_PARITY_ATTESTATION:'v21:'+'a'.repeat(64),HOTELS_MEDIA:{},BOOKINGS_DB:{},HOTELS_DB:{},FLIGHTS_DB:{},PASSPORTS:{},IUMRAH_SESSION_SECRET:'test',IUMRAH_SUPERADMIN_PASSWORD:'test',PACKAGE_QUOTE_SEAL_KEY:'test',RESEND_API_KEY:'fixture'};
+ await router.scheduled(event,{...env,IUMRAH_CORE_CUTOVER_READY:'0'},{});assert.equal(retries,0);await router.scheduled(event,env,{});assert.equal(retries,1);assert.equal(packagesRuns,0);
+});

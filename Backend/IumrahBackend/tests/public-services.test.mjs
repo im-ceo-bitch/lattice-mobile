@@ -1,3 +1,4 @@
+import {telegramRetrySecret} from '../core/lib/telegram-native.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {publicServices} from '../src/public-services.js';
@@ -59,9 +60,9 @@ test('live Advisor edits pass through only known keys and safe audio origins; of
  assert.ok(audio.some(x=>x.key==='tawaf_1'&&x.url==='/api/services/advisor/audio/en/tawaf_1'));
 });
 test('Telegram outbox retry uses internal dispatch only after cutover and valid secret',async()=>{
- let calls=0;const handler={fetch(req){if(new URL(req.url).pathname==='/api/internal/telegram/retry'){assert.equal(req.headers.get('authorization'),'Bearer '+'a'.repeat(24));calls++;}return Response.json({ok:true});}};
+ let calls=0;const handler={async fetch(req){if(new URL(req.url).pathname==='/api/internal/telegram/retry'){assert.equal(req.headers.get('authorization'),'Bearer '+await telegramRetrySecret(env));calls++;}return Response.json({ok:true});}};
  const router=createBackendRouter({hotels:handler,flights:handler,packages:handler,core:handler});
  const event={cron:'*/5 * * * *',scheduledTime:Date.UTC(2026,10,13,5,0)};
- const env={IUMRAH_CORE_CUTOVER_READY:'1',IUMRAH_CORE_PARITY_ATTESTATION:'v21:'+'a'.repeat(64),HOTELS_MEDIA:{},BOOKINGS_DB:{},HOTELS_DB:{},FLIGHTS_DB:{},PASSPORTS:{},IUMRAH_SESSION_SECRET:'test',IUMRAH_SUPERADMIN_PASSWORD:'test',PACKAGE_QUOTE_SEAL_KEY:'test',IUMRAH_TELEGRAM_RETRY_SECRET:'a'.repeat(24)};
+ const env={IUMRAH_CORE_CUTOVER_READY:'1',IUMRAH_CORE_PARITY_ATTESTATION:'v21:'+'a'.repeat(64),HOTELS_MEDIA:{},BOOKINGS_DB:{},HOTELS_DB:{},FLIGHTS_DB:{},PASSPORTS:{},IUMRAH_SESSION_SECRET:'a'.repeat(48),IUMRAH_SUPERADMIN_PASSWORD:'test',PACKAGE_QUOTE_SEAL_KEY:'test',IUMRAH_TELEGRAM_BOT_TOKEN:'123456:'+ 'b'.repeat(35)};
  await router.scheduled(event,{...env,IUMRAH_CORE_CUTOVER_READY:'0'},{});assert.equal(calls,0);await router.scheduled(event,env,{});assert.equal(calls,1);
 });

@@ -15,7 +15,7 @@ import { handlePublicIdentityRequest } from "./public-identity";
 import { cleanupExpiredFlightCache, flightCalendarResponse } from "./flight-cache";
 import { deleteCuratedFlightAdmin, listCuratedFlightsAdmin, publicCuratedFlightRecommendations, resolvePublicCuratedFlightRecommendation, saveCuratedFlightAdmin } from "./curated-flights";
 import { appleAppSiteAssociation, hotelWebFallback, publicStorefrontFlightBoard } from "./storefront";
-import { generateManualPackageEstimate, generatePackageQuote, generateStorefrontPackageQuote } from "./package-search";
+import { generatePackageQuote, generateStorefrontPackageQuote } from "./package-search";
 import { commitPackageQuoteReport } from "./booking-gateway";
 import { quoteSealingMode } from "./quote-audit";
 import { createCarePackageRequest, listCarePackageRequests, updateCarePackageRequest } from "./care-requests";
@@ -53,7 +53,7 @@ async function publicHealth(env: Env) {
       smsProvider: "devsms",
       smsProviderConfigured: Boolean(env.DEVSMS_API_TOKEN),
       quoteSealingMode: quoteSealingMode(env),
-      telegramBotConfigured: Boolean(env.TELEGRAM_BOT_ORIGIN),
+      telegramBotConfigured: Boolean(env.IUMRAH_CORE_FETCH && /^\d+:[\w-]{25,}$/.test(env.IUMRAH_TELEGRAM_BOT_TOKEN?.trim() || "")),
     });
   }
 
@@ -98,7 +98,7 @@ async function publicHealth(env: Env) {
       smsProvider: "devsms",
       smsProviderConfigured: Boolean(env.DEVSMS_API_TOKEN),
       quoteSealingMode: quoteSealingMode(env),
-      telegramBotConfigured: Boolean(env.TELEGRAM_BOT_ORIGIN),
+      telegramBotConfigured: Boolean(env.IUMRAH_CORE_FETCH && /^\d+:[\w-]{25,}$/.test(env.IUMRAH_TELEGRAM_BOT_TOKEN?.trim() || "")),
     });
   } catch (error) {
     return json({
@@ -117,7 +117,7 @@ async function publicHealth(env: Env) {
       smsProvider: "devsms",
       smsProviderConfigured: Boolean(env.DEVSMS_API_TOKEN),
       quoteSealingMode: quoteSealingMode(env),
-      telegramBotConfigured: Boolean(env.TELEGRAM_BOT_ORIGIN),
+      telegramBotConfigured: Boolean(env.IUMRAH_CORE_FETCH && /^\d+:[\w-]{25,}$/.test(env.IUMRAH_TELEGRAM_BOT_TOKEN?.trim() || "")),
       error: error instanceof Error ? error.message : "D1 health check failed",
     }, 503);
   }
@@ -263,10 +263,6 @@ export default {
 
     if (request.method === "GET" && (url.pathname === "/health" || url.pathname === "/api/package/health")) {
       return publicHealth(env);
-    }
-
-    if (request.method === "POST" && url.pathname === "/api/package/estimate") {
-      return generateManualPackageEstimate(request, env);
     }
 
     if (request.method === "POST" && url.pathname === "/api/package/quote") {

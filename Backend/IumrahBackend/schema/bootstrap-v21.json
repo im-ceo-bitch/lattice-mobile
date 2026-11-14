@@ -9008,6 +9008,54 @@
             "pk": 0
           }
         ]
+      },
+      {
+        "name": "booking_telegram_links",
+        "sql": "CREATE TABLE IF NOT EXISTS booking_telegram_links (token_hash TEXT PRIMARY KEY, booking_id TEXT NOT NULL REFERENCES bookings(id) ON DELETE CASCADE, created_at TEXT NOT NULL, expires_at TEXT NOT NULL, used_at TEXT, claim_id TEXT)",
+        "columns": [
+          {
+            "name": "token_hash",
+            "type": "TEXT",
+            "notnull": false,
+            "default": null,
+            "pk": 1
+          },
+          {
+            "name": "booking_id",
+            "type": "TEXT",
+            "notnull": true,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "name": "created_at",
+            "type": "TEXT",
+            "notnull": true,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "name": "expires_at",
+            "type": "TEXT",
+            "notnull": true,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "name": "used_at",
+            "type": "TEXT",
+            "notnull": false,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "name": "claim_id",
+            "type": "TEXT",
+            "notnull": false,
+            "default": null,
+            "pk": 0
+          }
+        ]
       }
     ],
     "indexes": [
@@ -9050,6 +9098,10 @@
       {
         "name": "idx_booking_tg_outbox_due",
         "sql": "CREATE INDEX IF NOT EXISTS idx_booking_tg_outbox_due ON booking_telegram_outbox(delivered_at, attempts, created_at)"
+      },
+      {
+        "name": "idx_booking_telegram_links_booking",
+        "sql": "CREATE INDEX IF NOT EXISTS idx_booking_telegram_links_booking ON booking_telegram_links(booking_id, expires_at)"
       }
     ]
   }

@@ -1,3 +1,4 @@
+import {botConfigured} from '../core/lib/telegram-native.js';
 // Schema readiness and operator attestation are distinct from live data parity.
 const required = {
   HOTELS_DB: {
@@ -6,7 +7,7 @@ const required = {
     accountSecurity:['iumrah_client_devices','iumrah_client_session_bindings','iumrah_client_apple_links','iumrah_client_apple_assertions','iumrah_client_google_links','iumrah_client_google_assertions','iumrah_client_account_emails','iumrah_client_email_challenges','iumrah_client_account_phones','iumrah_client_sms_challenges','iumrah_client_security_audit','iumrah_client_security_proofs'],
     gifts:['iumrah_friends_gifts','iumrah_friends_redemptions','iumrah_friends_credit_ledger'],
     careAndEmail:['iumrah_care_package_requests','iumrah_guest_booking_email_challenges','iumrah_guest_booking_phone_challenges','iumrah_booking_email_subscriptions']},
-  BOOKINGS_DB: {bookingStore:['bookings','booking_events','booking_documents','chat_threads','chat_messages','telegram_booking_consents','booking_telegram_subscriptions','booking_telegram_outbox']},
+  BOOKINGS_DB: {bookingStore:['bookings','booking_events','booking_documents','chat_threads','chat_messages','telegram_booking_consents','booking_telegram_subscriptions','booking_telegram_outbox','booking_telegram_links']},
   FLIGHTS_DB: {flightCatalog:['flights','flight_offers']}
 };
 const bindings=['HOTELS_DB','BOOKINGS_DB','FLIGHTS_DB','HOTELS_MEDIA','PASSPORTS','IUMRAH_SESSION_SECRET','IUMRAH_SUPERADMIN_PASSWORD','PACKAGE_QUOTE_SEAL_KEY'];
@@ -43,12 +44,13 @@ export async function cutoverStatus(env,installed=false,enabled=false) {
     apple:has('APPLE_BUNDLE_ID'), google:has('GOOGLE_SERVER_CLIENT_ID'),
     wallet:has('WALLET_PASS_TYPE_ID','WALLET_TEAM_ID','WALLET_CERT_PEM','WALLET_KEY_PEM','WALLET_WWDR_CERT_PEM'),
     push:has('APNS_PRIVATE_KEY','APNS_KEY_ID','APPLE_TEAM_ID'),
-    telegram:has('TELEGRAM_LOGIN_CLIENT_ID','IUMRAH_TELEGRAM_BOT_TOKEN'),
-    telegramBridge:(()=>{try{const url=new URL(env.TELEGRAM_BOT_ORIGIN||env.IUMRAH_TELEGRAM_BOT_WORKER_URL||'');return url.protocol==='https:'&&!url.username&&!url.password&&url.hostname!=='iumrah-backend.helloiumrah.workers.dev';}catch{return false;}})(),
-    telegramRetry:has('IUMRAH_TELEGRAM_RETRY_SECRET')&&env.IUMRAH_TELEGRAM_RETRY_SECRET.length>=24,
-    esim:has('ESIM_ACCESS_CODE','ESIM_ACCESS_SECRET')
+    telegram:botConfigured(env)&&has('IUMRAH_SESSION_SECRET')&&env.IUMRAH_SESSION_SECRET.trim().length>=32,
+    esim:has('ESIM_ACCESS_CODE','ESIM_ACCESS_SECRET'),
+    telegramOAuth:has('TELEGRAM_LOGIN_CLIENT_ID')&&botConfigured(env)
   };
   const schemaReady=Object.values(readiness).every(Boolean);
-  const providerConfigurationReady=Object.values(providers).every(Boolean);
-  return {ok:true, missing, service:'iumrah-backend', readiness, schemaReady, providers, providerConfigurationReady, coreHandlersInstalled:installed,coreCutoverEnabled:enabled, migrationAttested:migrationAttested(env),cleanLaunchAttested:cleanLaunchAttested(env),activationAttested:activationAttested(env),cleanLaunchSupported:true,securityConfigurationReady:securityConfigurationReady(env),activationMode:migrationAttested(env)?'legacy-migration':cleanLaunchAttested(env)?'new-account':'pending',dataParityVerified:false, legacyRetirementAllowed:false};
+  const optionalProviders=['esim','telegramOAuth'];
+  const requiredProviderGaps=Object.entries(providers).filter(([name,ready])=>!optionalProviders.includes(name)&&!ready).map(([name])=>name);
+  const providerConfigurationReady=requiredProviderGaps.length===0;
+  return {ok:true, missing, service:'iumrah-backend', readiness, schemaReady, providers, optionalProviders, requiredProviderGaps, providerConfigurationReady, coreHandlersInstalled:installed,coreCutoverEnabled:enabled, migrationAttested:migrationAttested(env),cleanLaunchAttested:cleanLaunchAttested(env),activationAttested:activationAttested(env),cleanLaunchSupported:true,securityConfigurationReady:securityConfigurationReady(env),activationMode:migrationAttested(env)?'legacy-migration':cleanLaunchAttested(env)?'new-account':'pending',dataParityVerified:false, legacyRetirementAllowed:false};
 }

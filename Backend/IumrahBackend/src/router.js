@@ -1,3 +1,5 @@
+import {botConfigured,telegramRetrySecret,notifyTelegramStatus} from '../core/lib/telegram-native.js';
+import {runCore} from '../core/runtime.js';
 import { cutoverStatus, coreReady } from './cutover.js';
 import { publicServices } from './public-services.js';
 // iumrah Backend — single entry point, no duplicated hotel or flight business logic.
@@ -48,7 +50,7 @@ const json = (value, status = 200) => new Response(JSON.stringify(value), {
   status,
   headers: {'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff'}
 });
-export function createBackendRouter({hotels, flights, packages, core, requestAeroDataBox, aeroDataBoxConfiguration, verifyBookingQuote}) {
+export function createBackendRouter({hotels, flights, packages, core, requestAeroDataBox, aeroDataBoxConfiguration, verifyBookingQuote, sendBookingEmailStatus, retryBookingStatusEmails}) {
   if (typeof hotels?.fetch !== 'function' || typeof flights?.fetch !== 'function') throw Error('BACKEND_HANDLERS_REQUIRED');
   const router = {
     async fetch(request, env, ctx) {
@@ -63,8 +65,7 @@ export function createBackendRouter({hotels, flights, packages, core, requestAer
       const ready = coreReady(env,core);
       // The operator activates this only after verifying D1/R2 parity and freezing old writes.
       const dispatch = (req) => router.fetch(req,env,ctx);
-      const telegramOrigin=sharedEnv.TELEGRAM_BOT_ORIGIN||sharedEnv.IUMRAH_TELEGRAM_BOT_WORKER_URL;
-      const routedEnv = core ? {...sharedEnv,TELEGRAM_BOT_ORIGIN:telegramOrigin,IUMRAH_TELEGRAM_BOT_WORKER_URL:telegramOrigin, IUMRAH_VERIFY_BOOKING_QUOTE: verifyBookingQuote ? (booking,proof)=>verifyBookingQuote(booking,proof,env) : undefined, IUMRAH_CORE_FETCH: (input,init)=>dispatch(new Request(input,init)), AUTH_SESSION_URL:'https://iumrah-backend.helloiumrah.workers.dev/api/auth/staff/session', BOOKINGS_ADMIN_URL:'https://iumrah-backend.helloiumrah.workers.dev/api/admin/bookings', BOOKINGS_PUBLIC_URL:'https://iumrah-backend.helloiumrah.workers.dev/api/bookings'} : sharedEnv;
+      const routedEnv = core ? {...sharedEnv,IUMRAH_BOOKING_EMAIL_NOTIFY: sendBookingEmailStatus ? (id)=>sendBookingEmailStatus(sharedEnv,id) : undefined, IUMRAH_TELEGRAM_NOTIFY: (id,status)=>runCore(sharedEnv,ctx,dispatch,()=>notifyTelegramStatus(sharedEnv,id,status)), IUMRAH_VERIFY_BOOKING_QUOTE: verifyBookingQuote ? (booking,proof)=>verifyBookingQuote(booking,proof,env) : undefined, IUMRAH_CORE_FETCH: (input,init)=>dispatch(new Request(input,init)), AUTH_SESSION_URL:'https://iumrah-backend.helloiumrah.workers.dev/api/auth/staff/session', BOOKINGS_ADMIN_URL:'https://iumrah-backend.helloiumrah.workers.dev/api/admin/bookings', BOOKINGS_PUBLIC_URL:'https://iumrah-backend.helloiumrah.workers.dev/api/bookings'} : sharedEnv;
       if (route === 'core') {
         if (!ready && !(core && request.method==='GET' && publicCoreReads.has(pathname))) return json({ok:false,error:'CORE_CUTOVER_PENDING'},503);
         return core.fetch(request,routedEnv,ctx,dispatch);
@@ -105,8 +106,10 @@ export function createBackendRouter({hotels, flights, packages, core, requestAer
         if (h===1 && m===15) jobs.push(()=>flights.scheduled?.(controller,env,ctx));
         if (h===3 && m===0) jobs.push(()=>hotels.scheduled?.(controller,env,ctx));
         if (packages && coreReady(env,core) && env.IUMRAH_PACKAGE_CRON_ENABLED==='1') jobs.push(()=>packages.scheduled?.(controller,env,ctx));
-        if (coreReady(env,core) && typeof env.IUMRAH_TELEGRAM_RETRY_SECRET==='string' && env.IUMRAH_TELEGRAM_RETRY_SECRET.length>=24) jobs.push(async()=>{
-          const res=await router.fetch(new Request('https://iumrah-backend.helloiumrah.workers.dev/api/internal/telegram/retry',{method:'POST',headers:{authorization:`Bearer ${env.IUMRAH_TELEGRAM_RETRY_SECRET}`}}),env,ctx);
+        else if(coreReady(env,core)&&env.RESEND_API_KEY&&retryBookingStatusEmails) jobs.push(()=>retryBookingStatusEmails(env));
+        if (coreReady(env,core) && botConfigured(env)) jobs.push(async()=>{
+          const secret=await telegramRetrySecret(env);if(!secret)throw Error('TELEGRAM_RETRY_SECURITY_NOT_READY');
+          const res=await router.fetch(new Request('https://iumrah-backend.helloiumrah.workers.dev/api/internal/telegram/retry',{method:'POST',headers:{authorization:`Bearer ${secret}`}}),env,ctx);
           if(!res.ok)throw Error('TELEGRAM_RETRY_FAILED');
         });
         const outcomes=await Promise.allSettled(jobs.map(job=>Promise.resolve().then(job)));

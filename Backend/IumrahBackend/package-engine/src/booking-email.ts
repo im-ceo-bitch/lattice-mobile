@@ -221,7 +221,7 @@ export function renderBookingEmail(snapshot: BookingEmailSnapshot, locale: Booki
 function fromAddress(env:Env){return String(env.ACCOUNT_EMAIL_FROM||'security@iumrah.app').trim();}
 export async function sendResend(env:Env,email:string,copy:{subject:string;html:string;text:string},key:string):Promise<void>{
   if(!env.RESEND_API_KEY)throw new Error('RESEND_API_KEY_MISSING');
-  const response=await fetch('https://api.resend.com/emails',{method:'POST',headers:{authorization:`Bearer ${env.RESEND_API_KEY}`,'content-type':'application/json','Idempotency-Key':key.slice(0,255)},body:JSON.stringify({from:`iumrah <${fromAddress(env)}>`,to:[email],reply_to:env.ACCOUNT_EMAIL_REPLY_TO||'support@iumrah.app',...copy})});
+  const response=await fetch('https://api.resend.com/emails',{method:'POST',headers:{authorization:`Bearer ${env.RESEND_API_KEY}`,'content-type':'application/json','Idempotency-Key':key.slice(0,255)},signal:AbortSignal.timeout(8000),body:JSON.stringify({from:`iumrah <${fromAddress(env)}>`,to:[email],reply_to:env.ACCOUNT_EMAIL_REPLY_TO||'support@iumrah.app',...copy})});
   if(!response.ok) throw new Error(`EMAIL_SEND_${response.status}`);
 }
 export async function sendBookingEmailStatus(env:Env,bookingID:string):Promise<'sent'|'skipped'|'retry'> {
@@ -289,4 +289,18 @@ export async function flushBookingStatusEmails(env:Env):Promise<void>{
   await env.HOTELS_DB.prepare('DELETE FROM iumrah_guest_booking_email_challenges WHERE expires_at<?1').bind(new Date(Date.now()-7*24*3600_000).toISOString()).run();
   const rows=await env.HOTELS_DB.prepare(`SELECT booking_id FROM iumrah_booking_email_subscriptions ORDER BY verified_at DESC LIMIT 3000`).all<{booking_id:string}>();
   for(const item of rows.results??[]){await sendBookingEmailStatus(env,item.booking_id);}
+}
+
+// Bounded independent Resend retry, without enabling hotel/provider maintenance.
+// Include stale leases, undelivered subscriptions and canonical trip-stage changes.
+export async function retryBookingStatusEmails(env:Env):Promise<void>{
+  if(!env.HOTELS_DB||!env.BOOKINGS_DB||!env.RESEND_API_KEY)return;
+  const db=env.HOTELS_DB;
+  const now=new Date().toISOString();
+  const rows=await db.prepare(`SELECT s.booking_id FROM iumrah_booking_email_subscriptions s
+    LEFT JOIN pilgrim_trips t ON t.booking_id=s.booking_id
+    WHERE (s.lease_until IS NULL OR s.lease_until<?1) AND (s.last_sent_status IS NULL OR s.last_error IS NOT NULL OR s.lease_until IS NOT NULL OR
+      CASE lower(t.status) WHEN 'availability_check' THEN 'checking' WHEN 'payment_pending' THEN 'available' WHEN 'booking_confirmed' THEN 'paid' WHEN 'ready_to_travel' THEN 'ready' WHEN 'in_trip' THEN 'traveling' ELSE s.last_sent_status END <> s.last_sent_status)
+    ORDER BY COALESCE(s.lease_until,s.last_sent_at,s.verified_at),s.booking_id LIMIT 10`).bind(now).all<{booking_id:string}>();
+  for(const row of rows.results??[])await sendBookingEmailStatus(env,row.booking_id).catch(()=>console.warn('BOOKING_EMAIL_RETRY_FAILED'));
 }

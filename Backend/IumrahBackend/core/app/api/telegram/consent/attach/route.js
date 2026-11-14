@@ -84,6 +84,7 @@ export async function DELETE(request) {
             db.prepare("UPDATE booking_telegram_subscriptions SET disabled_at = ? WHERE booking_id = ?")
                 .bind(new Date().toISOString(), bookingId),
             db.prepare("DELETE FROM booking_telegram_outbox WHERE booking_id = ? AND delivered_at IS NULL").bind(bookingId),
+            db.prepare("UPDATE booking_telegram_links SET used_at=? WHERE booking_id=? AND used_at IS NULL").bind(new Date().toISOString(),bookingId),
         ]);
         return NextResponse.json({ ok: true }, { headers: { "Cache-Control": "no-store" } });
     }

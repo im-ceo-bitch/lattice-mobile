@@ -5995,6 +5995,8 @@ async function updateOperationsBooking(request, env, bookingID, user) {
     await env.HOTELS_DB.prepare('INSERT INTO booking_status_history (id, booking_id, old_status, new_status, changed_by, created_at) VALUES (?, ?, ?, ?, ?, ?)')
       .bind(crypto.randomUUID(), bookingID, currentStatus, nextStatus, cleanText(user?.login, 180), now).run();
     await sendClientStatusPush(env, bookingID, nextStatus).catch(error => console.warn('CLIENT_STATUS_PUSH_FAILED', bookingID, error));
+    if (typeof env.IUMRAH_TELEGRAM_NOTIFY === 'function') await env.IUMRAH_TELEGRAM_NOTIFY(bookingID,sourceStatusFromTripStatus(nextStatus)).catch(()=>console.warn('TELEGRAM_STATUS_NOTICE_FAILED'));
+    if (typeof env.IUMRAH_BOOKING_EMAIL_NOTIFY === 'function') await env.IUMRAH_BOOKING_EMAIL_NOTIFY(bookingID).catch(()=>console.warn('BOOKING_STATUS_EMAIL_FAILED'));
   }
 
   return operationsBookingDetail(request, env, bookingID);
