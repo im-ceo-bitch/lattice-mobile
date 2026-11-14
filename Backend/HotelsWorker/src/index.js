@@ -1,3 +1,5 @@
+import { incrementalChatPage } from "./chat-incremental.js";
+import { ensureBookingIdentity, allocateBookingNumber } from './booking-identity.js';
 import { obtainHotelPrice, propertyKey, safePropertyKey } from './hotel-price-source.js';
 import { intelligenceAdmin, intelligenceIngest, runIntelligenceReport } from './intelligence.js';
 import { WorkflowEntrypoint } from 'cloudflare:workers';
@@ -192,9 +194,9 @@ async function handleBusinessChats(request, env, parts, user) {
   if (parts.length === 0 && request.method === 'GET') return listBusinessChatThreads(env);
   const bookingID = cleanText(parts[0], 180);
   if (!bookingID) return json({ ok: false, error: 'INVALID_BOOKING_ID' }, 400);
-  if (parts.length === 1 && request.method === 'GET') return chatMessages(env, bookingID, true);
+  if (parts.length === 1 && request.method === 'GET') return chatMessages(env, bookingID, true, request);
   if (parts.length === 2 && parts[1] === 'messages') {
-    if (request.method === 'GET') return chatMessages(env, bookingID, true);
+    if (request.method === 'GET') return chatMessages(env, bookingID, true, request);
     if (request.method === 'POST') return sendChatMessage(request, env, bookingID, user);
   }
   if (parts.length === 2 && parts[1] === 'attachments' && request.method === 'POST') {
@@ -232,7 +234,13 @@ async function listBusinessChatThreads(env) {
   });
 }
 
-async function chatMessages(env, bookingID, admin = true) {
+async function chatMessages(env, bookingID, admin = true, request = null) {
+  if (request) {
+    let delta;
+    try { delta = await incrementalChatPage(env.HOTELS_DB, bookingID, request.url); }
+    catch (error) { if (error.message === 'INVALID_CHAT_CURSOR') return json({ok:false,error:error.message},400); throw error; }
+    if (delta) return json({ok:true,bookingID,messages:delta.page.map(row=>mapChatMessage(row,admin)),nextCursor:delta.nextCursor,hasMore:delta.hasMore,staffReadMessageIDs:delta.staffReadMessageIDs});
+  }
   const result = await env.HOTELS_DB.prepare(`
     SELECT id, booking_id, sender_type, sender_name, body, created_at, read_by_staff, message_type, attachment_id
     FROM business_chat_messages WHERE booking_id=? ORDER BY created_at ASC LIMIT 500
@@ -298,7 +306,7 @@ async function sendChatMessage(request, env, bookingID, user) {
       VALUES (?, ?, 'staff', ?, ?, ?, 1, ?)
     `).bind(id, bookingID, senderName, body, now, clientMessageID)
   ]);
-  await sendClientPush(env, bookingID, 'iumrah Care', body.slice(0, 180), { type: 'chat_message', bookingID }).catch(() => {});
+  await deliverCareChatPush(env, bookingID, body.slice(0, 180), 'chat_message');
   return chatMessageDetail(env, id, 201);
 }
 
@@ -816,6 +824,16 @@ async function sendStaffPush(env, title, body, data = {}) {
         .bind(result.disable ? 0 : 1, result.error.slice(0, 900), now, device.device_token).run().catch(() => {});
     }
   });
+}
+
+// Chat messages stay committed even if APNs is unavailable. Log only aggregate delivery diagnostics.
+async function deliverCareChatPush(env, bookingID, body, type) {
+  try {
+    const result = await sendClientPush(env, bookingID, 'iumrah Care', body, {type, bookingID});
+    if (!result?.ok || Number(result.sent || 0) < Number(result.total || 0)) {
+      console.warn('CARE_CHAT_PUSH_DELIVERY', { type, sent: Number(result?.sent || 0), total: Number(result?.total || 0), skipped: result?.skipped || null });
+    }
+  } catch { console.warn('CARE_CHAT_PUSH_DELIVERY_FAILED', {type}); }
 }
 
 async function sendClientPush(env, bookingID, title, body, data = {}) {
@@ -3961,24 +3979,11 @@ function normalizedTripStatus(value) {
 
 function tripStatusFromBooking(raw) { return normalizedTripStatus(raw?.status); }
 
-async function createPilgrim(env, identity) {
-  const now = new Date().toISOString();
-  const result = await env.HOTELS_DB.prepare(`INSERT INTO pilgrims (first_name,last_name,display_name,phone,email,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`)
-    .bind(identity.firstName || '', identity.lastName || '', identity.displayName || 'Паломник', identity.phone || '', identity.email || '', now, now).run();
-  return env.HOTELS_DB.prepare('SELECT * FROM pilgrims WHERE id=?').bind(Number(result?.meta?.last_row_id || 0)).first();
-}
-
-function pilgrimPublicID(id) { return String(Number(id || 0)).padStart(6, '0'); }
+function pilgrimPublicID(id) { return String(Number(id || 0)).padStart(8, '0'); }
 function bookingPublicNumber(value) {
   const number = Number(value || 0);
   if (!Number.isFinite(number) || number <= 0) return null;
   return `#${String(Math.trunc(number)).padStart(4, '0')}`;
-}
-async function allocateBookingNumber(env) {
-  const row = await env.HOTELS_DB.prepare('UPDATE booking_number_sequence SET next_number=next_number+1 WHERE id=1 RETURNING next_number-1 AS booking_number').first();
-  const number = Number(row?.booking_number || 0);
-  if (!number) throw new Error('BOOKING_NUMBER_ALLOCATION_FAILED');
-  return number;
 }
 
 function tripMap(row) {
@@ -4134,13 +4139,10 @@ async function syncBookingTrip(env, raw) {
   // Pricing is server-owned by PackageEngine. Never ingest supplier costs or
   // margin data from the public booking payload. The operational row starts empty
   // and PackageEngine attaches the sealed report only after booking creation.
-  const startDate = cleanText(effectiveRaw?.startDate,64); const endDate = cleanText(effectiveRaw?.endDate,64);
+  const startDate = cleanText(effectiveRaw?.startDate || effectiveRaw?.input?.startDate,64); const endDate = cleanText(effectiveRaw?.endDate || effectiveRaw?.input?.endDate,64);
   let pilgrim;
-  if (!trip) {
-    pilgrim = await createPilgrim(env, identity); if (!pilgrim) return null;
-    const bookingNumber = await allocateBookingNumber(env);
-    await env.HOTELS_DB.prepare(`INSERT INTO pilgrim_trips (id,booking_id,booking_number,pilgrim_id,status,start_date,end_date,booking_snapshot_json,pricing_snapshot_json,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
-      .bind(`trip-${crypto.randomUUID()}`,bookingID,bookingNumber,pilgrim.id,tripStatusFromBooking(effectiveRaw),startDate,endDate,JSON.stringify(effectiveRaw),'{}',now,now).run();
+  if (!trip || !Number(trip.booking_number)) {
+    trip=await ensureBookingIdentity(env.HOTELS_DB,{bookingID,identity,status:tripStatusFromBooking(effectiveRaw),startDate,endDate,snapshot:JSON.stringify(effectiveRaw),now,tripID:`trip-${crypto.randomUUID()}`});
   } else {
     pilgrim = await env.HOTELS_DB.prepare('SELECT * FROM pilgrims WHERE id=?').bind(trip.pilgrim_id).first();
     pilgrim = await updatePilgrimIdentityFields(env,pilgrim,identity);
@@ -4154,6 +4156,13 @@ async function syncBookingTrip(env, raw) {
   const stats=await env.HOTELS_DB.prepare('SELECT COUNT(*) AS count,MAX(COALESCE(end_date,created_at)) AS last_trip FROM pilgrim_trips WHERE pilgrim_id=?').bind(pilgrim.id).first();
   await env.HOTELS_DB.prepare('UPDATE pilgrims SET total_trips=?,last_trip_at=?,updated_at=? WHERE id=?').bind(Number(stats?.count||0),stats?.last_trip||null,now,pilgrim.id).run();
   return {pilgrim,trip};
+}
+
+// Only called after canonical booking D1 has committed; no public bypass of booking-token auth.
+export async function materializeBookingIdentity(env, booking) {
+  const linked=await syncBookingTrip(env,booking);
+  if(!linked?.trip||linked.deleted||!linked.pilgrim)throw Error('BOOKING_IDENTITY_NOT_READY');
+  return tripMap(linked.trip);
 }
 
 function canonicalPilgrimName(pilgrim, identity=null) {
@@ -6022,7 +6031,7 @@ async function listPilgrims(env, url) {
 
 function parsePilgrimPublicID(value) {
   const text = String(value || '').trim();
-  const match = text.match(/^(\d{6})$/);
+  const match = text.match(/^(\d{6,8})$/);
   return match ? Number(match[1]) : null;
 }
 
@@ -6179,7 +6188,7 @@ async function handleClientOperations(request, env, parts) {
   if(parts[0]!=='chats')return json({ok:false,error:'NOT_FOUND'},404);
   const bookingID=cleanText(parts[1],180); if(!bookingID)return json({ok:false,error:'INVALID_BOOKING_ID'},400);
   const auth=await requireClientBooking(request,env,bookingID,{syncTrip:false}); if(!auth.ok)return auth.response;
-  if(parts.length===3&&parts[2]==='messages'){if(request.method==='GET')return chatMessages(env,bookingID,false);if(request.method==='POST')return sendClientChatMessage(request,env,bookingID,auth.user);}
+  if(parts.length===3&&parts[2]==='messages'){if(request.method==='GET')return chatMessages(env,bookingID,false,request);if(request.method==='POST')return sendClientChatMessage(request,env,bookingID,auth.user);}
   if(parts.length===3&&parts[2]==='attachments'&&request.method==='POST')return sendChatAttachment(request,env,bookingID,auth.user,false);
   if(parts.length===3&&parts[2]==='read'&&request.method==='POST')return markClientChatRead(env,bookingID);
   if(parts.length===4&&parts[2]==='media'&&request.method==='GET')return serveChatAttachment(env,bookingID,parts[3]);
@@ -6502,7 +6511,7 @@ async function requireClientBooking(request,env,bookingID,options={}){const acco
 
 const IUMRAH_PASSWORD_ITERATIONS = 100000;
 
-function decodePilgrimID(value){const text=String(value||'').trim();if(!/^\d{6}$/.test(text))return 0;return Number(text);}
+function decodePilgrimID(value){const text=String(value||'').trim();if(!/^\d{6,8}$/.test(text))return 0;return Number(text);}
 function validPassword(value){return typeof value==='string'&&value.length>=8&&value.length<=128;}
 function passwordHashSupported(iterations){const value=Number(iterations||0);return Number.isFinite(value)&&value>0&&value<=IUMRAH_PASSWORD_ITERATIONS;}
 function randomToken(bytes=32){const data=new Uint8Array(bytes);crypto.getRandomValues(data);return base64urlBytes(data);}
@@ -6559,7 +6568,7 @@ async function handleClientAccount(request,env,parts){
   const canonicalID=Number(auth.pilgrim.id);const now=new Date().toISOString();
   let trip=await env.HOTELS_DB.prepare('SELECT * FROM pilgrim_trips WHERE booking_id=? LIMIT 1').bind(bookingID).first();
   if(!trip){
-    const sourcePayload=await sourceBookingPayload(env,bookingID);const effectiveRaw=mergeSourceBooking(boot.booking,sourcePayload);const bookingNumber=await allocateBookingNumber(env);
+    const sourcePayload=await sourceBookingPayload(env,bookingID);const effectiveRaw=mergeSourceBooking(boot.booking,sourcePayload);const bookingNumber=await allocateBookingNumber(env.HOTELS_DB);
     await env.HOTELS_DB.prepare(`INSERT INTO pilgrim_trips (id,booking_id,booking_number,pilgrim_id,status,start_date,end_date,booking_snapshot_json,pricing_snapshot_json,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
       .bind(`trip-${crypto.randomUUID()}`,bookingID,bookingNumber,canonicalID,tripStatusFromBooking(effectiveRaw),cleanText(effectiveRaw?.startDate,64),cleanText(effectiveRaw?.endDate,64),JSON.stringify(effectiveRaw),'{}',now,now).run();
   }else if(Number(trip.pilgrim_id)!==canonicalID){
@@ -6729,7 +6738,7 @@ async function sendChatAttachment(request, env, bookingID, user, staff = true) {
     throw error;
   }
   if (staff) {
-    await sendClientPush(env, bookingID, 'iumrah Care', 'Фотография', { type: 'chat_image', bookingID }).catch(() => {});
+    await deliverCareChatPush(env, bookingID, 'Фотография', 'chat_image');
   } else {
     await sendStaffPush(env, senderName, 'Фотография', { type: 'chat_image', bookingID }).catch(() => {});
   }

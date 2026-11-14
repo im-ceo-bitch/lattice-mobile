@@ -315,7 +315,15 @@ export async function POST(request) {
                 console.error("telegram-booking-initial-notice-failed", noticeError);
             }
         }
-        return NextResponse.json({ booking, accessToken, telegramNotification, telegramConsentExpired: Boolean(consentTicket && !verifiedConsent) }, { status: 201, headers: { "Cache-Control": "no-store" } });
+        // The booking and token are durable. Operational identity failures must never
+        // return an ambiguous 500 or remove committed passport objects.
+        let trip=null;
+        try {
+            const materialize=requestEnv().IUMRAH_MATERIALIZE_BOOKING_IDENTITY;
+            if(typeof materialize==='function')trip=await materialize(booking);
+        } catch (error) { console.error('BOOKING_IDENTITY_PENDING',id,String(error?.message||error).slice(0,200)); }
+        const identityReady=Boolean(trip?.bookingID===id && Number(trip?.bookingNumber)>0 && /^\d{8}$/.test(String(trip?.pilgrimID||'')));
+        return NextResponse.json({ booking, accessToken, trip:identityReady?trip:null, identityReady, telegramNotification, telegramConsentExpired: Boolean(consentTicket && !verifiedConsent) }, { status: identityReady?201:202, headers: { "Cache-Control": "no-store" } });
     }
     catch (error) {
         if (bucket)

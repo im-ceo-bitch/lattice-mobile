@@ -37,8 +37,8 @@ test('real core booking endpoint rejects tampered price before DB writes and acc
  assert.equal((await send({...booking,totalUsd:1},proof)).status,409);
  assert.equal(sql.prepare("SELECT COUNT(*) n FROM sqlite_master WHERE name='bookings'").get().n,0);
  assert.equal((await send(booking,undefined)).status,409);
- const response=await send(booking,proof);assert.equal(response.status,201,await response.clone().text());
- const result=await response.json();assert.equal(result.booking.totalUsd,booking.totalUsd);assert.ok(result.accessToken);assert.equal('quoteProof' in result.booking,false);assert.doesNotMatch(JSON.stringify(result),/supplierCostUsd|markupRate|estimatedProfitUsd/);
+ const response=await send(booking,proof);assert.equal(response.status,202,await response.clone().text());
+ const result=await response.json();assert.equal(result.identityReady,false);assert.equal(result.booking.totalUsd,booking.totalUsd);assert.ok(result.accessToken);assert.equal('quoteProof' in result.booking,false);assert.doesNotMatch(JSON.stringify(result),/supplierCostUsd|markupRate|estimatedProfitUsd/);
  assert.equal(sql.prepare('SELECT COUNT(*) n FROM bookings').get().n,1);
  assert.doesNotMatch(sql.prepare('SELECT payload_json FROM bookings').get().payload_json,/quoteProof|supplierCostUsd|markupRate/);
  } finally{sql.close()}

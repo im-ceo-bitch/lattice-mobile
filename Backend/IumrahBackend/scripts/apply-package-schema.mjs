@@ -22,6 +22,10 @@ export async function ensureSchema(query, schema, binding) {
  }
  for(const idx of schema.indexes)await query(idx.sql);
  // Actual SQL, not binding presence alone.
+ if(binding==='HOTELS_DB') {
+  // The schema snapshot contains DDL only; the original migration also seeded this singleton.
+  await query(`INSERT INTO booking_number_sequence(id,next_number) VALUES(1,COALESCE((SELECT MAX(booking_number)+1 FROM pilgrim_trips),1)) ON CONFLICT(id) DO UPDATE SET next_number=MAX(booking_number_sequence.next_number,excluded.next_number)`);
+ }
  if(binding==='HOTELS_DB')for(const sql of ['SELECT id,status FROM hotels LIMIT 0','SELECT hotel_id,nightly_price_usd FROM hotel_price_cache LIMIT 0','SELECT hotel_id FROM primary_hotels LIMIT 0','SELECT id FROM pilgrims LIMIT 0'])await query(sql);
  if(binding==='BOOKINGS_DB')for(const sql of ['SELECT id,access_token_hash FROM bookings LIMIT 0','SELECT booking_id FROM booking_events LIMIT 0','SELECT booking_id FROM booking_documents LIMIT 0'])await query(sql);
  return {created,added};
