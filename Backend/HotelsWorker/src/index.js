@@ -1,4 +1,4 @@
-import { accountIDFromChatKey, chatScope, chatScopeSQL, staffChatScope, carePushTargets, persistCarePushResult } from "./care-identity.js";
+import { accountIDFromChatKey, chatScope, chatScopeSQL, staffChatScope, chatScopeVersion, carePushTargets, persistCarePushResult } from "./care-identity.js";
 import { incrementalChatPage } from "./chat-incremental.js";
 import { ensureBookingIdentity, allocateBookingNumber } from './booking-identity.js';
 import { obtainHotelPrice, propertyKey, safePropertyKey } from './hotel-price-source.js';
@@ -206,10 +206,16 @@ async function handleBusinessChats(request, env, parts, user) {
   if (parts.length === 2 && parts[1] === 'attachments' && request.method === 'POST') return sendChatAttachment(request,env,bookingID,user,true);
   if (parts.length === 3 && parts[1] === 'media' && request.method === 'GET') return serveChatAttachment(env,scope,parts[2]);
   if (parts.length === 2 && parts[1] === 'read' && request.method === 'POST') {
+    const params=new URL(request.url).searchParams;
+    const raw=params.get('through');
+    // Legacy clients omit through. New clients acknowledge only rows they have received.
+    if(raw!==null && (!/^\d{1,15}$/.test(raw)||!Number.isSafeInteger(Number(raw)))) return json({ok:false,error:'INVALID_CHAT_CURSOR'},400);
+    if(raw!==null && params.get('scope')!==await chatScopeVersion(env.HOTELS_DB,scope)) return json({ok:false,error:'CHAT_SCOPE_CHANGED'},409);
     const q=chatScopeSQL(scope);
+    const bound=raw===null?[]:[Number(raw)];
     await env.HOTELS_DB.batch([
-      env.HOTELS_DB.prepare(`UPDATE business_chat_messages SET read_by_staff=1 WHERE ${q.sql}`).bind(...q.args),
-      env.HOTELS_DB.prepare(`UPDATE business_chat_threads SET unread_for_staff=0, updated_at=? WHERE ${q.sql}`).bind(new Date().toISOString(),...q.args)
+      env.HOTELS_DB.prepare(`UPDATE business_chat_messages SET read_by_staff=1 WHERE ${q.sql} AND sender_type='client' AND read_by_staff=0${raw===null?'':' AND rowid<=?'}`).bind(...q.args,...bound),
+      env.HOTELS_DB.prepare(`UPDATE business_chat_threads SET unread_for_staff=CASE WHEN EXISTS(SELECT 1 FROM business_chat_messages m WHERE m.booking_id=business_chat_threads.booking_id AND m.sender_type='client' AND m.read_by_staff=0) THEN 1 ELSE 0 END WHERE ${q.sql}`).bind(...q.args)
     ]);
     return json({ok:true});
   }
@@ -228,7 +234,7 @@ async function listBusinessChatThreads(env) {
     WHERE th.booking_id NOT LIKE 'care-pilgrim:%' OR direct.pilgrim_id IS NOT NULL
   ), ranked AS (
     SELECT *,ROW_NUMBER() OVER(PARTITION BY chat_id ORDER BY COALESCE(last_message_at,updated_at) DESC,booking_id DESC) AS rn,
-      MAX(unread_for_staff) OVER(PARTITION BY chat_id) AS unread
+      MAX(CASE WHEN EXISTS(SELECT 1 FROM business_chat_messages m WHERE m.booking_id=mapped.booking_id AND m.sender_type='client' AND m.read_by_staff=0) THEN 1 ELSE 0 END) OVER(PARTITION BY chat_id) AS unread
     FROM mapped
   ) SELECT r.*,p.display_name,p.first_name,p.last_name,
     CASE WHEN r.owner_id IS NULL THEN r.booking_id ELSE (SELECT booking_id FROM pilgrim_trips WHERE pilgrim_id=r.owner_id ORDER BY CASE WHEN status IN ('completed','cancelled') THEN 1 ELSE 0 END,created_at DESC,booking_id DESC LIMIT 1) END AS representative_booking,
@@ -299,18 +305,24 @@ async function sendChatMessage(request, env, bookingID, user) {
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
   const senderName = await staffDisplayName(env, user);
-  await env.HOTELS_DB.batch([
+  try { await env.HOTELS_DB.batch([
     env.HOTELS_DB.prepare(`
       INSERT INTO business_chat_threads (booking_id, created_at, updated_at, last_message_at, last_message_preview, last_sender_type, unread_for_staff)
       VALUES (?, ?, ?, ?, ?, 'staff', 0)
       ON CONFLICT(booking_id) DO UPDATE SET updated_at=excluded.updated_at, last_message_at=excluded.last_message_at,
-        last_message_preview=excluded.last_message_preview, last_sender_type='staff', unread_for_staff=0
+        last_message_preview=excluded.last_message_preview, last_sender_type='staff'
     `).bind(bookingID, now, now, now, body.slice(0, 240)),
     env.HOTELS_DB.prepare(`
       INSERT INTO business_chat_messages (id, booking_id, sender_type, sender_name, body, created_at, read_by_staff, client_message_id)
       VALUES (?, ?, 'staff', ?, ?, ?, 1, ?)
     `).bind(id, bookingID, senderName, body, now, clientMessageID)
-  ]);
+  ]); } catch(error) {
+    if(clientMessageID) {
+      const existing=await env.HOTELS_DB.prepare('SELECT id FROM business_chat_messages WHERE booking_id=? AND client_message_id=? LIMIT 1').bind(bookingID,clientMessageID).first().catch(()=>null);
+      if(existing?.id)return chatMessageDetail(env,existing.id,200);
+    }
+    throw error;
+  }
   await deliverCareChatPush(env, bookingID, body.slice(0, 180), 'chat_message');
   return chatMessageDetail(env, id, 201);
 }
@@ -6699,12 +6711,11 @@ async function sendClientChatMessage(request, env, bookingID, user) {
   const now = new Date().toISOString();
   const senderName = await bookingPilgrimName(env, bookingID, safeHumanText(user?.displayName || user?.name || '', 160) || '');
   try {
-    // Keep these writes sequential. Besides producing clearer diagnostics, this makes
-    // the parent thread unquestionably visible before the FK-constrained message write.
-    await env.HOTELS_DB.prepare(`INSERT INTO business_chat_threads (booking_id, created_at, updated_at, last_message_at, last_message_preview, last_sender_type, unread_for_staff) VALUES (?, ?, ?, ?, ?, 'client', 1) ON CONFLICT(booking_id) DO UPDATE SET updated_at=excluded.updated_at, last_message_at=excluded.last_message_at, last_message_preview=excluded.last_message_preview, last_sender_type='client', unread_for_staff=1`)
-      .bind(bookingID, now, now, now, body.slice(0,240)).run();
-    await env.HOTELS_DB.prepare(`INSERT INTO business_chat_messages (id, booking_id, sender_type, sender_name, body, created_at, read_by_staff, client_message_id, message_type) VALUES (?, ?, 'client', ?, ?, ?, 0, ?, 'text')`)
-      .bind(id, bookingID, senderName, body, now, clientMessageID).run();
+    // D1 batch is atomic and executes in order, so a failed message cannot leave a phantom preview.
+    await env.HOTELS_DB.batch([env.HOTELS_DB.prepare(`INSERT INTO business_chat_threads (booking_id, created_at, updated_at, last_message_at, last_message_preview, last_sender_type, unread_for_staff) VALUES (?, ?, ?, ?, ?, 'client', 1) ON CONFLICT(booking_id) DO UPDATE SET updated_at=excluded.updated_at, last_message_at=excluded.last_message_at, last_message_preview=excluded.last_message_preview, last_sender_type='client', unread_for_staff=1`)
+      .bind(bookingID, now, now, now, body.slice(0,240)),
+    env.HOTELS_DB.prepare(`INSERT INTO business_chat_messages (id, booking_id, sender_type, sender_name, body, created_at, read_by_staff, client_message_id, message_type) VALUES (?, ?, 'client', ?, ?, ?, 0, ?, 'text')`)
+      .bind(id, bookingID, senderName, body, now, clientMessageID)]);
   } catch (error) {
     // If the client retried after a network timeout, return the already-created message.
     if (clientMessageID) {
@@ -6744,7 +6755,7 @@ async function sendChatAttachment(request, env, bookingID, user, staff = true) {
   const preview = 'Фотография';
   try {
     await env.HOTELS_DB.batch([
-      env.HOTELS_DB.prepare(`INSERT INTO business_chat_threads (booking_id, created_at, updated_at, last_message_at, last_message_preview, last_sender_type, unread_for_staff) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(booking_id) DO UPDATE SET updated_at=excluded.updated_at, last_message_at=excluded.last_message_at, last_message_preview=excluded.last_message_preview, last_sender_type=excluded.last_sender_type, unread_for_staff=excluded.unread_for_staff`).bind(bookingID, now, now, now, preview, senderType, staff ? 0 : 1),
+      env.HOTELS_DB.prepare(`INSERT INTO business_chat_threads (booking_id, created_at, updated_at, last_message_at, last_message_preview, last_sender_type, unread_for_staff) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(booking_id) DO UPDATE SET updated_at=excluded.updated_at, last_message_at=excluded.last_message_at, last_message_preview=excluded.last_message_preview, last_sender_type=excluded.last_sender_type, unread_for_staff=CASE WHEN excluded.last_sender_type='client' THEN 1 ELSE business_chat_threads.unread_for_staff END`).bind(bookingID, now, now, now, preview, senderType, staff ? 0 : 1),
       env.HOTELS_DB.prepare('INSERT INTO business_chat_attachments (id, booking_id, object_key, content_type, byte_size, width, height, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').bind(attachmentID, bookingID, objectKey, transformed.contentType, transformed.bytes.byteLength, transformed.width, transformed.height, now),
       env.HOTELS_DB.prepare(`INSERT INTO business_chat_messages (id, booking_id, sender_type, sender_name, body, created_at, read_by_staff, message_type, attachment_id) VALUES (?, ?, ?, ?, '', ?, ?, 'image', ?)`).bind(messageID, bookingID, senderType, senderName, now, staff ? 1 : 0, attachmentID)
     ]);

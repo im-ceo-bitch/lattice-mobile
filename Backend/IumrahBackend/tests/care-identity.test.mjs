@@ -88,3 +88,34 @@ test('guest booking keeps its own push; claiming it switches delivery to authent
  sql.exec("UPDATE pilgrim_trips SET pilgrim_id=1 WHERE booking_id='guest'");
  assert.deepEqual((await carePushTargets(db,'guest','com.iumrah.app')).rows.map(r=>r.device_token),[accountDevice]);
  }finally{sql.close()}});
+test('staff cursor acknowledgement never consumes an unseen message, even across trips or after a reply',async()=>{const {sql,go,add}=await fixture();try{
+ add('a','seen');add('foreign','foreign-unread');
+ const key=accountChatKey(1),page=await data(await go(A+key+'/messages?after=0',staff));
+ add('b','unseen');
+ await data(await go(A+key+'/messages',staff,'POST',{body:'reply before read',clientMessageID:'reply-1'}));
+ const before=await data(await go(A,staff));assert.equal(before.threads.find(x=>x.conversationID===key).unreadForStaff,true);
+ await data(await go(A+key+`/read?through=${page.nextCursor}&scope=${page.scopeVersion}`,staff,'POST'));
+ const read=id=>sql.prepare('SELECT read_by_staff FROM business_chat_messages WHERE id=?').get(id).read_by_staff;
+ assert.equal(read('seen'),1);assert.equal(read('unseen'),0);assert.equal(read('foreign-unread'),0);
+ const list=await data(await go(A,staff));assert.equal(list.threads.find(x=>x.conversationID===key).unreadForStaff,true);
+ const next=await data(await go(A+key+`/messages?after=${page.nextCursor}&scope=${page.scopeVersion}`,staff));
+ await data(await go(A+key+`/read?through=${next.nextCursor}&scope=${next.scopeVersion}`,staff,'POST'));
+ assert.equal(read('unseen'),1);assert.equal((await data(await go(A,staff))).threads.find(x=>x.conversationID===key).unreadForStaff,false);
+ }finally{sql.close()}});
+test('invalid or stale acknowledgement cannot mark a newly claimed booking read',async()=>{const {sql,go,add}=await fixture();try{
+ add('a','seen');add('guest','new-owner');const key=accountChatKey(1);
+ const page=await data(await go(A+key+'/messages?after=0',staff));
+ sql.exec("UPDATE pilgrim_trips SET pilgrim_id=1 WHERE booking_id='guest'");
+ assert.equal((await go(A+key+`/read?through=${page.nextCursor}&scope=${page.scopeVersion}`,staff,'POST')).status,409);
+ assert.equal((await go(A+key+'/read?through=-1&scope=x',staff,'POST')).status,400);
+ assert.equal(sql.prepare('SELECT SUM(read_by_staff) AS n FROM business_chat_messages').get().n,0);
+ }finally{sql.close()}});
+test('failed client insert rolls back thread preview; same message key is idempotent',async()=>{const {sql,go}=await fixture();try{
+ const key=accountChatKey(1);
+ const first=await data(await go(C+'account/messages',accountA,'POST',{body:'original',clientMessageID:'old-id'}));
+ sql.exec("CREATE TRIGGER reject_chat BEFORE INSERT ON business_chat_messages WHEN NEW.body='reject' BEGIN SELECT RAISE(ABORT,'fixture reject'); END;");
+ assert.equal((await go(C+'account/messages',accountA,'POST',{body:'reject',clientMessageID:'new-id'})).status,500);
+ assert.equal(sql.prepare('SELECT last_message_preview FROM business_chat_threads WHERE booking_id=?').get(key).last_message_preview,'original');
+ const retry=await data(await go(C+'account/messages',accountA,'POST',{body:'original',clientMessageID:'old-id'}));assert.equal(retry.message.id,first.message.id);
+ assert.equal(sql.prepare('SELECT COUNT(*) AS n FROM business_chat_messages').get().n,1);
+ }finally{sql.close()}});

@@ -506,8 +506,12 @@ actor APIClient {
         return try decoder.decode(BusinessChatMessageResponse.self, from: responseData).message
     }
 
-    func markBusinessChatRead(bookingID: String) async throws {
-        var request = URLRequest(url: AppConfig.apiBaseURL.appending(path: "/api/admin/hotels/chats/\(bookingID)/read"))
+    func markBusinessChatRead(bookingID: String, through: String, scope: String) async throws {
+        let endpoint = AppConfig.apiBaseURL.appending(path: "/api/admin/hotels/chats/\(bookingID)/read")
+        guard var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false) else { throw APIError.server("INVALID_CHAT_CURSOR") }
+        components.queryItems = [URLQueryItem(name: "through", value: through), URLQueryItem(name: "scope", value: scope)]
+        guard let url = components.url else { throw APIError.server("INVALID_CHAT_CURSOR") }
+        var request = URLRequest(url: url)
         request.httpMethod = "POST"
         let (data, response) = try await perform(request)
         try validate(response, data: data)

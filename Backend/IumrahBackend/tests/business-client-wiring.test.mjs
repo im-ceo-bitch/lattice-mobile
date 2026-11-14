@@ -56,3 +56,24 @@ test('login errors are distinct and push only registers after a device session e
  assert.match(login,/\.focused\(\$focusedField, equals: \.password\)/);
  assert.match(login,/\.defaultScrollAnchor\(\.top\)/);
 });
+
+test('V33 Business acknowledges the received cursor and listens to chat and operational push events',()=>{
+ const chat=read('Sources/Views/ChatsView.swift'), api=read('Sources/Networking/APIClient.swift'), notifications=read('Sources/Core/BusinessNotifications.swift');
+ assert.match(chat,/markBusinessChatRead\(bookingID: conversationID, through: cursor, scope: scope\)/);
+ assert.match(chat,/acknowledgedCursor = cursor/);
+ assert.match(api,/URLQueryItem\(name: "through", value: through\)/);
+ assert.match(api,/URLQueryItem\(name: "scope", value: scope\)/);
+ assert.match(chat,/retryText == text \? \(retryMessageID/);
+ assert.match(notifications,/case "chat_message", "chat_image":/);
+ assert.match(notifications,/case "payment_receipt", "booking_created", "booking_status_changed":/);
+ assert.match(chat,/\.iumrahBusinessChatChanged/);
+ assert.match(read('Sources/Views/BusinessTabView.swift'),/\.iumrahBusinessChatOpen/);
+});
+test('V33 refreshes cannot resurrect a deleted booking or overwrite unsaved operations',()=>{
+ const list=read('Sources/Views/BookingsView.swift'), detail=read('Sources/Views/BookingDetailView.swift'), archive=read('Sources/Views/ClientArchiveView.swift');
+ assert.match(list,/loadGeneration == generation, !deleting/);
+ assert.match(list,/deleting = true\s+loadGeneration = UUID\(\)/);
+ assert.match(detail,/guard !hasUnsavedOperations else \{ return \}\s+detail = value/);
+ assert.match(detail,/loadGeneration == generation, !saving, !restartingPriceLock/);
+ assert.match(archive,/loadGeneration == generation/);
+});

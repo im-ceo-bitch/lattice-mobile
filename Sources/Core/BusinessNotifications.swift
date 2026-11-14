@@ -7,6 +7,10 @@ import UserNotifications
 extension Notification.Name {
     static let iumrahBusinessSessionInvalidated = Notification.Name("iumrah.business.sessionInvalidated")
     static let iumrahBusinessSecurityNewSession = Notification.Name("iumrah.business.securityNewSession")
+    static let iumrahBusinessChatChanged = Notification.Name("iumrah.business.chatChanged")
+    static let iumrahBusinessChatRead = Notification.Name("iumrah.business.chatRead")
+    static let iumrahBusinessBookingChanged = Notification.Name("iumrah.business.bookingOperationsChanged")
+    static let iumrahBusinessChatOpen = Notification.Name("iumrah.business.chatOpen")
     static let iumrahBusinessFlightPriceOpen = Notification.Name("iumrah.business.flightPriceOpen")
 }
 
@@ -39,6 +43,7 @@ final class BusinessAppDelegate: NSObject, UIApplicationDelegate, UNUserNotifica
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
         handleSecurityNotification(notification.request.content.userInfo)
+        handleOperationalNotification(notification.request.content.userInfo, opened: false)
         completionHandler([.banner, .sound, .badge, .list])
     }
 
@@ -49,7 +54,22 @@ final class BusinessAppDelegate: NSObject, UIApplicationDelegate, UNUserNotifica
     ) {
         handleSecurityNotification(response.notification.request.content.userInfo)
         handleFlightPriceNotification(response.notification.request.content.userInfo)
+        handleOperationalNotification(response.notification.request.content.userInfo, opened: true)
         completionHandler()
+    }
+
+    private func handleOperationalNotification(_ userInfo: [AnyHashable: Any], opened: Bool) {
+        guard BusinessSessionVault.sessionToken != nil,
+              let type = userInfo["type"] as? String,
+              let key = userInfo["bookingID"] as? String, !key.isEmpty, key.count <= 180 else { return }
+        switch type {
+        case "chat_message", "chat_image":
+            NotificationCenter.default.post(name: .iumrahBusinessChatChanged, object: key)
+            if opened { NotificationCenter.default.post(name: .iumrahBusinessChatOpen, object: key) }
+        case "payment_receipt", "booking_created", "booking_status_changed":
+            NotificationCenter.default.post(name: .iumrahBusinessBookingChanged, object: key)
+        default: break
+        }
     }
 
     private func handleFlightPriceNotification(_ userInfo: [AnyHashable: Any]) {

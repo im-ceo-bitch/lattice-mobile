@@ -93,6 +93,9 @@ struct BusinessTabView: View {
         .onReceive(NotificationCenter.default.publisher(for: .iumrahBusinessFlightPriceOpen)) { _ in
             navigation.navigate(to: .flights)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .iumrahBusinessChatOpen)) { _ in
+            navigation.navigate(to: .chats)
+        }
         .onAppear {
             if UserDefaults.standard.string(forKey: "iumrah.price.pendingFlightKey") != nil {
                 navigation.navigate(to: .flights)

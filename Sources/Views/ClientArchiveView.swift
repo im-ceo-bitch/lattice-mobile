@@ -10,6 +10,8 @@ struct ClientArchiveView: View {
     @State private var loading = true
     @State private var errorMessage: String?
     @State private var selectedPilgrim: PilgrimSummary?
+    @State private var loadGeneration = UUID()
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Group {
@@ -31,6 +33,12 @@ struct ClientArchiveView: View {
         .overlay { if loading { ProgressView() } }
         .task { await load() }
         .refreshable { await load() }
+        .onReceive(NotificationCenter.default.publisher(for: .iumrahBusinessBookingChanged)) { _ in
+            Task { await load() }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await load() } }
+        }
         .onChange(of: search) { _, _ in
             guard layout.supportsTwoPaneWorkspace else { return }
             if let selectedPilgrim, !filtered.contains(where: { $0.id == selectedPilgrim.id }) {
@@ -126,9 +134,14 @@ struct ClientArchiveView: View {
     }
 
     @MainActor private func load() async {
-        loading = true
+        let generation = UUID()
+        loadGeneration = generation
+        if pilgrims.isEmpty { loading = true }
+        defer { if loadGeneration == generation { loading = false } }
         do {
-            pilgrims = try await APIClient.shared.pilgrims(archiveOnly: true)
+            let incoming = try await APIClient.shared.pilgrims(archiveOnly: true)
+            guard !Task.isCancelled, loadGeneration == generation else { return }
+            pilgrims = incoming
             errorMessage = nil
             if layout.supportsTwoPaneWorkspace {
                 if let selectedPilgrim,
@@ -139,9 +152,9 @@ struct ClientArchiveView: View {
                 }
             }
         } catch {
+            guard !Task.isCancelled, loadGeneration == generation else { return }
             errorMessage = error.localizedDescription
         }
-        loading = false
     }
 }
 

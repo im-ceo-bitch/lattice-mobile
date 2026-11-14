@@ -19,6 +19,12 @@ struct BookingDetailView: View {
     @State private var editingHotelCity: String?
     @State private var showGuidePicker = false
     @State private var restartingPriceLock = false
+    @State private var loadGeneration = UUID()
+
+    private var hasUnsavedOperations: Bool {
+        guard let operation = detail?.operation else { return false }
+        return status != operation.tripStatus || paymentStatus != operation.paymentStatus || confirmationNumber != operation.confirmationNumber || internalNotes != operation.internalNotes
+    }
 
     var body: some View {
         ScrollView {
@@ -905,12 +911,17 @@ struct BookingDetailView: View {
     }
 
     @MainActor private func load(showLoading: Bool = false) async {
+        guard !saving, !restartingPriceLock else { return }
+        let generation = UUID()
+        loadGeneration = generation
         if showLoading && detail == nil { loading = true }
-        defer { loading = false }
+        defer { if loadGeneration == generation { loading = false } }
 
         do {
             let value = try await APIClient.shared.bookingDetail(id: bookingID)
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, loadGeneration == generation, !saving, !restartingPriceLock else { return }
+            // Do not replace local edits (or their comparison baseline) with a background poll.
+            guard !hasUnsavedOperations else { return }
             detail = value
             if let operation = value.operation {
                 status = operation.tripStatus
@@ -924,13 +935,16 @@ struct BookingDetailView: View {
         } catch let error as URLError where error.code == .cancelled {
             return
         } catch {
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, loadGeneration == generation else { return }
             errorMessage = error.localizedDescription
         }
     }
 
     @MainActor private func restartPriceLock() async {
-        guard !restartingPriceLock else { return }
+        guard !restartingPriceLock, !saving else { return }
+        guard !hasUnsavedOperations else { errorMessage = "Сначала сохраните изменения бронирования."; return }
+        loadGeneration = UUID()
+        loading = false
         restartingPriceLock = true
         defer { restartingPriceLock = false }
         do {
@@ -950,6 +964,9 @@ struct BookingDetailView: View {
     }
 
     @MainActor private func save() async {
+        guard !saving, !restartingPriceLock else { return }
+        loadGeneration = UUID()
+        loading = false
         saving = true
         do {
             let updated = try await APIClient.shared.updateBookingOperation(id: bookingID, status: status, paymentStatus: paymentStatus, confirmationNumber: confirmationNumber, internalNotes: internalNotes)

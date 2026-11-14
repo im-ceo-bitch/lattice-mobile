@@ -42,6 +42,8 @@ struct BookingsView: View {
     @State private var filter: BookingListFilter = .all
     @State private var bookingPendingDelete: BookingSummary?
     @State private var selectedBooking: BookingSummary?
+    @State private var loadGeneration = UUID()
+    @Environment(\.scenePhase) private var scenePhase
 
     private var filteredBookings: [BookingSummary] {
         bookings.filter { filter.matches(operationalStatus($0)) }
@@ -82,6 +84,9 @@ struct BookingsView: View {
             Task { await load() }
         }
         .refreshable { await load() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await load() } }
+        }
         .onChange(of: filter) { _, _ in
             guard layout.supportsTwoPaneWorkspace else { return }
             if let selectedBooking,
@@ -239,10 +244,16 @@ struct BookingsView: View {
     }
 
     @MainActor private func load() async {
+        guard !deleting else { return }
+        let generation = UUID()
+        loadGeneration = generation
         if bookings.isEmpty { loading = true }
+        defer { if loadGeneration == generation { loading = false } }
         error = nil
         do {
-            bookings = try await APIClient.shared.bookings()
+            let incoming = try await APIClient.shared.bookings()
+            guard !Task.isCancelled, loadGeneration == generation, !deleting else { return }
+            bookings = incoming
             if layout.supportsTwoPaneWorkspace {
                 if let selectedBooking,
                    bookings.contains(where: { $0.id == selectedBooking.id }) {
@@ -252,13 +263,15 @@ struct BookingsView: View {
                 }
             }
         } catch {
+            guard !Task.isCancelled, loadGeneration == generation else { return }
             self.error = error.localizedDescription
         }
-        loading = false
     }
 
     @MainActor private func delete(_ booking: BookingSummary) async {
         deleting = true
+        loadGeneration = UUID()
+        loading = false
         error = nil
         do {
             try await APIClient.shared.deleteBooking(id: booking.id)

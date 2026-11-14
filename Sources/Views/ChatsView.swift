@@ -24,6 +24,9 @@ struct ChatsView: View {
     @State private var loading = true
     @State private var errorMessage: String?
     @State private var selectedThread: ChatThread?
+    @State private var loadGeneration = UUID()
+    @State private var hasLoadedThreads = false
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Group {
@@ -50,6 +53,15 @@ struct ChatsView: View {
         .task { await load() }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("iumrah.business.bookingOperationsChanged"))) { _ in
             Task { await load() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .iumrahBusinessChatChanged)) { _ in
+            Task { await load() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .iumrahBusinessChatRead)) { _ in
+            Task { await load() }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await load() } }
         }
         .onChange(of: filter) { _, _ in
             guard layout.supportsTwoPaneWorkspace else { return }
@@ -211,19 +223,30 @@ struct ChatsView: View {
     }
 
     @MainActor private func load() async {
-        loading = true
+        let generation = UUID()
+        loadGeneration = generation
+        if threads.isEmpty { loading = true }
+        defer { if loadGeneration == generation { loading = false } }
         errorMessage = nil
         do {
             async let chatThreadsRequest = APIClient.shared.businessChatThreads()
             async let bookingsRequest = APIClient.shared.bookings()
             let cloudThreads = try await chatThreadsRequest
-            let resolvedBookings = try await bookingsRequest
-            guard !Task.isCancelled else { return }
+            // The server's conversation list is authoritative even if the separate booking lookup fails.
+            let resolvedBookings: [BookingSummary]
+            var bookingLookupError: String?
+            do { resolvedBookings = try await bookingsRequest }
+            catch is CancellationError { return }
+            catch {
+                resolvedBookings = bookings
+                bookingLookupError = "Не удалось обновить связанные поездки: " + error.localizedDescription
+            }
+            guard !Task.isCancelled, loadGeneration == generation else { return }
             bookings = resolvedBookings
+            errorMessage = bookingLookupError
             let bookingsByID = Dictionary(resolvedBookings.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-            threads = cloudThreads.compactMap { cloud in
+            threads = cloudThreads.map { cloud in
                 let booking = bookingsByID[cloud.bookingID]
-                guard booking != nil || cloud.pilgrimID != nil else { return nil }
                 return ChatThread(
                     conversationID: cloud.id,
                     booking: booking,
@@ -237,7 +260,8 @@ struct ChatsView: View {
                     unreadForStaff: cloud.unreadForStaff
                 )
             }
-            if threads.filter(\.unreadForStaff).isEmpty, filter == .new { filter = .active }
+            if !hasLoadedThreads, threads.filter(\.unreadForStaff).isEmpty, filter == .new { filter = .active }
+            hasLoadedThreads = true
             if layout.supportsTwoPaneWorkspace {
                 if let selectedThread,
                    let refreshed = threads.first(where: { $0.id == selectedThread.id }) {
@@ -249,9 +273,9 @@ struct ChatsView: View {
         } catch is CancellationError {
             return
         } catch {
+            guard loadGeneration == generation, !Task.isCancelled else { return }
             errorMessage = error.localizedDescription
         }
-        loading = false
     }
 }
 
@@ -350,6 +374,11 @@ struct ChatConversationView: View {
     @State private var cursor = "0"
     @State private var scopeVersion: String?
     @State private var syncing = false
+    @State private var acknowledgedCursor: String?
+    @State private var acknowledgedScope: String?
+    @State private var retryText: String?
+    @State private var retryMessageID: String?
+    @Environment(\.scenePhase) private var scenePhase
     @State private var draft = ""
     @State private var loading = true
     @State private var sending = false
@@ -420,6 +449,15 @@ struct ChatConversationView: View {
                 await Task.yield()
                 scrollToLatest(proxy, animated: false)
                 await poll()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .iumrahBusinessChatChanged)) { event in
+                if let key = event.object as? String,
+                   key == conversationID || relatedBookings.contains(where: { $0.id == key }) {
+                    Task { await reload() }
+                }
+            }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active { Task { await reload() } }
             }
             .onChange(of: selectedPhoto) { _, item in
                 if let item { Task { await sendPhoto(item) } }
@@ -679,24 +717,29 @@ struct ChatConversationView: View {
         guard !syncing else { return }
         syncing = true
         defer { syncing = false }
-        var changed = false
         for _ in 0..<20 {
             try Task.checkCancellation()
             let before = cursor
             let page = try await APIClient.shared.businessChatMessages(bookingID: conversationID, after: cursor, scope: scopeVersion)
             try Task.checkCancellation()
-            if page.reset == true { messages = []; changed = true }
+            if page.reset == true { messages = []; acknowledgedCursor = nil; acknowledgedScope = nil }
             var indexed = Dictionary(messages.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             for message in page.messages { indexed[message.id] = message }
             if !page.messages.isEmpty {
                 messages = indexed.values.sorted { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }
-                changed = true
             }
             scopeVersion = page.scopeVersion
             cursor = page.nextCursor ?? "0"
             guard page.hasMore == true, cursor != before || page.reset == true else { break }
         }
-        if changed { _ = try? await APIClient.shared.markBusinessChatRead(bookingID: conversationID) }
+        if let scope = scopeVersion, cursor != "0",
+           acknowledgedCursor != cursor || acknowledgedScope != scope {
+            try Task.checkCancellation()
+            try await APIClient.shared.markBusinessChatRead(bookingID: conversationID, through: cursor, scope: scope)
+            acknowledgedCursor = cursor
+            acknowledgedScope = scope
+            NotificationCenter.default.post(name: .iumrahBusinessChatRead, object: conversationID)
+        }
     }
 
     @MainActor private func reload() async {
@@ -709,20 +752,27 @@ struct ChatConversationView: View {
     @MainActor private func poll() async {
         while !Task.isCancelled {
             do { try await Task.sleep(for: .seconds(5)) } catch { break }
-            guard !Task.isCancelled, !sending else { continue }
-            try? await syncMessages()
+            guard !Task.isCancelled, !sending, scenePhase == .active else { continue }
+            await reload()
         }
     }
 
     private func send() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        guard !text.isEmpty, !sending else { return }
+        let messageID = retryText == text ? (retryMessageID ?? UUID().uuidString) : UUID().uuidString
+        retryText = text; retryMessageID = messageID
         draft = ""; sending = true; errorMessage = nil
         Task { @MainActor in
             do {
-                let message = try await APIClient.shared.sendBusinessChatMessage(bookingID: conversationID, body: text, clientMessageID: UUID().uuidString)
+                let message = try await APIClient.shared.sendBusinessChatMessage(bookingID: conversationID, body: text, clientMessageID: messageID)
                 if !messages.contains(where: { $0.id == message.id }) { messages.append(message) }
-            } catch { draft = text; errorMessage = error.localizedDescription }
+                retryText = nil; retryMessageID = nil
+                NotificationCenter.default.post(name: .iumrahBusinessChatRead, object: conversationID)
+            } catch {
+                if draft.isEmpty { draft = text }
+                errorMessage = error.localizedDescription
+            }
             sending = false
         }
     }
@@ -733,6 +783,7 @@ struct ChatConversationView: View {
             guard let raw = try await item.loadTransferable(type: Data.self), let optimized = chatJPEG(raw) else { throw APIError.server("Не удалось подготовить фотографию") }
             let message = try await APIClient.shared.sendBusinessChatImage(bookingID: conversationID, data: optimized)
             if !messages.contains(where: { $0.id == message.id }) { messages.append(message) }
+            NotificationCenter.default.post(name: .iumrahBusinessChatRead, object: conversationID)
         } catch { errorMessage = error.localizedDescription }
         sending = false
     }
