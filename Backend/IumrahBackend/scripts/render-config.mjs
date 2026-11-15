@@ -45,6 +45,7 @@ export function buildConfig(env = process.env) {
     compatibility_flags:['nodejs_compat'],
     workers_dev:true,
     keep_vars:true,
+    assets:{directory:'./telegram-assets',binding:'TELEGRAM_ASSETS',run_worker_first:true},
     routes: routesEnabled ? patterns.map(pattern=>({pattern,zone_id:zoneID})) : [],
     triggers:{crons:cronEnabled ? ['*/5 * * * *'] : []},
     d1_databases: dbs.map(([binding,key,database_name,migrations_dir])=>({binding,database_name,database_id:env[key],...(binding==='BOOKINGS_DB'?{}:{migrations_dir})})),

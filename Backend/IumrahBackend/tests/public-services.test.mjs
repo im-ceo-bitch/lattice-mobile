@@ -63,6 +63,6 @@ test('Telegram outbox retry uses internal dispatch only after cutover and valid 
  let calls=0;const handler={async fetch(req){if(new URL(req.url).pathname==='/api/internal/telegram/retry'){assert.equal(req.headers.get('authorization'),'Bearer '+await telegramRetrySecret(env));calls++;}return Response.json({ok:true});}};
  const router=createBackendRouter({hotels:handler,flights:handler,packages:handler,core:handler});
  const event={cron:'*/5 * * * *',scheduledTime:Date.UTC(2026,10,13,5,0)};
- const env={IUMRAH_CORE_CUTOVER_READY:'1',IUMRAH_CORE_PARITY_ATTESTATION:'v21:'+'a'.repeat(64),HOTELS_MEDIA:{},BOOKINGS_DB:{},HOTELS_DB:{},FLIGHTS_DB:{},PASSPORTS:{},IUMRAH_SESSION_SECRET:'a'.repeat(48),IUMRAH_SUPERADMIN_PASSWORD:'test',PACKAGE_QUOTE_SEAL_KEY:'test',IUMRAH_TELEGRAM_BOT_TOKEN:'123456:'+ 'b'.repeat(35)};
+ const env={IUMRAH_CORE_CUTOVER_READY:'1',IUMRAH_CORE_PARITY_ATTESTATION:'v21:'+'a'.repeat(64),HOTELS_MEDIA:{},BOOKINGS_DB:{prepare(sql){return {bind(){return this},sql}},async batch(stmts){assert.ok(stmts.every(x=>typeof x.sql==='string'));return []}},HOTELS_DB:{},FLIGHTS_DB:{},PASSPORTS:{},IUMRAH_SESSION_SECRET:'a'.repeat(48),IUMRAH_SUPERADMIN_PASSWORD:'test',PACKAGE_QUOTE_SEAL_KEY:'test',IUMRAH_TELEGRAM_BOT_TOKEN:'123456:'+ 'b'.repeat(35)};
  await router.scheduled(event,{...env,IUMRAH_CORE_CUTOVER_READY:'0'},{});assert.equal(calls,0);await router.scheduled(event,env,{});assert.equal(calls,1);
 });

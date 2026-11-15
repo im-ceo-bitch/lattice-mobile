@@ -1,4 +1,4 @@
-import {botConfigured,telegramRetrySecret,notifyTelegramStatus} from '../core/lib/telegram-native.js';
+import {botConfigured,telegramRetrySecret,notifyTelegramStatus,maintainTelegram} from '../core/lib/telegram-native.js';
 import {runCore} from '../core/runtime.js';
 import { cutoverStatus, coreReady } from './cutover.js';
 import { publicServices } from './public-services.js';
@@ -42,7 +42,7 @@ export function resolveBackendRoute(pathname) {
   if (matches(pathname, '/api/services')) return 'services';
   if (matches(pathname, '/api/flight-hub') || matches(pathname, '/v1') || pathname === '/health') return 'flights';
   if (matches(pathname, '/api/package') || matches(pathname, '/api/admin/package') || pathname === '/.well-known/apple-app-site-association' || /^\/(?:hotel|h)\/[^/]+$/.test(pathname)) return 'packages';
-  if (corePrefixes.some(prefix=>matches(pathname,prefix))) return 'core';
+  if (matches(pathname,'/telegram') || corePrefixes.some(prefix=>matches(pathname,prefix))) return 'core';
   if (hotelPrefixes.some(prefix => matches(pathname, prefix))) return 'hotels';
   return 'missing';
 }
@@ -111,6 +111,7 @@ export function createBackendRouter({hotels, flights, packages, core, requestAer
           const secret=await telegramRetrySecret(env);if(!secret)throw Error('TELEGRAM_RETRY_SECURITY_NOT_READY');
           const res=await router.fetch(new Request('https://iumrah-backend.helloiumrah.workers.dev/api/internal/telegram/retry',{method:'POST',headers:{authorization:`Bearer ${secret}`}}),env,ctx);
           if(!res.ok)throw Error('TELEGRAM_RETRY_FAILED');
+          await maintainTelegram(env);
         });
         const outcomes=await Promise.allSettled(jobs.map(job=>Promise.resolve().then(job)));
         if(outcomes.some(x=>x.status==='rejected'))throw Error('UNIFIED_SCHEDULE_FAILED');

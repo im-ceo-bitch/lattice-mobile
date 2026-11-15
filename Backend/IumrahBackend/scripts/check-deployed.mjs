@@ -70,6 +70,14 @@ export async function verifyDeployed(env=process.env, fetcher=fetch, activation=
   if(optionalMissing.length)console.log('Optional integrations deferred (not release blockers): '+optionalMissing.join(', '));
   if(cutover.staffRecovery?.ready===true)console.log('Business password recovery: configured; real email delivery not verified.');
   else console.warn('Business password recovery: NOT VERIFIED ('+(cutover.staffRecovery?.error||'RECOVERY_STATUS_MISSING')+').');
+  // The existing CI credential is already synchronized to this Worker by the workflow.
+  // No token is sent to an old bot or printed in the log.
+  if(cutover.providers?.telegram===true && env.ADMIN_TOKEN){
+    const r=await fetcher(origin+'/api/internal/telegram/setup',{method:'POST',headers:{authorization:'Bearer '+env.ADMIN_TOKEN,accept:'application/json'}});
+    const result=await r.json().catch(()=>null);
+    if(!r.ok||!result?.ok||result.webhook!==origin+'/api/telegram/webhook'||result.miniApp!==origin+'/telegram/mini')throw Error('TELEGRAM_WEBHOOK_CUTOVER_FAILED');
+    console.log('TELEGRAM_WEBHOOK_VERIFIED: '+result.webhook);
+  }
   return {url:origin,flights:status.counts.flights,offers:status.counts.offers,health:health.status};
 }
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)) {
