@@ -5,6 +5,7 @@ struct BusinessAppUnlockView: View {
     @EnvironmentObject private var appLock: BusinessAppLockStore
     @State private var pin = ""
     @State private var showRecovery = false
+    @State private var showingBiometrics = false
     @FocusState private var pinFocused: Bool
 
     var body: some View {
@@ -13,14 +14,8 @@ struct BusinessAppUnlockView: View {
                 BusinessDesign.background.ignoresSafeArea()
                 ScrollView {
                     VStack(spacing: 22) {
-                        BusinessBrandLogo(height: 48)
-                            .frame(maxWidth: 200)
-                            .padding(.bottom, 18)
-                        Image(systemName: "lock.shield.fill")
-                            .font(.system(size: 34, weight: .medium))
-                            .foregroundStyle(BusinessDesign.ink)
-                            .frame(width: 88, height: 88)
-                            .background(BusinessDesign.secondarySurface, in: Circle())
+                        BusinessOrbit(diameter: 186, pinnedSymbol: showingBiometrics ? "faceid" : "lock.shield.fill", isActive: !pinFocused)
+                            .accessibilityIdentifier("business.orbit.unlock")
                         VStack(spacing: 7) {
                             Text("iumrah Business заблокирован")
                                 .font(.title2.bold())
@@ -54,7 +49,11 @@ struct BusinessAppUnlockView: View {
                             .disabled(pin.count != 6)
                         if appLock.biometricsEnabled && appLock.canUseBiometrics {
                             Button {
-                                Task { _ = await appLock.unlockWithBiometrics() }
+                                Task {
+                                    showingBiometrics = true
+                                    defer { showingBiometrics = false }
+                                    _ = await appLock.unlockWithBiometrics()
+                                }
                             } label: {
                                 Label("Разблокировать через \(appLock.biometryName)", systemImage: "faceid")
                                     .font(.subheadline.weight(.semibold))
@@ -75,6 +74,8 @@ struct BusinessAppUnlockView: View {
         }
         .task {
             if appLock.biometricsEnabled && appLock.canUseBiometrics {
+                showingBiometrics = true
+                defer { showingBiometrics = false }
                 _ = await appLock.automaticallyUnlockWithBiometrics()
             }
         }

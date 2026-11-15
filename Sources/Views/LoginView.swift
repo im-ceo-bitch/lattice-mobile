@@ -51,7 +51,10 @@ struct LoginView: View {
             topBrandRow
 
             if focusedField == nil {
-                heroCopy.padding(.top, 24)
+                BusinessOrbit(diameter: 250, pinnedSymbol: recovering ? "envelope.fill" : nil, isActive: !working)
+                    .accessibilityIdentifier("business.orbit.login")
+                    .padding(.top, 8)
+                heroCopy.padding(.top, 8)
             }
             loginCard
                 .padding(.top, focusedField == nil ? 24 : 12)
@@ -62,7 +65,9 @@ struct LoginView: View {
         HStack(alignment: .center, spacing: 72) {
             VStack(alignment: .leading, spacing: 0) {
                 topBrandRow
-                    .padding(.bottom, 72)
+                    .padding(.bottom, 12)
+                BusinessOrbit(diameter: 300, pinnedSymbol: recovering ? "envelope.fill" : nil, isActive: focusedField == nil && !working)
+                    .accessibilityIdentifier("business.orbit.login")
                 heroCopy
                 Spacer(minLength: 30)
                 Label("Защищённое рабочее пространство", systemImage: "lock.shield.fill")

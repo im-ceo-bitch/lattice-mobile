@@ -95,6 +95,15 @@ struct UmrahBuilderView: View {
 
     private var summary: some View {
         VStack(alignment: .leading, spacing: 18) {
+            VStack(spacing: 5) {
+                IumrahOrbitAssemblyMoment(services: orbitServices, logo: Image("Logo"),
+                                          maxDiameter: 220, accessibilityTitle: "iumrah Business")
+                Text("Компоненты в одном пакете").font(.headline)
+                Text("Черновик предложения · не бронирование").font(.footnote).foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(16).frame(maxWidth: .infinity).businessCard(radius: 28)
+            .accessibilityIdentifier("business.orbit.package")
             Text("\(store.draft.travelers) паломника · \(store.draft.comfort)").foregroundStyle(.secondary)
             if let flight = store.draft.outbound { UmrahFlightCard(title: "Туда", flight: flight) }
             if let flight = store.draft.inbound { UmrahFlightCard(title: "Обратно", flight: flight) }
@@ -135,6 +144,19 @@ struct UmrahBuilderView: View {
             }
         }
     }
+    private var orbitServices: [IumrahOrbitV5Service] {
+        var services: [IumrahOrbitV5Service] = []
+        if store.draft.outbound != nil || store.draft.inbound != nil { services.append(.init(id: "flight", symbol: "airplane")) }
+        if !store.draft.makkah.id.isEmpty || (store.draft.includeMedina && !store.draft.medina.id.isEmpty) {
+            services.append(.init(id: "hotel", symbol: "building.2.fill"))
+        }
+        if UmrahPackageDraft.amount(store.draft.transferPrice) != nil { services.append(.init(id: "transfer", symbol: "car.side.fill")) }
+        if store.draft.ziyaratMakkah || (store.draft.includeMedina && store.draft.ziyaratMedina) {
+            services.append(.init(id: "ziyarat", symbol: "map.fill"))
+        }
+        return services
+    }
+
     private func priceRow(_ title: String, _ amount: Double) -> some View {
         HStack { Text(title); Spacer(); Text(amount, format: .currency(code: "USD")).monospacedDigit() }
     }
