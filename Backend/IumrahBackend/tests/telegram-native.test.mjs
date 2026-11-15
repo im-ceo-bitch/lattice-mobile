@@ -48,4 +48,16 @@ test('Mini App assets are served by one Worker and browser script parses',async(
  const e={...env,TELEGRAM_ASSETS:{async fetch(req){assert.equal(new URL(req.url).pathname,'/telegram/mini-asset/wordmark-light.png');return new Response(new Uint8Array([1,2,3]));}}};
  const r=await go('/telegram/mini','GET',undefined,{},e);assert.equal(r.status,200);const html=await r.text();assert.ok(html.includes('/telegram/mini/bootstrap'));assert.ok(!html.includes("'/mini/bootstrap'"));for(const path of html.match(/\/telegram\/mini-asset\/[a-z0-9.-]+/g)||[])assert.ok(fs.existsSync(new URL('../telegram-assets'+path,import.meta.url)),path);const {Script}=await import('node:vm');for(const match of html.matchAll(/<script>([\s\S]*?)<\/script>/g))new Script(match[1]);assert.equal((await go('/telegram/mini-asset/wordmark-light.png','GET',undefined,{},e)).status,200);assert.equal((await go('/telegram/mini-asset/private.txt','GET',undefined,{},e)).status,404);
 });
+test('setup reports failing provider method without leaking token, retries temporary failures only',async()=>{
+ const mock=globalThis.fetch,e={...env,ADMIN_TOKEN:'ci-test-secret'},auth={authorization:'Bearer ci-test-secret'};
+ try{
+  let attempts=0;
+  globalThis.fetch=async(url,init)=>{if(url.endsWith('/getMe')){attempts++;return Response.json({ok:false,error_code:401,description:'secret '+env.IUMRAH_TELEGRAM_BOT_TOKEN},{status:401});}return mock(url,init);};
+  let r=await go('/api/internal/telegram/setup','POST',{},auth,e);assert.equal(r.status,502);const denied=await r.json();assert.equal(denied.stage,'WEBHOOK');assert.equal(denied.detail,'TELEGRAM_getMe_HTTP_401');assert.equal(attempts,1);assert.ok(!JSON.stringify(denied).includes(env.IUMRAH_TELEGRAM_BOT_TOKEN));
+  attempts=0;globalThis.fetch=async(url,init)=>{if(url.endsWith('/setWebhook')&&++attempts===1)return Response.json({ok:false,error_code:503},{status:503});return mock(url,init);};
+  r=await go('/api/internal/telegram/setup','POST',{},auth,e);assert.equal(r.status,200);assert.equal(attempts,2);
+  globalThis.fetch=async(url,init)=>url.endsWith('/setChatMenuButton')?Response.json({ok:false,error_code:400},{status:400}):mock(url,init);
+  r=await go('/api/internal/telegram/setup','POST',{},auth,e);assert.equal(r.status,502);const menu=await r.json();assert.equal(menu.stage,'MENU');assert.equal(menu.detail,'TELEGRAM_setChatMenuButton_HTTP_400');
+ }finally{globalThis.fetch=mock;}
+});
 test.after(()=>{globalThis.fetch=oldFetch;bookSQL.close();hotelSQL.close();flightSQL.close();});

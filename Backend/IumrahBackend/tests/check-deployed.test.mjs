@@ -35,3 +35,9 @@ test('deferred eSIM and Telegram OAuth do not fail deployment while configured c
 });
 
 test('configured Telegram is switched and verified by existing CI credential',async()=>{let setup=0;const e={...env,ADMIN_TOKEN:'ci-secret'};const f=async(url,init)=>{if(url.endsWith('/__iumrah/cutover'))return Response.json({ok:true,service:'iumrah-backend',coreCutoverEnabled:true,schemaReady:true,migrationAttested:true,providerConfigurationReady:true,missing:[],providers:{telegram:true}});if(url.endsWith('/api/internal/telegram/setup')){setup++;assert.equal(init.method,'POST');assert.equal(init.headers.authorization,'Bearer ci-secret');return Response.json({ok:true,webhook:'https://iumrah-backend.helloiumrah.workers.dev/api/telegram/webhook',miniApp:'https://iumrah-backend.helloiumrah.workers.dev/telegram/mini'});}return fake(url);};await verifyDeployed(e,f);assert.equal(setup,1);await assert.rejects(verifyDeployed(e,(url,init)=>url.endsWith('/api/internal/telegram/setup')?Response.json({ok:false},{status:502}):f(url,init)),/TELEGRAM_WEBHOOK_CUTOVER_FAILED/);});
+
+test('release check exposes safe setup stage and provider code, never raw response',async()=>{
+ const e={...env,ADMIN_TOKEN:'ci-secret'};
+ const f=async(url)=>url.endsWith('/__iumrah/cutover')?Response.json({ok:true,service:'iumrah-backend',coreCutoverEnabled:true,schemaReady:true,migrationAttested:true,providerConfigurationReady:true,missing:[],providers:{telegram:true}}):url.endsWith('/api/internal/telegram/setup')?Response.json({ok:false,error:'TELEGRAM_WEBHOOK_SETUP_FAILED',stage:'MENU',detail:'TELEGRAM_setChatMenuButton_HTTP_400',description:'PRIVATE_SECRET'},{status:502}):fake(url);
+ await assert.rejects(verifyDeployed(e,f),err=>err.message.includes('HTTP_502 stage=MENU')&&err.message.includes('TELEGRAM_setChatMenuButton_HTTP_400')&&!err.message.includes('PRIVATE_SECRET'));
+});

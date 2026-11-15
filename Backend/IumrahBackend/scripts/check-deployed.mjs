@@ -75,7 +75,12 @@ export async function verifyDeployed(env=process.env, fetcher=fetch, activation=
   if(cutover.providers?.telegram===true && env.ADMIN_TOKEN){
     const r=await fetcher(origin+'/api/internal/telegram/setup',{method:'POST',headers:{authorization:'Bearer '+env.ADMIN_TOKEN,accept:'application/json'}});
     const result=await r.json().catch(()=>null);
-    if(!r.ok||!result?.ok||result.webhook!==origin+'/api/telegram/webhook'||result.miniApp!==origin+'/telegram/mini')throw Error('TELEGRAM_WEBHOOK_CUTOVER_FAILED');
+    if(!r.ok||!result?.ok||result.webhook!==origin+'/api/telegram/webhook'||result.miniApp!==origin+'/telegram/mini'){
+      // Print allowlisted machine codes only, never raw response bodies or secrets.
+      const safeCode=value=>typeof value==='string'&&/^(?:TELEGRAM_[A-Za-z0-9_]{1,100}|UNAUTHORIZED|CORE_CUTOVER_PENDING|NOT_FOUND|CORE_REQUEST_FAILED)$/.test(value)?value:'UNKNOWN';
+      const stage=['SCHEMA','WEBHOOK','VERIFY','MENU'].includes(result?.stage)?result.stage:'UNKNOWN';
+      throw Error(`TELEGRAM_WEBHOOK_CUTOVER_FAILED: HTTP_${r.status??'UNKNOWN'} stage=${stage} error=${safeCode(result?.error)} detail=${safeCode(result?.detail)}`);
+    }
     console.log('TELEGRAM_WEBHOOK_VERIFIED: '+result.webhook);
   }
   return {url:origin,flights:status.counts.flights,offers:status.counts.offers,health:health.status};

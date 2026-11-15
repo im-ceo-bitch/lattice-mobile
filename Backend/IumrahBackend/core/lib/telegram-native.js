@@ -17,19 +17,36 @@ export async function purposeSecret(env,purpose){
 function equal(a,b){if(typeof a!=='string'||typeof b!=='string'||!b||a.length!==b.length)return false;let v=0;for(let i=0;i<a.length;i++)v|=a.charCodeAt(i)^b.charCodeAt(i);return v===0;}
 export const telegramRetrySecret=e=>purposeSecret(e,'retry');
 export async function retryAuthorized(e,value){const secret=await telegramRetrySecret(e);return !!secret&&equal(value,'Bearer '+secret);}
+// Only fixed error codes leave this module. Never log a provider URL, token,
+// arbitrary Telegram description or exception message (may contain secrets).
+const setupMethods=new Set(['getMe','setWebhook','getWebhookInfo','setChatMenuButton']);
+function telegramSetupError(code){return Object.assign(Error(code),{telegramSetupCode:code});}
 async function botCall(env,method,body={}){
- if(!botConfigured(env))throw Error('TELEGRAM_BOT_NOT_CONFIGURED');
- const res=await backendFetch('https://api.telegram.org/bot'+env.IUMRAH_TELEGRAM_BOT_TOKEN.trim()+'/'+method,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body),redirect:'error',signal:AbortSignal.timeout(6500)});
- const data=await res.json().catch(()=>null);
- if(!res.ok||data?.ok!==true)throw Error('TELEGRAM_PROVIDER_'+res.status);
- return data.result;
+ if(!botConfigured(env))throw telegramSetupError('TELEGRAM_BOT_NOT_CONFIGURED');
+ if(!setupMethods.has(method))throw telegramSetupError('TELEGRAM_METHOD_NOT_ALLOWED');
+ for(let attempt=0;attempt<3;attempt++){
+  let failure, retry=false, delay=350*(attempt+1);
+  try{
+   const res=await backendFetch('https://api.telegram.org/bot'+env.IUMRAH_TELEGRAM_BOT_TOKEN.trim()+'/'+method,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body),redirect:'error',signal:AbortSignal.timeout(12000)});
+   const data=await res.json().catch(()=>null);
+   if(res.ok&&data?.ok===true)return data.result;
+   const status=Number.isInteger(data?.error_code)&&data.error_code>=400&&data.error_code<=599?data.error_code:res.status;
+   failure=telegramSetupError(`TELEGRAM_${method}_HTTP_${status}`);
+   retry=status===429||status>=500;
+   if(status===429){const seconds=Number(data?.parameters?.retry_after);if(Number.isFinite(seconds)&&seconds>0){if(seconds>5)retry=false;else delay=Math.max(delay,seconds*1000);}}
+  }catch(e){
+   failure=telegramSetupError(`TELEGRAM_${method}_${e?.name==='TimeoutError'||e?.name==='AbortError'?'TIMEOUT':'NETWORK_ERROR'}`);retry=true;
+  }
+  if(!retry||attempt===2)throw failure;
+  await new Promise(resolve=>setTimeout(resolve,delay));
+ }
 }
 // Dedicated iumrah bot: setting this webhook moves delivery from any old Worker.
 // Do not drop pending updates. The secret is derived locally, never sent to clients.
 export async function configureTelegramWebhook(env){
- const secret=await purposeSecret(env,'webhook');if(!secret)throw Error('TELEGRAM_SECURITY_NOT_CONFIGURED');
- const me=await botCall(env,'getMe');if(me?.is_bot!==true||!/^\w{5,32}$/.test(me.username||''))throw Error('TELEGRAM_BOT_INVALID');
- if(await botCall(env,'setWebhook',{url:ORIGIN+webhookPath,secret_token:secret,allowed_updates:['message','callback_query'],drop_pending_updates:false})!==true)throw Error('TELEGRAM_WEBHOOK_SETUP_FAILED');
+ const secret=await purposeSecret(env,'webhook');if(!secret)throw telegramSetupError('TELEGRAM_SECURITY_NOT_CONFIGURED');
+ const me=await botCall(env,'getMe');if(me?.is_bot!==true||!/^\w{5,32}$/.test(me.username||''))throw telegramSetupError('TELEGRAM_BOT_INVALID');
+ if(await botCall(env,'setWebhook',{url:ORIGIN+webhookPath,secret_token:secret,allowed_updates:['message','callback_query'],drop_pending_updates:false})!==true)throw telegramSetupError('TELEGRAM_WEBHOOK_SETUP_FAILED');
  return me.username;
 }
 async function authorized(request,id,env){
@@ -125,15 +142,29 @@ export async function notifyTelegramStatus(env,id,status){
 export async function nativeTelegramSetup(request){
  const env=requestEnv();
  if(!env.ADMIN_TOKEN||!equal(request.headers.get('authorization'),'Bearer '+env.ADMIN_TOKEN))return json({ok:false,error:'UNAUTHORIZED'},401);
+ let stage='SCHEMA';
  try{
   await ensureMiniSchema(env.BOOKINGS_DB);
+  stage='WEBHOOK';
   const username=await configureTelegramWebhook(env);
-  const info=await botCall(env,'getWebhookInfo');
-  if(info?.url!==ORIGIN+webhookPath||!info.allowed_updates?.includes('callback_query'))throw Error('TELEGRAM_WEBHOOK_VERIFY_FAILED');
+  stage='VERIFY';
+  // Telegram may briefly return the old webhook configuration after setWebhook.
+  let verified=false;
+  for(let attempt=0;attempt<3;attempt++){
+   const info=await botCall(env,'getWebhookInfo');
+   if(info?.url===ORIGIN+webhookPath&&info.allowed_updates?.includes('callback_query')&&info.allowed_updates?.includes('message')){verified=true;break;}
+   if(attempt<2)await new Promise(resolve=>setTimeout(resolve,400*(attempt+1)));
+  }
+  if(!verified)throw telegramSetupError('TELEGRAM_WEBHOOK_VERIFY_FAILED');
+  stage='MENU';
   // Global default; individual chat menus are also refreshed on /start and new links.
-  if(await botCall(env,'setChatMenuButton',{menu_button:{type:'web_app',text:'iumrah',web_app:{url:ORIGIN+'/telegram/mini'}}})!==true)throw Error('TELEGRAM_MENU_SETUP_FAILED');
+  if(await botCall(env,'setChatMenuButton',{menu_button:{type:'web_app',text:'iumrah',web_app:{url:ORIGIN+'/telegram/mini'}}})!==true)throw telegramSetupError('TELEGRAM_MENU_SETUP_FAILED');
   return json({ok:true,webhook:ORIGIN+webhookPath,username,miniApp:ORIGIN+'/telegram/mini'});
- }catch(e){return json({ok:false,error:'TELEGRAM_WEBHOOK_SETUP_FAILED'},502);}
+ }catch(e){
+  const detail=e?.telegramSetupCode||`TELEGRAM_SETUP_${stage}_FAILED`;
+  console.warn('TELEGRAM_SETUP_FAILED',stage,detail);
+  return json({ok:false,error:'TELEGRAM_WEBHOOK_SETUP_FAILED',stage,detail},502);
+ }
 }
 export async function nativeMini(request){
  const env=requestEnv();if(!botConfigured(env))return json({ok:false,error:'TELEGRAM_BOT_NOT_CONFIGURED'},503);
