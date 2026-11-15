@@ -1,3 +1,4 @@
+import { smartConfiguratorPlan } from "./smart-configurator";
 import { handleGuestBookingEmail } from "./booking-email-verification";
 import { flushBookingStatusEmails } from "./booking-email";
 import { bookingLogoResponse } from "./booking-email-logo";
@@ -263,6 +264,10 @@ export default {
 
     if (request.method === "GET" && (url.pathname === "/health" || url.pathname === "/api/package/health")) {
       return publicHealth(env);
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/package/smart/plan") {
+      return smartConfiguratorPlan(request, env);
     }
 
     if (request.method === "POST" && url.pathname === "/api/package/quote") {

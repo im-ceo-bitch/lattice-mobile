@@ -21,7 +21,7 @@ function matches(path, prefix) {
 // unverified D1 merely because a binding is present.
 const pendingCorePackagePrefixes = [
   '/api/package/client/account', '/api/package/public/id', '/api/package/booking',
-  '/api/package/booking-contact', '/api/package/quote', '/api/package/storefront/quote',
+  '/api/package/booking-contact', '/api/package/quote', '/api/package/storefront/quote', '/api/package/smart/plan',
   '/api/package/care-requests', '/api/admin/package/booking', '/api/admin/package/care-requests'
 ];
 export function isPendingCorePackage(pathname) {
