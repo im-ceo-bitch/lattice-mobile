@@ -27,8 +27,9 @@ async function botCall(env,method,body={}){
  for(let attempt=0;attempt<3;attempt++){
   let failure, retry=false, delay=350*(attempt+1);
   try{
-   const res=await backendFetch('https://api.telegram.org/bot'+env.IUMRAH_TELEGRAM_BOT_TOKEN.trim()+'/'+method,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body),redirect:'error',signal:AbortSignal.timeout(12000)});
-   const data=await res.json().catch(()=>null);
+   const res=await backendFetch('https://api.telegram.org/bot'+env.IUMRAH_TELEGRAM_BOT_TOKEN.trim()+'/'+method,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body),redirect:'manual',signal:AbortSignal.timeout(12000)});
+   // Workers supports manual/follow only. Reject redirects without forwarding the bot token.
+   const data=res.status>=300&&res.status<400?null:await res.json().catch(()=>null);
    if(res.ok&&data?.ok===true)return data.result;
    const status=Number.isInteger(data?.error_code)&&data.error_code>=400&&data.error_code<=599?data.error_code:res.status;
    failure=telegramSetupError(`TELEGRAM_${method}_HTTP_${status}`);

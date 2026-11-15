@@ -163,10 +163,10 @@ export async function deliverTelegramNotice(db, bookingId, status) {
         return false;
     try {
         const response = await backendFetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-            method: "POST", headers: { "content-type": "application/json" }, signal: AbortSignal.timeout(6500),
+            method: "POST", redirect: "manual", headers: { "content-type": "application/json" }, signal: AbortSignal.timeout(6500),
             body: JSON.stringify({ chat_id: row.telegram_id, text: noticeText(bookingId, status, row.lang), disable_web_page_preview: true }),
         });
-        const result = await response.json().catch(() => null);
+        const result = response.ok ? await response.json().catch(() => null) : null;
         if (!response.ok || !record(result) || result.ok !== true) {
             // Blocked / denied direct message access is not retriable until permission is granted again.
             const errorCode = `HTTP_${response.status}`;

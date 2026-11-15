@@ -308,12 +308,13 @@ function telegramApi(env, method) {
 }
 async function telegramCall(env, method, payload) {
     const response = await fetch(telegramApi(env, method), {
-        method: "POST", redirect:"error", signal:AbortSignal.timeout(10000),
+        method: "POST", redirect:"manual", signal:AbortSignal.timeout(10000),
         headers: { "content-type": "application/json" },
         body: JSON.stringify(payload),
     });
+    if (!response.ok) throw new Error(`Telegram ${method} failed: HTTP ${response.status}`);
     const body = (await response.json());
-    if (!response.ok || body.ok !== true)
+    if (body?.ok !== true)
         throw new Error(`Telegram ${method} failed: HTTP ${response.status}`);
     return body.result;
 }
@@ -366,9 +367,10 @@ async function sendEmbeddedPhotoMessage(env, chatId, asset, caption, replyMarkup
     form.append('protect_content', 'true');
     if (replyMarkup)
         form.append('reply_markup', JSON.stringify(replyMarkup));
-    const response = await fetch(telegramApi(env, 'sendPhoto'), { method: 'POST', body: form, redirect:'error',signal:AbortSignal.timeout(15000) });
+    const response = await fetch(telegramApi(env, 'sendPhoto'), { method: 'POST', body: form, redirect:'manual',signal:AbortSignal.timeout(15000) });
+    if (!response.ok) throw new Error(`Telegram sendPhoto failed: HTTP ${response.status}`);
     const body = (await response.json());
-    if (!response.ok || body.ok !== true || !body.result) {
+    if (body?.ok !== true || !body.result) {
         throw new Error(`Telegram sendPhoto failed: HTTP ${response.status}`);
     }
     return body.result;
