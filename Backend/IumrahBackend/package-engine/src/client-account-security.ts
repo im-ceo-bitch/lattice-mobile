@@ -1,3 +1,4 @@
+import { attributeNewAccount, referralDashboard } from "./referral-rewards";
 import type { D1Like } from "./d1";
 import type { Env } from "./env";
 import { buildIumrahWalletPass } from "./wallet-pass";
@@ -1176,6 +1177,7 @@ async function confirmBookingEmailActivation(request: Request, env: Env, db: D1L
   );
   await linkVerifiedEmail(db, context.pilgrimID, challenge.email_display, challenge.email_normalized);
   await audit(db, context.pilgrimID, "booking_email_activation_completed", established.sessionID, established.sessionID);
+  await attributeNewAccount(request, db, context.pilgrimID).catch(error => console.error("REFERRAL_ATTRIBUTION_FAILED", error));
 
   const updatedPilgrim = await db.prepare(
     `SELECT id,first_name,last_name,display_name,phone,email,telegram,whatsapp
@@ -1242,6 +1244,7 @@ async function confirmBookingSMSActivation(request: Request, env: Env, db: D1Lik
   );
   await linkVerifiedPhone(db, context.pilgrimID, challenge.phone_display, challenge.phone_normalized);
   await audit(db, context.pilgrimID, "booking_sms_activation_completed", established.sessionID, established.sessionID);
+  await attributeNewAccount(request, db, context.pilgrimID).catch(error => console.error("REFERRAL_ATTRIBUTION_FAILED", error));
 
   const updatedPilgrim = await db.prepare(
     `SELECT id,first_name,last_name,display_name,phone,email,telegram,whatsapp
@@ -1424,6 +1427,7 @@ async function confirmStandaloneEmailRegistration(request: Request, db: D1Like) 
       payload?.device,
       "email_account_created",
     );
+    await attributeNewAccount(request, db, pilgrimID).catch(error => console.error("REFERRAL_ATTRIBUTION_FAILED", error));
     const updated = await accountRow(db, pilgrimID) ?? pilgrim;
     return json({
       ok: true,
@@ -1607,6 +1611,7 @@ async function confirmStandalonePhoneRegistration(request: Request, db: D1Like) 
       payload?.device,
       "phone_account_created",
     );
+    await attributeNewAccount(request, db, pilgrimID).catch(error => console.error("REFERRAL_ATTRIBUTION_FAILED", error));
     const updated = await accountRow(db, pilgrimID) ?? pilgrim;
     return json({
       ok: true,
@@ -2743,6 +2748,7 @@ async function signInWithApple(request: Request, env: Env, db: D1Like) {
   await db.prepare("UPDATE iumrah_accounts SET last_login_at=?1 WHERE pilgrim_id=?2")
     .bind(now, Number(row.id)).run();
   await audit(db, Number(row.id), createdAccount ? "apple_account_created" : "apple_sign_in", sessionID, sessionID);
+  if (createdAccount) await attributeNewAccount(request, db, Number(row.id)).catch(error => console.error("REFERRAL_ATTRIBUTION_FAILED", error));
   return json({
     ok: true,
     account: accountProfile(row),
@@ -2918,6 +2924,7 @@ async function signInWithGoogle(request: Request, env: Env, db: D1Like) {
   await db.prepare("UPDATE iumrah_accounts SET last_login_at=?1 WHERE pilgrim_id=?2")
     .bind(now, Number(row.id)).run();
   await audit(db, Number(row.id), createdAccount ? "google_account_created" : "google_sign_in", sessionID, sessionID);
+  if (createdAccount) await attributeNewAccount(request, db, Number(row.id)).catch(error => console.error("REFERRAL_ATTRIBUTION_FAILED", error));
   return json({
     ok: true,
     account: accountProfile(row),
@@ -3124,6 +3131,7 @@ async function friendsDashboard(request: Request, env: Env, db: D1Like) {
     discount_usd: number | null;
   }>();
 
+  const referral = await referralDashboard(env, auth.pilgrimID);
   const balance = await friendCreditBalance(db, auth.pilgrimID);
   const pending = await db.prepare(
     `SELECT COALESCE(SUM(reward_usd),0) AS amount
@@ -3139,8 +3147,9 @@ async function friendsDashboard(request: Request, env: Env, db: D1Like) {
   return json({
     ok: true,
     availableCreditUsd: balance,
-    pendingRewardsUsd: Number(pending?.amount ?? 0),
-    earnedRewardsUsd: Number(earned?.amount ?? 0),
+    pendingRewardsUsd: Number(pending?.amount ?? 0) + referral.referrals.filter(r=>r.status==='pending').reduce((sum,r)=>sum+r.rewardUsd,0),
+    earnedRewardsUsd: Number(earned?.amount ?? 0) + referral.referrals.filter(r=>r.status==='earned').reduce((sum,r)=>sum+r.rewardUsd,0),
+    ...referral,
     gifts: (gifts.results ?? []).map((gift) => ({
       id: gift.id,
       code: gift.gift_token,

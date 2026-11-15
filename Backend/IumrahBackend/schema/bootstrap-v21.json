@@ -7871,6 +7871,67 @@
             "pk": 0
           }
         ]
+      },
+      {
+        "name": "iumrah_referral_codes",
+        "sql": "CREATE TABLE IF NOT EXISTS iumrah_referral_codes (pilgrim_id INTEGER PRIMARY KEY REFERENCES pilgrims(id) ON DELETE CASCADE, code TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL)",
+        "columns": [
+          {
+            "name": "pilgrim_id",
+            "type": "INTEGER",
+            "notnull": false,
+            "default": null,
+            "pk": 1
+          },
+          {
+            "name": "code",
+            "type": "TEXT",
+            "notnull": true,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "name": "created_at",
+            "type": "TEXT",
+            "notnull": true,
+            "default": null,
+            "pk": 0
+          }
+        ]
+      },
+      {
+        "name": "iumrah_referrals",
+        "sql": "CREATE TABLE IF NOT EXISTS iumrah_referrals (invitee_id INTEGER PRIMARY KEY REFERENCES pilgrims(id) ON DELETE CASCADE, referrer_id INTEGER NOT NULL REFERENCES pilgrims(id) ON DELETE CASCADE, created_at TEXT NOT NULL, reward_usd INTEGER NOT NULL DEFAULT 100 CHECK(reward_usd > 0), CHECK(invitee_id<>referrer_id))",
+        "columns": [
+          {
+            "name": "invitee_id",
+            "type": "INTEGER",
+            "notnull": false,
+            "default": null,
+            "pk": 1
+          },
+          {
+            "name": "referrer_id",
+            "type": "INTEGER",
+            "notnull": true,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "name": "created_at",
+            "type": "TEXT",
+            "notnull": true,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "name": "reward_usd",
+            "type": "INTEGER",
+            "notnull": true,
+            "default": "100",
+            "pk": 0
+          }
+        ]
       }
     ],
     "indexes": [
@@ -8329,6 +8390,10 @@
       {
         "name": "idx_guest_booking_email_rate",
         "sql": "CREATE INDEX IF NOT EXISTS idx_guest_booking_email_rate\n    ON iumrah_guest_booking_email_challenges(email,created_at)"
+      },
+      {
+        "name": "idx_iumrah_referrals_referrer",
+        "sql": "CREATE INDEX IF NOT EXISTS idx_iumrah_referrals_referrer ON iumrah_referrals(referrer_id,created_at)"
       }
     ]
   },

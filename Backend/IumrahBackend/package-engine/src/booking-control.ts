@@ -1,3 +1,4 @@
+import { referralRows } from "./referral-rewards";
 import type { D1Like, D1PreparedStatementLike } from "./d1";
 import { ensureBookingRoomColumns, findHotelRoomCategory, parseRoomCategory } from "./room-categories";
 
@@ -175,7 +176,7 @@ function bookingTotalUsd(payloadJSON: string) {
 }
 
 function friendsMaximumDiscount(totalUsd: number) {
-  return totalUsd > 2000 ? 200 : 100;
+  return Math.min(totalUsd, totalUsd > 2000 ? 200 : 100);
 }
 
 async function friendsCreditBalance(db: D1Like, pilgrimID: number) {
@@ -238,6 +239,18 @@ async function priorPaidIdentityBooking(
   return null;
 }
 
+export async function bookingRewardsAmounts(env: BookingControlEnv, id: string) {
+  if (!env.BOOKINGS_DB || !env.HOTELS_DB) throw new Error("FRIENDS_DB_NOT_CONFIGURED");
+  const booking=await env.BOOKINGS_DB.prepare("SELECT payload_json,total_cents FROM bookings WHERE id=?1").bind(id).first<{payload_json:string;total_cents:number}>();
+  if (!booking) return null;
+  const totalUsd=bookingTotalUsd(booking.payload_json) || Number(booking.total_cents || 0)/100;
+  const gift=await env.HOTELS_DB.prepare("SELECT COALESCE(SUM(discount_usd),0) AS n FROM iumrah_friends_redemptions WHERE booking_id=?1 AND status<>'cancelled'").bind(id).first<{n:number}>();
+  const credit=await env.HOTELS_DB.prepare("SELECT COALESCE(SUM(-amount_usd),0) AS n FROM iumrah_friends_credit_ledger WHERE booking_id=?1 AND source_type IN ('friends_credit_spend','friends_credit_return')").bind(id).first<{n:number}>();
+  const giftDiscountUsd=Number(gift?.n||0), creditAppliedUsd=Number(credit?.n||0);
+  const totalDiscountUsd=giftDiscountUsd+creditAppliedUsd;
+  return {totalUsd,giftDiscountUsd,creditAppliedUsd,totalDiscountUsd,payableUsd:Math.max(0,totalUsd-totalDiscountUsd)};
+}
+
 async function friendsBookingSummary(
   request: Request,
   id: string,
@@ -248,10 +261,14 @@ async function friendsBookingSummary(
   const authorized = booking ?? await authorizedBooking(request, id, env.BOOKINGS_DB);
   if (!authorized) return null;
 
-  const totalUsd = bookingTotalUsd(authorized.payload_json);
+  const amounts = await bookingRewardsAmounts(env,id);
+  if (!amounts) return null;
+  const totalUsd = amounts.totalUsd;
   const maxDiscountUsd = friendsMaximumDiscount(totalUsd);
   const identity = await bookingIdentity(env.HOTELS_DB, id);
-  const currentPilgrimID = await accountPilgrimID(request, env.HOTELS_DB);
+  const sessionPilgrimID = await accountPilgrimID(request, env.HOTELS_DB);
+  const owner = await env.HOTELS_DB.prepare("SELECT pilgrim_id FROM pilgrim_trips WHERE booking_id=?1").bind(id).first<{pilgrim_id:number}>();
+  const currentPilgrimID = sessionPilgrimID && Number(owner?.pilgrim_id) === sessionPilgrimID ? sessionPilgrimID : null;
 
   const redemptions = await env.HOTELS_DB.prepare(
     `SELECT gift_token,discount_usd,reward_status
@@ -261,19 +278,13 @@ async function friendsBookingSummary(
   const applied = redemptions.results ?? [];
   const giftDiscountUsd = applied.reduce((sum, row) => sum + Number(row.discount_usd || 0), 0);
 
-  let creditAppliedUsd = 0;
+  const creditAppliedUsd = amounts.creditAppliedUsd;
   let availableCreditUsd = 0;
   if (currentPilgrimID) {
-    const spend = await env.HOTELS_DB.prepare(
-      `SELECT COALESCE(SUM(CASE WHEN amount_usd<0 THEN -amount_usd ELSE 0 END),0) AS amount
-       FROM iumrah_friends_credit_ledger
-       WHERE pilgrim_id=?1 AND source_type='friends_credit_spend' AND booking_id=?2`,
-    ).bind(currentPilgrimID, id).first<{ amount: number | string }>();
-    creditAppliedUsd = Number(spend?.amount ?? 0);
+    await referralRows(env, currentPilgrimID);
     availableCreditUsd = await friendsCreditBalance(env.HOTELS_DB, currentPilgrimID);
   }
-
-  const totalDiscountUsd = Math.min(maxDiscountUsd, giftDiscountUsd + creditAppliedUsd);
+  const totalDiscountUsd = amounts.totalDiscountUsd;
   return {
     ok: true,
     bookingID: id,
@@ -303,7 +314,7 @@ async function persistFriendsSnapshot(db: BookingD1, booking: BookingRow, id: st
     payableUsd: summary.payableUsd,
     updatedAt: new Date().toISOString(),
   };
-  await persistBookingPayload(db, id, payload, new Date().toISOString());
+  await db.prepare("UPDATE bookings SET payload_json=json_set(payload_json,'$.iumrahFriends',json(?1)), updated_at=?2 WHERE id=?3").bind(JSON.stringify(payload.iumrahFriends),new Date().toISOString(),id).run();
   booking.payload_json = JSON.stringify(payload);
 }
 
@@ -339,6 +350,9 @@ export async function redeemPilgrimFriendGift(request: Request, id: string, env:
     if (!identity || identity.status !== "confirmed") {
       return json({ ok: false, error: "IDENTITY_CONFIRMATION_REQUIRED" }, 409);
     }
+
+    const attributed = await env.HOTELS_DB.prepare("SELECT invitee_id FROM iumrah_referrals WHERE invitee_id=?1").bind(currentPilgrimID).first();
+    if (attributed) return json({ok:false,error:"FRIENDS_REFERRAL_ALREADY_ATTRIBUTED"},409);
 
     const previousPaidBooking = await priorPaidIdentityBooking(
       env.HOTELS_DB,
@@ -411,7 +425,7 @@ export async function applyPilgrimFriendCredit(request: Request, id: string, env
   if (!env.HOTELS_DB) return json({ ok: false, error: "HOTELS_DB_NOT_CONFIGURED" }, 503);
 
   const body = await request.json().catch(() => null) as { amountUsd?: unknown } | null;
-  const requested = Math.floor(Number(body?.amountUsd ?? 100) / 100) * 100;
+  const requested = Number(body?.amountUsd ?? 100);
   if (![100, 200].includes(requested)) return json({ ok: false, error: "FRIENDS_CREDIT_AMOUNT_INVALID" }, 400);
 
   try {
@@ -425,26 +439,37 @@ export async function applyPilgrimFriendCredit(request: Request, id: string, env
       return json({ ok: false, error: "IDENTITY_CONFIRMATION_REQUIRED" }, 409);
     }
 
+    const owned = await env.HOTELS_DB.prepare("SELECT status FROM pilgrim_trips WHERE booking_id=?1 AND pilgrim_id=?2").bind(id,currentPilgrimID).first<{status:string}>();
+    const source = await env.BOOKINGS_DB.prepare("SELECT status FROM bookings WHERE id=?1").bind(id).first<{status:string}>();
+    if (!owned || owned.status !== "payment_pending" || source?.status !== "PAYMENT_PENDING") return json({ok:false,error:"FRIENDS_PAYMENT_CLOSED"},409);
     const before = await friendsBookingSummary(request, id, env, booking);
     if (!before) return json({ ok: false, error: "FRIENDS_UNAVAILABLE" }, 500);
+    if (before.creditAppliedUsd > 0) { await persistFriendsSnapshot(env.BOOKINGS_DB, booking, id, before); return json(before); }
     const available = Number(before.availableCreditUsd ?? 0);
     const allowance = Number(before.remainingAllowanceUsd ?? 0);
     const usable = Math.floor(Math.min(requested, available, allowance) / 100) * 100;
-    if (usable < 100) return json({ ok: false, error: "FRIENDS_CREDIT_UNAVAILABLE" }, 409);
+    if (usable !== requested) return json({ ok: false, error: "FRIENDS_CREDIT_UNAVAILABLE" }, 409);
 
     const now = new Date().toISOString();
-    await env.HOTELS_DB.prepare(
-      `INSERT INTO iumrah_friends_credit_ledger(
+    const inserted = await env.HOTELS_DB.prepare(
+      `INSERT OR IGNORE INTO iumrah_friends_credit_ledger(
          id,pilgrim_id,amount_usd,source_type,source_id,booking_id,created_at
-       ) VALUES(?1,?2,?3,'friends_credit_spend',?4,?5,?6)`,
+       ) SELECT ?1,?2,?3,'friends_credit_spend',?4,?5,?6
+       WHERE (SELECT COALESCE(SUM(amount_usd),0) FROM iumrah_friends_credit_ledger WHERE pilgrim_id=?2)>=-?3
+       AND (SELECT COALESCE(SUM(-amount_usd),0) FROM iumrah_friends_credit_ledger WHERE pilgrim_id=?2 AND booking_id=?5 AND source_type='friends_credit_spend') + (SELECT COALESCE(SUM(discount_usd),0) FROM iumrah_friends_redemptions WHERE booking_id=?5 AND status<>'cancelled') - ?3 <= ?7
+       AND EXISTS(SELECT 1 FROM pilgrim_trips WHERE booking_id=?5 AND pilgrim_id=?2 AND status='payment_pending' AND payment_received_at IS NULL)
+       AND NOT EXISTS(SELECT 1 FROM booking_payment_receipts WHERE booking_id=?5)
+       AND NOT EXISTS(SELECT 1 FROM iumrah_friends_credit_ledger WHERE booking_id=?5 AND source_type='friends_credit_spend')`,
     ).bind(
       `credit-${crypto.randomUUID()}`,
       currentPilgrimID,
       -usable,
-      `spend-${id}-${crypto.randomUUID()}`,
+      `spend-${id}`,
       id,
       now,
+      Number(before.maxDiscountUsd),
     ).run();
+    if (Number(inserted.meta?.changes ?? 0) !== 1) return json({ok:false,error:"FRIENDS_CREDIT_UNAVAILABLE"},409);
 
     const after = await friendsBookingSummary(request, id, env, booking);
     if (after) await persistFriendsSnapshot(env.BOOKINGS_DB, booking, id, after as unknown as Record<string, unknown>);

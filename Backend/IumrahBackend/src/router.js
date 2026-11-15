@@ -1,4 +1,4 @@
-import {botConfigured,telegramRetrySecret,notifyTelegramStatus,maintainTelegram} from '../core/lib/telegram-native.js';
+import {botConfigured,telegramRetrySecret,notifyTelegramStatus} from '../core/lib/telegram-native.js';
 import {runCore} from '../core/runtime.js';
 import { cutoverStatus, coreReady } from './cutover.js';
 import { publicServices } from './public-services.js';
@@ -41,8 +41,8 @@ export function resolveBackendRoute(pathname) {
   if (pathname === '/') return 'root';
   if (matches(pathname, '/api/services')) return 'services';
   if (matches(pathname, '/api/flight-hub') || matches(pathname, '/v1') || pathname === '/health') return 'flights';
-  if (matches(pathname, '/api/package') || matches(pathname, '/api/admin/package') || pathname === '/.well-known/apple-app-site-association' || /^\/(?:hotel|h)\/[^/]+$/.test(pathname)) return 'packages';
-  if (matches(pathname,'/telegram') || corePrefixes.some(prefix=>matches(pathname,prefix))) return 'core';
+  if (matches(pathname, '/api/package') || matches(pathname, '/api/admin/package') || pathname === '/.well-known/apple-app-site-association' || /^\/(?:hotel|h|ref)\/[^/]+$/.test(pathname)) return 'packages';
+  if (corePrefixes.some(prefix=>matches(pathname,prefix))) return 'core';
   if (hotelPrefixes.some(prefix => matches(pathname, prefix))) return 'hotels';
   return 'missing';
 }
@@ -50,7 +50,7 @@ const json = (value, status = 200) => new Response(JSON.stringify(value), {
   status,
   headers: {'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff'}
 });
-export function createBackendRouter({hotels, flights, packages, core, requestAeroDataBox, aeroDataBoxConfiguration, verifyBookingQuote, sendBookingEmailStatus, retryBookingStatusEmails, materializeBookingIdentity}) {
+export function createBackendRouter({hotels, flights, packages, core, requestAeroDataBox, aeroDataBoxConfiguration, verifyBookingQuote, sendBookingEmailStatus, retryBookingStatusEmails, materializeBookingIdentity, syncReferralForBooking, bookingRewardsAmounts}) {
   if (typeof hotels?.fetch !== 'function' || typeof flights?.fetch !== 'function') throw Error('BACKEND_HANDLERS_REQUIRED');
   const router = {
     async fetch(request, env, ctx) {
@@ -65,15 +65,26 @@ export function createBackendRouter({hotels, flights, packages, core, requestAer
       const ready = coreReady(env,core);
       // The operator activates this only after verifying D1/R2 parity and freezing old writes.
       const dispatch = (req) => router.fetch(req,env,ctx);
-      const routedEnv = core ? {...sharedEnv,IUMRAH_BOOKING_EMAIL_NOTIFY: sendBookingEmailStatus ? (id)=>sendBookingEmailStatus(sharedEnv,id) : undefined, IUMRAH_TELEGRAM_NOTIFY: (id,status)=>runCore(sharedEnv,ctx,dispatch,()=>notifyTelegramStatus(sharedEnv,id,status)), IUMRAH_MATERIALIZE_BOOKING_IDENTITY: materializeBookingIdentity ? (booking)=>materializeBookingIdentity(sharedEnv,booking) : undefined, IUMRAH_VERIFY_BOOKING_QUOTE: verifyBookingQuote ? (booking,proof)=>verifyBookingQuote(booking,proof,env) : undefined, IUMRAH_CORE_FETCH: (input,init)=>dispatch(new Request(input,init)), AUTH_SESSION_URL:'https://iumrah-backend.helloiumrah.workers.dev/api/auth/staff/session', BOOKINGS_ADMIN_URL:'https://iumrah-backend.helloiumrah.workers.dev/api/admin/bookings', BOOKINGS_PUBLIC_URL:'https://iumrah-backend.helloiumrah.workers.dev/api/bookings'} : sharedEnv;
+      const routedEnv = core ? {...sharedEnv,IUMRAH_BOOKING_REWARDS: bookingRewardsAmounts ? (id)=>bookingRewardsAmounts(sharedEnv,id) : undefined,IUMRAH_BOOKING_EMAIL_NOTIFY: sendBookingEmailStatus ? (id)=>sendBookingEmailStatus(sharedEnv,id) : undefined, IUMRAH_TELEGRAM_NOTIFY: (id,status)=>runCore(sharedEnv,ctx,dispatch,()=>notifyTelegramStatus(sharedEnv,id,status)), IUMRAH_MATERIALIZE_BOOKING_IDENTITY: materializeBookingIdentity ? (booking)=>materializeBookingIdentity(sharedEnv,booking) : undefined, IUMRAH_VERIFY_BOOKING_QUOTE: verifyBookingQuote ? (booking,proof)=>verifyBookingQuote(booking,proof,env) : undefined, IUMRAH_CORE_FETCH: (input,init)=>dispatch(new Request(input,init)), AUTH_SESSION_URL:'https://iumrah-backend.helloiumrah.workers.dev/api/auth/staff/session', BOOKINGS_ADMIN_URL:'https://iumrah-backend.helloiumrah.workers.dev/api/admin/bookings', BOOKINGS_PUBLIC_URL:'https://iumrah-backend.helloiumrah.workers.dev/api/bookings'} : sharedEnv;
+      const reconcile = async (response) => {
+        if (response.ok && syncReferralForBooking && ['PATCH','DELETE'].includes(request.method)) {
+          const match = pathname.match(/^\/api\/admin\/(?:bookings|hotels\/operations\/bookings)\/([^/]+)$/);
+          if (match) {
+            // Do not turn a committed booking status into a failed request.
+            try { await syncReferralForBooking(sharedEnv, decodeURIComponent(match[1])); }
+            catch (error) { console.warn('REFERRAL_SYNC_FAILED', error); }
+          }
+        }
+        return response;
+      };
       if (route === 'core') {
         if (!ready && !(core && request.method==='GET' && publicCoreReads.has(pathname))) return json({ok:false,error:'CORE_CUTOVER_PENDING'},503);
-        return core.fetch(request,routedEnv,ctx,dispatch);
+        return reconcile(await core.fetch(request,routedEnv,ctx,dispatch));
       }
       if (route === 'flights') return flights.fetch(request, routedEnv, ctx);
       if (route === 'hotels') {
         if (!ready && isPendingHotelOperation(pathname)) return json({ok:false,error:'CORE_CUTOVER_PENDING'},503);
-        return hotels.fetch(request, routedEnv, ctx);
+        return reconcile(await hotels.fetch(request, routedEnv, ctx));
       }
       if (route === 'packages' && packages) {
         if (isPendingCorePackage(pathname) && !ready) return json({ok:false,error:'CORE_CUTOVER_PENDING'},503);
@@ -111,7 +122,6 @@ export function createBackendRouter({hotels, flights, packages, core, requestAer
           const secret=await telegramRetrySecret(env);if(!secret)throw Error('TELEGRAM_RETRY_SECURITY_NOT_READY');
           const res=await router.fetch(new Request('https://iumrah-backend.helloiumrah.workers.dev/api/internal/telegram/retry',{method:'POST',headers:{authorization:`Bearer ${secret}`}}),env,ctx);
           if(!res.ok)throw Error('TELEGRAM_RETRY_FAILED');
-          await maintainTelegram(env);
         });
         const outcomes=await Promise.allSettled(jobs.map(job=>Promise.resolve().then(job)));
         if(outcomes.some(x=>x.status==='rejected'))throw Error('UNIFIED_SCHEDULE_FAILED');

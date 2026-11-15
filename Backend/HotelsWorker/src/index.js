@@ -4710,6 +4710,8 @@ async function syncPricingOverrideToSourceBooking(env, bookingID, override) {
 }
 
 async function saveBookingPricingOverride(request, env, bookingID, user) {
+  const rewards = await env.IUMRAH_BOOKING_REWARDS?.(bookingID);
+  if (rewards?.totalDiscountUsd > 0) return json({ok:false,error:"REWARDS_ALREADY_APPLIED"},409);
   const resolved = await rawBookingForDetail(request, env, bookingID);
   if (!resolved) return json({ ok: false, error: 'BOOKING_NOT_FOUND' }, 404);
   const report = await generatorPricingReportForBooking(env, bookingID, resolved.raw);
@@ -5779,6 +5781,7 @@ async function adminCheckoutDetail(env, bookingID, trip) {
     passportMediaURL: row.passport_object_key ? `/api/admin/hotels/operations/bookings/${encodeURIComponent(bookingID)}/travelers/${Number(row.position)}/passport` : null
   }));
   return {
+    rewards: await env.IUMRAH_BOOKING_REWARDS?.(bookingID) ?? null,
     iumrahID: pilgrimPublicID(trip.pilgrim_id),
     accountActive: !!account,
     activatedAt: account?.activated_at || null,
@@ -6672,7 +6675,7 @@ async function clientCheckoutDetail(env,bookingID,trip){
   accountActive(env,trip.pilgrim_id)
  ]);
  return json({
-  ok:true,iumrahID:pilgrimPublicID(trip.pilgrim_id),accountActive:active,status:normalizedTripStatus(trip.status),
+  ok:true,rewards:await env.IUMRAH_BOOKING_REWARDS?.(bookingID) ?? null,iumrahID:pilgrimPublicID(trip.pilgrim_id),accountActive:active,status:normalizedTripStatus(trip.status),
   travelers:(trav.results||[]).map(travelerMap),
   payment:{visaCardNumber:pay?.visa_card_number||'',visaHolder:pay?.visa_holder||'',hasPaymeQR:!!pay?.payme_qr_object_key,paymeQRURL:pay?.payme_qr_object_key?`/api/catalog/hotels/client/trips/${encodeURIComponent(bookingID)}/media/payment-qr`:null,humoCardNumber:pay?.humo_card_number||'',humoHolder:pay?.humo_holder||'',instructions:pay?.instructions||''},
   receipts:(receipts.results||[]).map(r=>({id:r.id,paymentMethod:r.payment_method||'other',note:r.note||'',reviewStatus:r.review_status||'submitted',createdAt:r.created_at||'',contentType:r.content_type||'image/jpeg',filename:`payment-receipt-${r.id}.${r.content_type==='application/pdf'?'pdf':r.content_type==='image/png'?'png':'jpg'}`,url:`/api/catalog/hotels/client/trips/${encodeURIComponent(bookingID)}/media/receipt-${r.id}`})),

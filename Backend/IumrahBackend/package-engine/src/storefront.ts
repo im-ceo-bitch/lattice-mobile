@@ -239,6 +239,7 @@ export function appleAppSiteAssociation(): Response {
       details: [{
         appIDs: ["HVT4U96286.com.iumrah.app", "2DQ678JTNG.com.iumrah.app"],
         components: [
+          { "/": "/ref/*", comment: "Verified referral registration links" },
           { "/": "/h/*", comment: "Open public iumrah hotel links in the iOS app without exposing supplier identifiers." },
           { "/": "/hotel/*", comment: "Backward compatibility for hotel links shared by older beta builds." },
         ],

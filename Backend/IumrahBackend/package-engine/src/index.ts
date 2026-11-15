@@ -1,3 +1,4 @@
+import { referralLanding } from "./referral-rewards";
 import { smartConfiguratorPlan } from "./smart-configurator";
 import { handleGuestBookingEmail } from "./booking-email-verification";
 import { flushBookingStatusEmails } from "./booking-email";
@@ -128,6 +129,7 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
+    if (request.method === "GET" && /^\/ref\/[^/]+$/.test(url.pathname)) return referralLanding(url);
     if (request.method === "GET" && url.pathname === "/.well-known/apple-app-site-association") {
       return appleAppSiteAssociation();
     }

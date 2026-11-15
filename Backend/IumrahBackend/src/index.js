@@ -6,6 +6,8 @@ import { requestAeroDataBox, aeroDataBoxConfiguration } from '../package-engine/
 import core from '../core/index.js';
 import { verifyBookingQuote } from '../package-engine/src/booking-gateway.ts';
 import { sendBookingEmailStatus, retryBookingStatusEmails } from '../package-engine/src/booking-email.ts';
+import { bookingRewardsAmounts } from '../package-engine/src/booking-control.ts';
+import { syncReferralForBooking } from '../package-engine/src/referral-rewards.ts';
 import { createBackendRouter } from './router.js';
 export { HotelImportWorkflow };
-export default createBackendRouter({hotels,flights,packages,core,requestAeroDataBox,aeroDataBoxConfiguration,verifyBookingQuote,sendBookingEmailStatus,retryBookingStatusEmails,materializeBookingIdentity});
+export default createBackendRouter({hotels,flights,packages,core,requestAeroDataBox,aeroDataBoxConfiguration,verifyBookingQuote,sendBookingEmailStatus,retryBookingStatusEmails,materializeBookingIdentity,syncReferralForBooking,bookingRewardsAmounts});

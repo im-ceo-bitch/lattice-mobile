@@ -59,6 +59,18 @@ struct BookingCheckoutAdminCard: View {
                     }
                 }
 
+                if let rewards = checkout.rewards, rewards.totalUsd > 0 {
+                    VStack(alignment: .leading, spacing: 8) {
+                        LabeledContent("Стоимость пакета", value: String(format: "$%.2f", rewards.totalUsd))
+                        if rewards.totalDiscountUsd > 0 {
+                            LabeledContent("Бонусы и Gift Cards", value: String(format: "−$%.2f", rewards.totalDiscountUsd))
+                        }
+                        Divider()
+                        LabeledContent("К оплате", value: String(format: "$%.2f", rewards.payableUsd)).font(.headline)
+                    }
+                    .padding(14)
+                    .background(BusinessDesign.secondarySurface, in: RoundedRectangle(cornerRadius: 16))
+                }
                 travelerSummary(checkout)
 
                 if status == .availabilityCheck || status == .paymentPending {

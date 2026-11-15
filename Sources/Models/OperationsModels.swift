@@ -504,7 +504,16 @@ struct BookingESIMUpsertPayload: Encodable {
     let qrCodeURL: String?
 }
 
+struct BusinessBookingRewards: Codable, Hashable {
+    let totalUsd: Double
+    let giftDiscountUsd: Double
+    let creditAppliedUsd: Double
+    let totalDiscountUsd: Double
+    let payableUsd: Double
+}
+
 struct BusinessCheckout: Codable, Hashable {
+    var rewards: BusinessBookingRewards? = nil
     let iumrahID: String
     let accountActive: Bool
     let activatedAt: String?
