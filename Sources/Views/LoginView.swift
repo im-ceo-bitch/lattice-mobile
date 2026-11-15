@@ -50,14 +50,14 @@ struct LoginView: View {
         VStack(alignment: .leading, spacing: 0) {
             topBrandRow
 
-            if focusedField == nil {
+            if focusedField == nil && !recovering {
                 BusinessOrbit(diameter: 250, pinnedSymbol: recovering ? "envelope.fill" : nil, isActive: !working)
                     .accessibilityIdentifier("business.orbit.login")
                     .padding(.top, 8)
                 heroCopy.padding(.top, 8)
             }
             loginCard
-                .padding(.top, focusedField == nil ? 24 : 12)
+                .padding(.top, focusedField == nil && !recovering ? 24 : 12)
         }
     }
 
@@ -199,7 +199,7 @@ struct LoginView: View {
     private var recoveryCard: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Восстановление доступа").font(.title2.bold())
-            Text(recoveryChallenge == nil ? "Введите почту владельца, настроенную в Cloudflare. Отправим на неё код." : "Введите код из письма и задайте новый пароль. Старые сеансы будут недействительны.")
+            Text(recoveryChallenge == nil ? "Введите подтверждённую почту владельца iumrah Business." : "Введите код из письма и задайте новый пароль. Старые сеансы будут недействительны.")
                 .font(.subheadline).foregroundStyle(.secondary)
             recoveryFields
             if let error = recoveryError {
@@ -220,11 +220,14 @@ struct LoginView: View {
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .focused($focusedField, equals: .recoveryEmail)
+                    .submitLabel(.go)
+                    .onSubmit { requestRecoveryCode() }
+                    .onChange(of: recoveryEmail) { _, _ in recoveryError = nil }
                     .padding(.horizontal, 18).frame(minHeight: 52)
                     .background(BusinessDesign.secondarySurface, in: RoundedRectangle(cornerRadius: 20))
                     .disabled(working)
             } else {
-                Text(recoveryEmail).font(.footnote).foregroundStyle(.secondary)
+                Text("Запрос принят почтовым сервисом. Проверьте входящие и спам: \(recoveryEmail)").font(.footnote).foregroundStyle(.secondary)
                 TextField("Шестизначный код", text: $recoveryCode)
                     .keyboardType(.numberPad).textContentType(.oneTimeCode)
                     .focused($focusedField, equals: .recoveryCode)
@@ -255,13 +258,15 @@ struct LoginView: View {
             } label: {
                 HStack {
                     if working { ProgressView().tint(BusinessDesign.onPrimaryControl) }
-                    Text(recoveryChallenge == nil ? "Получить код" : "Изменить пароль и войти")
+                    Text(working ? "Подождите…" : (recoveryChallenge == nil ? "Получить код" : "Изменить пароль и войти"))
                 }
                 .font(.headline).frame(maxWidth: .infinity).frame(minHeight: 52)
                 .foregroundStyle(BusinessDesign.onPrimaryControl)
                 .background(BusinessDesign.primaryControl, in: Capsule())
             }
-            .disabled(working || (recoveryChallenge == nil ? recoveryEmail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty : !recoveryInputValid))
+            .disabled(working)
+            .opacity(working ? 0.55 : 1)
+            .accessibilityIdentifier("business.recovery.submit")
             Button("Вернуться ко входу") {
                 clearRecovery()
                 recovering = false
@@ -281,7 +286,11 @@ struct LoginView: View {
     private func requestRecoveryCode() {
         guard !working else { return }
         let email = recoveryEmail.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !email.isEmpty else { return }
+        guard StaffRecoveryInput.isValidEmail(email) else {
+            recoveryError = "Введите корректный адрес электронной почты владельца."
+            focusedField = .recoveryEmail
+            return
+        }
         working = true
         recoveryError = nil
         focusedField = nil
@@ -297,7 +306,11 @@ struct LoginView: View {
     }
 
     private func confirmRecovery() {
-        guard !working, recoveryInputValid, let challenge = recoveryChallenge else { return }
+        guard !working, let challenge = recoveryChallenge else { return }
+        guard recoveryInputValid else {
+            recoveryError = "Введите 6 цифр кода и два одинаковых пароля длиной 12–128 символов."
+            return
+        }
         let email = recoveryEmail
         let chosenPassword = newPassword
         let code = recoveryCode

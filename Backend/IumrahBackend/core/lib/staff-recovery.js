@@ -59,31 +59,67 @@ const reply=(value,status=200)=>NextResponse.json(value,{status,headers:{'Cache-
 const fail=(error,status)=>reply({ok:false,error},status);
 const changed=result=>Number(result?.meta?.changes??0)===1;
 async function input(request){try{const data=await request.json();return data&&typeof data==='object'&&!Array.isArray(data)?data:null;}catch{return null;}}
-function settings(env){const address=ownerRecoveryEmail(env),secret=staffRecoverySecret(env);return address&&secret.length>=32&&env.RESEND_API_KEY&&dbFor(env)?.prepare?{address,secret,db:dbFor(env)}:null;}
+function mailSender(env) {
+ const address=email(env.IUMRAH_ADMIN_RECOVERY_FROM || env.ACCOUNT_EMAIL_FROM || 'security@iumrah.app');
+ return address.length<=254 && /^[^\s@,<>]+@[^\s@,<>]+\.[^\s@,<>]+$/.test(address) ? address : '';
+}
+function settings(env){
+ const address=ownerRecoveryEmail(env),secret=staffRecoverySecret(env),db=dbFor(env),sender=mailSender(env);
+ if(!address)return {error:'STAFF_RECOVERY_OWNER_MISSING'};
+ if(secret.length<32)return {error:'STAFF_RECOVERY_SECURITY_MISSING'};
+ if(!db?.prepare)return {error:'STAFF_RECOVERY_DB_UNAVAILABLE'};
+ if(typeof env.RESEND_API_KEY!=='string'||!env.RESEND_API_KEY.trim())return {error:'STAFF_RECOVERY_MAIL_KEY_MISSING'};
+ if(!sender)return {error:'STAFF_RECOVERY_SENDER_INVALID'};
+ return {address,secret,db,sender};
+}
+// Read-only readiness for deployment checks. Never exposes the recovery address or secrets.
+export async function staffRecoveryReadiness(env) {
+ const cfg=settings(env);
+ if(cfg.error)return {ready:false,error:cfg.error};
+ try { await cfg.db.prepare(`SELECT id FROM ${TABLE} WHERE id=1`).first(); }
+ catch {return {ready:false,error:'STAFF_RECOVERY_DB_UNAVAILABLE'};}
+ return {ready:true,deliveryVerified:false};
+}
+function providerFailure(status){
+ if(status===401||status===403)return 'STAFF_RECOVERY_MAIL_AUTH';
+ if(status===429)return 'STAFF_RECOVERY_MAIL_RATE_LIMIT';
+ if(status>=400&&status<500)return 'STAFF_RECOVERY_MAIL_REJECTED';
+ return 'STAFF_RECOVERY_EMAIL_FAILED';
+}
 export async function startStaffRecovery(request) {
- const env=requestEnv(),cfg=settings(env);if(!cfg)return fail('STAFF_RECOVERY_NOT_CONFIGURED',503);
+ const env=requestEnv(),cfg=settings(env);if(cfg.error)return fail(cfg.error,503);
  const body=await input(request);if(!body||email(body.email)!==cfg.address)return fail('STAFF_RECOVERY_INVALID_CONTACT',400);
  const now=Date.now(),challenge=randomHex(24),code=newCode(),digest=await otpHash(cfg.secret,cfg.address,challenge,code);
  // One owner, one active code. Atomically rate-limit sends across isolates.
+ let issued;
+ try {
  await cfg.db.prepare(`INSERT INTO ${TABLE}(id) VALUES(1) ON CONFLICT(id) DO NOTHING`).run();
- const issued=await cfg.db.prepare(`UPDATE ${TABLE} SET challenge_id=?, code_hash=?, expires_at=?, attempts=0, sent_at=?,
+ issued=await cfg.db.prepare(`UPDATE ${TABLE} SET challenge_id=?, code_hash=?, expires_at=?, attempts=0, sent_at=?,
  window_start=CASE WHEN window_start<=? THEN ? ELSE window_start END,
  window_count=CASE WHEN window_start<=? THEN 1 ELSE window_count+1 END
  WHERE id=1 AND sent_at<=? AND (window_start<=? OR window_count<5)`)
  .bind(challenge,digest,now+600000,now,now-3600000,now,now-3600000,now-60000,now-3600000).run();
+ } catch {return fail('STAFF_RECOVERY_DB_UNAVAILABLE',503);}
  if(!changed(issued))return fail('STAFF_RECOVERY_RATE_LIMIT',429);
+ let deliveryError='STAFF_RECOVERY_EMAIL_FAILED';
  try {
-  const result=await fetch('https://api.resend.com/emails',{method:'POST',headers:{authorization:`Bearer ${env.RESEND_API_KEY}`,'content-type':'application/json','Idempotency-Key':`staff-recovery-${challenge}`},signal:AbortSignal.timeout(10000),body:JSON.stringify({from:`iumrah Business <${env.ACCOUNT_EMAIL_FROM||'security@iumrah.app'}>`,to:[cfg.address],subject:'iumrah Business — код восстановления',text:`Код восстановления: ${code}\nДействует 10 минут. Никому не сообщайте код. Если вы не запрашивали его, проигнорируйте письмо.`})});
-  if(!result.ok)throw Error('DELIVERY_FAILED');
+  const result=await fetch('https://api.resend.com/emails',{method:'POST',headers:{authorization:`Bearer ${env.RESEND_API_KEY.trim()}`,'content-type':'application/json','Idempotency-Key':`staff-recovery-${challenge}`},signal:AbortSignal.timeout(10000),body:JSON.stringify({from:`iumrah Business <${cfg.sender}>`,to:[cfg.address],subject:'iumrah Business — код восстановления',text:`Код восстановления: ${code}\nДействует 10 минут. Никому не сообщайте код. Если вы не запрашивали его, проигнорируйте письмо.`})});
+  if(!result.ok){deliveryError=providerFailure(result.status);throw Error('DELIVERY_FAILED');}
+  const accepted=await result.json().catch(()=>null);
+  if(typeof accepted?.id!=='string'||!accepted.id.trim()){deliveryError='STAFF_RECOVERY_MAIL_UNCONFIRMED';throw Error('DELIVERY_UNCONFIRMED');}
+  // Provider ID alone is enough to correlate acceptance with delivery in Resend.
+  console.info('STAFF_RECOVERY_MAIL_ACCEPTED', /^[a-zA-Z0-9_-]{1,100}$/.test(accepted.id)?accepted.id:'redacted');
  } catch {
   // Do not log provider responses, recipient or code. Never clear a newer challenge.
-  await cfg.db.prepare(`UPDATE ${TABLE} SET code_hash=NULL, expires_at=0 WHERE id=1 AND challenge_id=?`).bind(challenge).run();
-  return fail('STAFF_RECOVERY_EMAIL_FAILED',503);
+  try {await cfg.db.prepare(`UPDATE ${TABLE} SET code_hash=NULL, expires_at=0 WHERE id=1 AND challenge_id=?`).bind(challenge).run();}
+  catch {return fail('STAFF_RECOVERY_DB_UNAVAILABLE',503);}
+  console.warn('STAFF_RECOVERY_MAIL_FAILED',deliveryError);
+  return fail(deliveryError,503);
  }
  return reply({ok:true,challengeID:challenge,expiresIn:600});
 }
 export async function finishStaffRecovery(request) {
- const env=requestEnv(),cfg=settings(env);if(!cfg)return fail('STAFF_RECOVERY_NOT_CONFIGURED',503);
+ const env=requestEnv(),cfg=settings(env);if(cfg.error)return fail(cfg.error,503);
  const body=await input(request);if(!body||email(body.email)!==cfg.address)return fail('STAFF_RECOVERY_INVALID_CONTACT',400);
  const {challengeID,code,password}=body;
  if(typeof password!=='string'||password.length<12||password.length>128||!password.trim())return fail('STAFF_RECOVERY_PASSWORD_POLICY',400);

@@ -1,3 +1,4 @@
+import {staffRecoveryReadiness} from '../core/lib/staff-recovery.js';
 import {botConfigured} from '../core/lib/telegram-native.js';
 // Schema readiness and operator attestation are distinct from live data parity.
 const required = {
@@ -52,5 +53,6 @@ export async function cutoverStatus(env,installed=false,enabled=false) {
   const optionalProviders=['esim','telegramOAuth'];
   const requiredProviderGaps=Object.entries(providers).filter(([name,ready])=>!optionalProviders.includes(name)&&!ready).map(([name])=>name);
   const providerConfigurationReady=requiredProviderGaps.length===0;
-  return {ok:true, missing, service:'iumrah-backend', readiness, schemaReady, providers, optionalProviders, requiredProviderGaps, providerConfigurationReady, coreHandlersInstalled:installed,coreCutoverEnabled:enabled, migrationAttested:migrationAttested(env),cleanLaunchAttested:cleanLaunchAttested(env),activationAttested:activationAttested(env),cleanLaunchSupported:true,securityConfigurationReady:securityConfigurationReady(env),activationMode:migrationAttested(env)?'legacy-migration':cleanLaunchAttested(env)?'new-account':'pending',dataParityVerified:false, legacyRetirementAllowed:false};
+  const staffRecovery=await staffRecoveryReadiness(env);
+  return {ok:true, staffRecovery, missing, service:'iumrah-backend', readiness, schemaReady, providers, optionalProviders, requiredProviderGaps, providerConfigurationReady, coreHandlersInstalled:installed,coreCutoverEnabled:enabled, migrationAttested:migrationAttested(env),cleanLaunchAttested:cleanLaunchAttested(env),activationAttested:activationAttested(env),cleanLaunchSupported:true,securityConfigurationReady:securityConfigurationReady(env),activationMode:migrationAttested(env)?'legacy-migration':cleanLaunchAttested(env)?'new-account':'pending',dataParityVerified:false, legacyRetirementAllowed:false};
 }

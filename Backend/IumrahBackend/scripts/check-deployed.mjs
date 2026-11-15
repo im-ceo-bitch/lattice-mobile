@@ -68,6 +68,8 @@ export async function verifyDeployed(env=process.env, fetcher=fetch, activation=
   if(!cutover.providerConfigurationReady)throw Error('CORE_PROVIDER_CONFIGURATION_PENDING: '+(cutover.requiredProviderGaps||Object.entries(cutover.providers||{}).filter(([,ready])=>!ready).map(([name])=>name)).join(', ')+'; credentials not validated against providers.');
   const optionalMissing=(cutover.optionalProviders||[]).filter(name=>cutover.providers?.[name]!==true);
   if(optionalMissing.length)console.log('Optional integrations deferred (not release blockers): '+optionalMissing.join(', '));
+  if(cutover.staffRecovery?.ready===true)console.log('Business password recovery: configured; real email delivery not verified.');
+  else console.warn('Business password recovery: NOT VERIFIED ('+(cutover.staffRecovery?.error||'RECOVERY_STATUS_MISSING')+').');
   return {url:origin,flights:status.counts.flights,offers:status.counts.offers,health:health.status};
 }
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)) {
