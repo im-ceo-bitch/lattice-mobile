@@ -9,6 +9,11 @@ test('routes core contracts and does not intercept unrelated paths',()=>{
   for(const p of ['/api/bookings','/api/auth/staff/session']) assert.equal(resolveBackendRoute(p),'core',p);
   for(const p of ['/api/catalog/hotels-malicious','/api/flight-hubby/v1/public/flights','/favicon.ico']) assert.equal(resolveBackendRoute(p),'missing',p);
 });
+test('routes Telegram Mini App and its assets to core without intercepting unrelated paths',()=>{
+  for(const p of ['/telegram/mini','/telegram/mini/bootstrap','/telegram/mini/care/messages','/telegram/mini-asset/wordmark-light.png','/telegram/status-image/paid.webp','/telegram/support-image/team.jpg']) assert.equal(resolveBackendRoute(p),'core',p);
+  for(const p of ['/telegram','/telegram/miniature','/telegram/mini-asset','/telegram/mini-asset/a/b','/telegram/unrelated','/telegram-malicious/mini']) assert.equal(resolveBackendRoute(p),'missing',p);
+  assert.equal(resolveBackendRoute('/ref/invite-code'),'packages');
+});
 test('existing handlers receive original request and environment unchanged',async()=>{
   const calls=[];
   const service = name=>({fetch:async(request,env,ctx)=>{calls.push([name,new URL(request.url).pathname,env,ctx]);return new Response(name);},scheduled:async()=>calls.push(['cron',name])});
