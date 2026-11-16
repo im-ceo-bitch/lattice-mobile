@@ -48,6 +48,7 @@ struct OverviewView: View {
     @Environment(\.businessAdaptiveLayout) private var layout
     @StateObject private var store = OverviewStore()
     @State private var showUmrahBuilder = false
+    @State private var showPush = false
     @AppStorage("iumrah.business.security.dismissedEvent") private var dismissedSecurityEvent = ""
 
     var checking: Int { store.bookings.filter { operationalStatus($0) == .availabilityCheck }.count }
@@ -85,7 +86,7 @@ struct OverviewView: View {
                             .frame(width: 56, height: 56)
                             .businessGlass(in: RoundedRectangle(cornerRadius: 20), interactive: true)
                         VStack(alignment: .leading, spacing: 6) {
-                            Text("Создать Umrah").font(.title2.bold())
+                            Text("Создать умру").font(.title2.bold())
                             Text("Перелёт, отели и личный трансфер")
                                 .font(.subheadline).foregroundStyle(.secondary)
                         }
@@ -131,7 +132,11 @@ struct OverviewView: View {
                 }
 
 
-                IgnavUsageCard(usage: store.ignavUsage, loading: store.loading)
+                Button { showPush = true } label: {
+                    HStack { Image(systemName: "bell.badge"); Text("Уведомления").font(.headline); Spacer(); Text("\(store.unreadChats) непрочитанных").font(.caption); Image(systemName: "chevron.right") }
+                        .foregroundStyle(BusinessDesign.ink).padding(18).businessCard(radius: 22)
+                }.buttonStyle(.plain)
+                DisclosureGroup("Использование API") { IgnavUsageCard(usage: store.ignavUsage, loading: store.loading) }.padding(16).businessCard(radius: 22)
 
                 VStack(alignment: .leading, spacing: 12) {
                     HStack { Text("Последние бронирования").font(.title2.bold()); Spacer(); if store.loading { ProgressView() } }
@@ -154,12 +159,14 @@ struct OverviewView: View {
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .businessNavigationSurface()
+        .sheet(isPresented: $showPush) { NavigationStack { BusinessPushDiagnosticsView() } }
         .sheet(isPresented: $showUmrahBuilder) { NavigationStack { UmrahBuilderView(owner: auth.user?.login ?? "") } }
         .toolbar {
             ToolbarItem(placement: .topBarLeading) { BusinessSidebarButton() }
-            ToolbarItem(placement: .principal) { BusinessBrandLogo(width: 150).frame(height: 36) }
+            ToolbarItem(placement: .principal) { BusinessBrandLogo(width: 150, foreground: .white).frame(height: 36) }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
+                    Button("Диагностика уведомлений") { showPush = true }
                     Button("Обновить") { Task { await store.reload() } }
                     Button("Выйти", role: .destructive) { Task { await auth.logout() } }
                 } label: { Image(systemName: "ellipsis.circle") }

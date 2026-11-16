@@ -2,6 +2,7 @@ import SwiftUI
 import UIKit
 
 struct HotelsView: View {
+    var catalogMode = false
     @Environment(\.businessAdaptiveLayout) private var layout
     @State private var hotels: [HotelListItem] = []
     @State private var loading = false
@@ -40,8 +41,9 @@ struct HotelsView: View {
         .background(BusinessDesign.background)
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar { ToolbarItem(placement: .topBarLeading) { BusinessSidebarButton() }
-            ToolbarItem(placement: .principal) { BusinessBrandLogo(width: 150).frame(height: 36) } }
+        .businessNavigationSurface()
+        .toolbar { ToolbarItem(placement: .topBarLeading) { if !catalogMode { BusinessSidebarButton() } }
+            ToolbarItem(placement: .principal) { BusinessBrandLogo(width: 150, foreground: .white).frame(height: 36) } }
         .sheet(isPresented: $showAdd, onDismiss: { Task { await load() } }) {
             AddHotelView()
         }

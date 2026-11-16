@@ -210,12 +210,7 @@ struct IumrahOrbitV5: View {
 
     // Continuous sRGB interpolation. Spatial palette is anchored to the screen,
     // so the rotating points flow through colors exactly as in the V5 prototype.
-    private static let palette: [UInt32] = [
-        0x9bbdb3, 0x63bdcf, 0x30bce9, 0x30afe8, 0x419de9, 0x5389e8,
-        0x6674e7, 0x8456e9, 0xa43aea, 0xbb25e5, 0xd524d6, 0xe329bb,
-        0xe927a1, 0xec388b, 0xf24d78, 0xfa656a, 0xfa7d71, 0xff997c,
-        0xffb18a, 0xf9bc88, 0xdfba91, 0xbdbaa5
-    ]
+    private static let palette: [UInt32] = BusinessAnimationPalette.orbit
 
     private static func color(at angle: Double) -> Color {
         let f = IumrahOrbitV5Geometry.huePosition(angle) * Double(palette.count)

@@ -40,13 +40,19 @@ struct BookingsView: View {
     @State private var deleting = false
     @State private var error: String?
     @State private var filter: BookingListFilter = .all
+    @State private var search = ""
+    @State private var pendingBookingID: String?
     @State private var bookingPendingDelete: BookingSummary?
     @State private var selectedBooking: BookingSummary?
     @State private var loadGeneration = UUID()
     @Environment(\.scenePhase) private var scenePhase
 
     private var filteredBookings: [BookingSummary] {
-        bookings.filter { filter.matches(operationalStatus($0)) }
+        bookings.filter { booking in
+            guard filter.matches(operationalStatus(booking)) else { return false }
+            let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
+            return query.isEmpty || [booking.id, booking.clientName ?? "", booking.pilgrimID ?? "", booking.bookingDisplayNumber ?? "", booking.bookingNumber.map { String($0) } ?? ""].contains { $0.localizedCaseInsensitiveContains(query) }
+        }
     }
 
     var body: some View {
@@ -69,7 +75,7 @@ struct BookingsView: View {
         .toolbar {
             ToolbarItem(placement: .topBarLeading) { BusinessSidebarButton() }
             ToolbarItem(placement: .principal) {
-                BusinessBrandLogo(width: 150).frame(height: 36)
+                BusinessBrandLogo(width: 150, foreground: .white).frame(height: 36)
             }
         }
         .overlay {
@@ -80,7 +86,13 @@ struct BookingsView: View {
                 }
             }
         }
-        .task { await load() }
+        .searchable(text: $search, prompt: "Имя, номер брони, iumrah ID")
+        .task { await load(); openPendingBooking() }
+        .onReceive(NotificationCenter.default.publisher(for: .iumrahBusinessBookingOpen)) { notification in
+            pendingBookingID = notification.object as? String
+            Task { await load(); openPendingBooking() }
+        }
+        .onChange(of: scenePhase) { _, phase in if phase == .active { openPendingBooking() } }
         .onReceive(NotificationCenter.default.publisher(for: bookingOperationsChangedNotification)) { _ in
             Task { await load() }
         }
@@ -108,6 +120,13 @@ struct BookingsView: View {
         } message: {
             Text("Бронирование будет полностью удалено из основной базы, iumrah Business, чата и связанных операционных данных. Действие нельзя отменить.")
         }
+    }
+
+    private func openPendingBooking() {
+        guard let id = pendingBookingID ?? BusinessNotificationRoute.pendingBooking,
+              let booking = bookings.first(where: { $0.id == id }) else { return }
+        filter = .all; search = ""; selectedBooking = booking
+        pendingBookingID = nil; BusinessNotificationRoute.pendingBooking = nil
     }
 
     private var compactList: some View {

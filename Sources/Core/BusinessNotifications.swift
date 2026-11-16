@@ -10,8 +10,16 @@ extension Notification.Name {
     static let iumrahBusinessChatChanged = Notification.Name("iumrah.business.chatChanged")
     static let iumrahBusinessChatRead = Notification.Name("iumrah.business.chatRead")
     static let iumrahBusinessBookingChanged = Notification.Name("iumrah.business.bookingOperationsChanged")
+    static let iumrahBusinessBookingOpen = Notification.Name("iumrah.business.bookingOpen")
     static let iumrahBusinessChatOpen = Notification.Name("iumrah.business.chatOpen")
     static let iumrahBusinessFlightPriceOpen = Notification.Name("iumrah.business.flightPriceOpen")
+}
+
+@MainActor
+enum BusinessNotificationRoute {
+    // In-memory only: never persist private booking identifiers outside the locked session.
+    static var pendingBooking: String?
+    static var pendingChat: String?
 }
 
 @MainActor
@@ -69,9 +77,10 @@ final class BusinessAppDelegate: NSObject, UIApplicationDelegate, UNUserNotifica
         switch type {
         case "chat_message", "chat_image":
             NotificationCenter.default.post(name: .iumrahBusinessChatChanged, object: key)
-            if opened { NotificationCenter.default.post(name: .iumrahBusinessChatOpen, object: key) }
+            if opened { BusinessNotificationRoute.pendingChat = key; NotificationCenter.default.post(name: .iumrahBusinessChatOpen, object: key) }
         case "payment_receipt", "booking_created", "booking_status_changed":
             NotificationCenter.default.post(name: .iumrahBusinessBookingChanged, object: key)
+            if opened { BusinessNotificationRoute.pendingBooking = key; NotificationCenter.default.post(name: .iumrahBusinessBookingOpen, object: key) }
         default: break
         }
     }

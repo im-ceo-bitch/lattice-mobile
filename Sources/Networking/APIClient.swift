@@ -582,6 +582,14 @@ actor APIClient {
         return try decoder.decode(PushDeviceRegistrationResponse.self, from: data)
     }
 
+    func testBusinessPush() async throws -> BusinessPushTestResponse {
+        var request = URLRequest(url: AppConfig.apiBaseURL.appending(path: "/api/admin/hotels/push/test"))
+        request.httpMethod = "POST"
+        let (data, response) = try await perform(request)
+        try validate(response, data: data)
+        return try decoder.decode(BusinessPushTestResponse.self, from: data)
+    }
+
     func pushStatus() async throws -> PushStatusResponse {
         let (data, response) = try await perform(from: AppConfig.apiBaseURL.appending(path: "/api/admin/hotels/push/status"))
         try validate(response, data: data)

@@ -1,0 +1,129 @@
+{
+  "base": "lattice-mobile-main 5.zip",
+  "date": "2026-11-16",
+  "type": "root-overlay",
+  "files": [
+    {
+      "path": "Sources/Core/BusinessAnimationPalette.swift",
+      "sha256": "f10c86e2738aeb6e3b41e151992415012eed885da753073eedb52e9b4be391bd"
+    },
+    {
+      "path": "Sources/Core/BusinessNotifications.swift",
+      "sha256": "8ad427ac43ad99c3b90123715d9d47af3f2daac6f0be7ab8300c539d75fc364d"
+    },
+    {
+      "path": "Sources/Core/Design.swift",
+      "sha256": "6194cb061befbae16e7ebf0da011dbd5235de9cb874487e4d531f37e6b3ed515"
+    },
+    {
+      "path": "Sources/Core/IumrahOrbitV5.swift",
+      "sha256": "017e434eca181fd315b5871ffa6057ef935f6173e70226a8eeab2f9c404a7209"
+    },
+    {
+      "path": "Sources/Models/AdminModels.swift",
+      "sha256": "94c0dc3dd92253afd9a2c98946e95b4bdce10ad111bf71a84134141138e617c8"
+    },
+    {
+      "path": "Sources/Models/BusinessManualBookingReceipt.swift",
+      "sha256": "22c8b4cbf58faf4c86d178471d5288fbd828183fd105b17cf7f210ae990297d6"
+    },
+    {
+      "path": "Sources/Models/UmrahPackageDraft.swift",
+      "sha256": "d7c1234ddf4cb48a5695480f8690968e0c33432337445f79b70086ffb12840b1"
+    },
+    {
+      "path": "Sources/Networking/APIClient+ManualBooking.swift",
+      "sha256": "2e66ac753fe8d5a9d0fbdb2016a312d4fa5c247c637fbd9d06c4aab81b4f5b7d"
+    },
+    {
+      "path": "Sources/Networking/APIClient.swift",
+      "sha256": "f7a5e3033e802f1c6e02faf70a0901e39caa1988b3f85a7aa427446e0e0799cf"
+    },
+    {
+      "path": "Sources/Views/BookingDetailView.swift",
+      "sha256": "05e83d82c5ca67d691310ff05f0ec5f71f20cd2a7d04cacb65fe895f0d58ef9e"
+    },
+    {
+      "path": "Sources/Views/BookingsView.swift",
+      "sha256": "3de088368d6ba359b39430c09b9238e38bc67a63082523c4b77c1762163a3769"
+    },
+    {
+      "path": "Sources/Views/BusinessCatalogsView.swift",
+      "sha256": "d75b068992bcaf932640d7c3539285e8fcef529475e902bf4548527da807a6bc"
+    },
+    {
+      "path": "Sources/Views/BusinessPushDiagnosticsView.swift",
+      "sha256": "ad0946bbbf988c502d1a76efa7d83ccf7989e73b00b96adb24be51fde78a4e2b"
+    },
+    {
+      "path": "Sources/Views/BusinessSidebar.swift",
+      "sha256": "e9deddee0dbfe2aedd3e0978a7184c45f0588004da6ad9adebb72320f3896e5f"
+    },
+    {
+      "path": "Sources/Views/BusinessTabView.swift",
+      "sha256": "345dd89d80a450cd3151305a21b54f738d91d38ffb0703474eeffad4f6cb8efd"
+    },
+    {
+      "path": "Sources/Views/ChatsView.swift",
+      "sha256": "b673f2cb6424528400ad4d6eed31c196124ee8bd2573da2f2ff0b2f26a36a7b8"
+    },
+    {
+      "path": "Sources/Views/FlightCurationView.swift",
+      "sha256": "65fe3a226d19f458ad4aa39657f87e95d6a888c6e39572bb6b706c627f6a14eb"
+    },
+    {
+      "path": "Sources/Views/HotelsView.swift",
+      "sha256": "1aa040efe7accd0116e5982f6244545850b91a5cf6e1d6f4a4741d9a5cf86f93"
+    },
+    {
+      "path": "Sources/Views/OverviewView.swift",
+      "sha256": "77dd4477919bc13664e9132b9ee4f35b277722ecc65d8cb8f3137fcd1e4f623a"
+    },
+    {
+      "path": "Sources/Views/RootView.swift",
+      "sha256": "02957eb3961da802bdb53dca97d5b1380d93a71541cf922a10ce19323f905a0f"
+    },
+    {
+      "path": "Sources/Views/UmrahBuilderView.swift",
+      "sha256": "d2a9a830bb95535194dab556d2d8ddbf1be3c675955fb91835580829777cc5c2"
+    },
+    {
+      "path": "Backend/IumrahBackend/core/app/api/admin/bookings/route.js",
+      "sha256": "e40bebd6bb2d8306d9c759ae347aeee6753f890b0949092ac105acaa9bcc2109"
+    },
+    {
+      "path": "Backend/IumrahBackend/core/app/api/bookings/route.js",
+      "sha256": "8a1ed9529a4fb8c7a480f4766a93bfabc62249861d448cd8a89e91ae9b540aab"
+    },
+    {
+      "path": "Backend/IumrahBackend/core/lib/business-manual-booking.js",
+      "sha256": "002ac2cf018011524e501509bdb5217ed6468b6b9763c4ed39e9ec3a3fa522e6"
+    },
+    {
+      "path": "Backend/IumrahBackend/core/routes.js",
+      "sha256": "3d80b8929ad7af85fb136e3d31f7c258e03ef5f9c90d962fee78df87275daf8f"
+    },
+    {
+      "path": "Backend/IumrahBackend/tests/core-runtime.test.mjs",
+      "sha256": "75d16af3698e713e25309eb74c5a9c092a69b16e86552caf09b0fdf4e4f71667"
+    },
+    {
+      "path": "Backend/HotelsWorker/src/index.js",
+      "sha256": "c28b9edb1c0235d9e3da5da81e5a10adc1099bd532fdff0a692baa7c3bde1981"
+    },
+    {
+      "path": "Tests/run_umrah_draft_tests.py",
+      "sha256": "18e0f0dcb261052cf657c896da37f920efe1fc6cc928034021b5399a67cce7e3"
+    },
+    {
+      "path": "IUMRAH_BUSINESS_OPERATIONS_20261116.md",
+      "sha256": "271e12a7cab99eac7e4074383d95b43f84122bdf243a677b790d4b328a832c5f"
+    }
+  ],
+  "verification": {
+    "node_tests_passed": 138,
+    "swift_parse": "passed",
+    "draft_tests": "passed",
+    "apple_sdk_build": "not_run"
+  }
+}

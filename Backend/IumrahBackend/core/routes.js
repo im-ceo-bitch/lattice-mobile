@@ -1,3 +1,4 @@
+import { sharePage, shareRead, manualBookingInfo, rotateManualShare } from "./lib/business-manual-booking.js";
 import * as r0 from "./app/api/account/apple/sign-in/route.js";
 import * as r1 from "./app/api/account/dashboard/route.js";
 import * as r2 from "./app/api/account/google/sign-in/route.js";
@@ -67,6 +68,8 @@ export const routes = [
   { pattern: /^\/api\/account\/register\/confirm$/, keys: [], handlers: r9 },
   { pattern: /^\/api\/account\/register\/start$/, keys: [], handlers: r10 },
   { pattern: /^\/api\/account\/session$/, keys: [], handlers: r11 },
+  { pattern: /^\/api\/admin\/bookings\/([^\/]+)\/manual$/, keys: ["id"], handlers: { GET: manualBookingInfo } },
+  { pattern: /^\/api\/admin\/bookings\/([^\/]+)\/share$/, keys: ["id"], handlers: { POST: rotateManualShare } },
   { pattern: /^\/api\/admin\/bookings\/([^\/]+)\/documents\/([^\/]+)$/, keys: ["id","documentId"], handlers: r12 },
   { pattern: /^\/api\/admin\/bookings\/([^\/]+)$/, keys: ["id"], handlers: r13 },
   { pattern: /^\/api\/admin\/bookings$/, keys: [], handlers: r14 },
@@ -76,6 +79,7 @@ export const routes = [
   { pattern: /^\/api\/auth\/staff\/login$/, keys: [], handlers: r18 },
   { pattern: /^\/api\/auth\/staff\/logout$/, keys: [], handlers: r19 },
   { pattern: /^\/api\/auth\/staff\/session$/, keys: [], handlers: r20 },
+  { pattern: /^\/api\/bookings\/share$/, keys: [], handlers: { GET: sharePage, POST: shareRead } },
   { pattern: /^\/api\/bookings\/([^\/]+)$/, keys: ["id"], handlers: r21 },
   { pattern: /^\/api\/bookings$/, keys: [], handlers: r22 },
   { pattern: /^\/api\/chat\/([^\/]+)$/, keys: ["id"], handlers: r23 },

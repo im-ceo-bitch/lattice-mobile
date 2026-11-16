@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 
 struct FlightCurationView: View {
     var tabMode = false
+    var catalogMode = false
     @EnvironmentObject private var auth: AuthStore
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
@@ -320,12 +321,12 @@ struct FlightCurationView: View {
         .businessNavigationSurface()
         .toolbar {
             if tabMode {
-                ToolbarItem(placement: .principal) { BusinessBrandLogo(width: 150).frame(height: 36) }
+                ToolbarItem(placement: .principal) { BusinessBrandLogo(width: 150, foreground: .white).frame(height: 36) }
             }
             ToolbarItem(placement: .topBarLeading) {
-                if tabMode {
+                if tabMode && !catalogMode {
                     BusinessSidebarButton()
-                } else {
+                } else if !catalogMode {
                     Button("Закрыть") { dismiss() }
                 }
             }

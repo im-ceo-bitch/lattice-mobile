@@ -36,6 +36,8 @@ struct RootView: View {
                 Task { await auth.expireWeeklySessionIfNeeded() }
             } else if state == .signedOut {
                 appLock.didSignOut()
+                BusinessNotificationRoute.pendingBooking = nil
+                BusinessNotificationRoute.pendingChat = nil
             }
         }
         .onChange(of: auth.passwordLoginSerial) { _, _ in

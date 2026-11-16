@@ -37,3 +37,30 @@ test('wrong staff password has its own error code; never issues a cookie',async(
  const result=await go('/api/auth/staff/login','POST',{login:'operator',password:'wrong'});
  assert.equal(result.status,401);assert.equal((await result.json()).error,'INVALID_CREDENTIALS');assert.equal(result.headers.get('set-cookie'),null);
 });
+
+test('Business manual create: authorization, canonical cost, idempotency and read-only share',async()=>{
+ const login=await go('/api/auth/staff/login','POST',{login:'operator',password:'test-password'});
+ const cookie=login.headers.get('set-cookie').split(';')[0];
+ const auth={cookie,'x-iumrah-business-session':'fixture-device'};
+ const booking={planId:'standard',totalUsd:10,perPilgrimUsd:10,input:{from:'TAS',originCode:'TAS',startDate:'2027-03-01',endDate:'2027-03-08',flexibleDays:0,hotelPreference:'4',includeMadinah:false,travelers:{adults:2,children:0,infants:0,rooms:1}},route:{originCode:'TAS',outboundDestination:'JED',returnOrigin:'JED'},stay:{totalDays:8,totalNights:7,makkahCheckIn:'2027-03-01',makkahCheckOut:'2027-03-08',makkahNights:7},customization:{},hotelNames:{makkah:'Example'},flight:'HY 335',pilgrimProfile:{firstName:'Test',lastName:'Guest',phone:'+998901234567'},selection:{flightId:'f',makkahHotelId:'h',madinahHotelId:null},selectionDetails:{flight:{id:'f',airline:'HY',outboundOrigin:'TAS',outboundDestination:'JED',outboundDate:'2027-03-01',returnOrigin:'JED',returnDestination:'TAS',returnDate:'2027-03-08'},makkahHotel:{id:'h',name:'Example',stars:4,checkIn:'2027-03-01',checkOut:'2027-03-08'}}};
+ const cost={flight:800,makkah:600,madinah:0,transfer:300,ziyarat:0,visa:0,guide:0,other:0,commission:5};
+ const body={booking,cost,manualDetails:{makkah:{room:'Twin',rooms:1,meals:'Breakfast',privateCost:600},outbound:[{airline:'HY',number:'HY335',origin:'TAS',destination:'JED',privateCost:800}]},requestSecret:'ab'.repeat(32),lang:'ru',sendEmail:false};
+ assert.equal((await go('/api/admin/bookings','POST',body)).status,403);
+ assert.equal((await go('/api/admin/bookings','POST',body,{cookie})).status,403);
+ assert.equal((await go('/api/bookings','POST',body,auth)).status,409);
+ assert.equal((await go('/api/admin/bookings','POST',{...body,cost:{...cost,commission:-1}},auth)).status,400);
+ const res=await go('/api/admin/bookings','POST',body,auth);assert.equal(res.status,201,await res.clone().text());const receipt=await res.json();assert.equal(receipt.totalUsd,1785);assert.equal(receipt.identityReady,true);
+ const again=await go('/api/admin/bookings','POST',body,auth);assert.equal((await again.json()).bookingID,receipt.bookingID);
+ assert.equal(sql.prepare('SELECT COUNT(*) n FROM business_manual_bookings').get().n,1);
+ const token=new URL(receipt.shareURL).hash.slice(1);assert.equal(token.length,64);
+ assert.equal((await go('/api/bookings/share','POST',{token:'00'.repeat(32)})).status,404);
+ const publicData=await (await go('/api/bookings/share','POST',{token})).json();assert.equal(publicData.id,receipt.bookingID);assert.equal(publicData.totalUsd,1785);assert.equal(publicData.makkah.name,'Example');assert.ok(!JSON.stringify(publicData).includes('+998'));assert.ok(!JSON.stringify(publicData).includes('commission'));
+ assert.equal((await go('/api/bookings/'+receipt.bookingID,'GET',undefined,{'x-booking-token':token})).status,404);
+ assert.match((await go('/api/bookings/share')).headers.get('content-security-policy'),/frame-ancestors 'none'/);
+ assert.equal(publicData.details.makkah.room,'Twin');assert.equal(publicData.details.outbound[0].number,'HY335');assert.ok(!JSON.stringify(publicData).includes('privateCost'));
+ assert.equal((await go('/api/admin/bookings/'+receipt.bookingID+'/manual')).status,403);
+ const info=await (await go('/api/admin/bookings/'+receipt.bookingID+'/manual','GET',undefined,auth)).json();assert.equal(info.cost.commission,5);
+ const rotate=await go('/api/admin/bookings/'+receipt.bookingID+'/share','POST',{},auth);assert.equal(rotate.status,200);const newToken=new URL((await rotate.json()).shareURL).hash.slice(1);assert.notEqual(newToken,token);
+ assert.equal((await go('/api/bookings/share','POST',{token})).status,404);
+ assert.equal((await go('/api/bookings/share','POST',{token:newToken})).status,200);
+});

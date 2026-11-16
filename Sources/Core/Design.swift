@@ -11,6 +11,8 @@ enum BusinessDesign {
     // Central semantic palette. Light values intentionally preserve the
     // existing iumrah Business appearance; dark values are tuned for long
     // operational use at night with clear surface separation and contrast.
+    static let header = Color.black
+    static let headerInk = Color.white
     static let background = adaptive(
         light: .white,
         dark: .black
@@ -72,13 +74,16 @@ struct BusinessCardModifier: ViewModifier {
 struct BusinessBrandLogo: View {
     private var width: CGFloat?
     private var height: CGFloat?
+    private var foreground: Color?
 
-    init(width: CGFloat = 154) {
+    init(width: CGFloat = 154, foreground: Color? = nil) {
+        self.foreground = foreground
         self.width = width
         self.height = nil
     }
 
-    init(height: CGFloat) {
+    init(height: CGFloat, foreground: Color? = nil) {
+        self.foreground = foreground
         self.width = nil
         self.height = height
     }
@@ -88,7 +93,7 @@ struct BusinessBrandLogo: View {
             .renderingMode(.template)
             .resizable()
             .scaledToFit()
-            .foregroundStyle(BusinessDesign.ink)
+            .foregroundStyle(foreground ?? BusinessDesign.ink)
             .frame(width: width, height: height)
             .accessibilityLabel("iumrah Business")
     }
@@ -155,7 +160,8 @@ struct BusinessGlassGroup<Content: View>: View {
 extension View {
     func businessNavigationSurface() -> some View {
         self
-            .toolbarBackground(BusinessDesign.background, for: .navigationBar)
+            .toolbarBackground(BusinessDesign.header, for: .navigationBar)
+            .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
             .tint(BusinessDesign.ink)
     }
@@ -174,7 +180,7 @@ struct BusinessPageHeading: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             Text(title)
-                .font(.system(size: titleSize, weight: .bold))
+                .font(.system(size: titleSize, weight: .bold, design: .rounded))
                 .foregroundStyle(BusinessDesign.ink)
                 .accessibilityAddTraits(.isHeader)
                 .fixedSize(horizontal: false, vertical: true)

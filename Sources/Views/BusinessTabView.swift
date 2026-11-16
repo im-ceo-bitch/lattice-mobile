@@ -32,7 +32,7 @@ enum BusinessWorkspaceSection: String, Identifiable, CaseIterable, Hashable {
         case .overview: return "Обзор"
         case .bookings: return "Бронирования"
         case .chats: return "Чаты"
-        case .flights: return "Авиабилеты"
+        case .flights: return "Каталоги"
         case .intelligence: return "Аналитика"
         case .profile: return "Мой профиль"
         case .security: return "Безопасность"
@@ -51,7 +51,7 @@ enum BusinessWorkspaceSection: String, Identifiable, CaseIterable, Hashable {
         case .overview: return "square.grid.2x2.fill"
         case .bookings: return "suitcase.rolling.fill"
         case .chats: return "message.fill"
-        case .flights: return "airplane"
+        case .flights: return "square.stack"
         case .intelligence: return "chart.xyaxis.line"
         case .profile: return "person.crop.circle"
         case .security: return "lock.shield.fill"
@@ -93,11 +93,16 @@ struct BusinessTabView: View {
         .onReceive(NotificationCenter.default.publisher(for: .iumrahBusinessFlightPriceOpen)) { _ in
             navigation.navigate(to: .flights)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .iumrahBusinessBookingOpen)) { _ in
+            navigation.navigate(to: .bookings)
+        }
         .onReceive(NotificationCenter.default.publisher(for: .iumrahBusinessChatOpen)) { _ in
             navigation.navigate(to: .chats)
         }
         .onAppear {
-            if UserDefaults.standard.string(forKey: "iumrah.price.pendingFlightKey") != nil {
+            if BusinessNotificationRoute.pendingBooking != nil { navigation.navigate(to: .bookings) }
+            else if BusinessNotificationRoute.pendingChat != nil { navigation.navigate(to: .chats) }
+            else if UserDefaults.standard.string(forKey: "iumrah.price.pendingFlightKey") != nil {
                 navigation.navigate(to: .flights)
             }
         }
@@ -119,9 +124,9 @@ private struct BusinessCompactTabView: View {
                 NavigationStack { ChatsView() }
                     .tag(BusinessWorkspaceSection.chats)
                     .tabItem { Label("Чаты", systemImage: "message.fill") }
-                NavigationStack { FlightCurationView(tabMode: true) }
+                NavigationStack { BusinessCatalogsView() }
                     .tag(BusinessWorkspaceSection.flights)
-                    .tabItem { Label("Авиабилеты", systemImage: "airplane") }
+                    .tabItem { Label("Каталоги", systemImage: "square.stack") }
             }
             .tint(BusinessDesign.ink)
             .onAppear {
@@ -216,7 +221,7 @@ private struct BusinessWorkspaceView: View {
         case .overview: OverviewView()
         case .bookings: BookingsView()
         case .chats: ChatsView()
-        case .flights: FlightCurationView(tabMode: true)
+        case .flights: BusinessCatalogsView()
         case .intelligence: IntelligenceView()
         case .profile: ProfileView()
         case .security: BusinessSecuritySettingsView()
@@ -242,7 +247,7 @@ struct BusinessNavigationCommands: Commands {
                 .keyboardShortcut("2", modifiers: .command)
             Button("Чаты") { navigation.navigate(to: .chats) }
                 .keyboardShortcut("3", modifiers: .command)
-            Button("Авиабилеты") { navigation.navigate(to: .flights) }
+            Button("Каталоги") { navigation.navigate(to: .flights) }
                 .keyboardShortcut("4", modifiers: .command)
 
             Divider()

@@ -53,6 +53,7 @@ struct BusinessSidebarButton: View {
                 Image(systemName: "line.3.horizontal")
                     .font(.system(size: 17, weight: .semibold))
             }
+            .foregroundStyle(.white)
             .accessibilityLabel("Меню")
         }
     }

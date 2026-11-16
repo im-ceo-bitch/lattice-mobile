@@ -25,6 +25,7 @@ struct ChatsView: View {
     @State private var loading = true
     @State private var errorMessage: String?
     @State private var selectedThread: ChatThread?
+    @State private var pushedThread: ChatThread?
     @State private var loadGeneration = UUID()
     @State private var hasLoadedThreads = false
     @Environment(\.scenePhase) private var scenePhase
@@ -43,7 +44,7 @@ struct ChatsView: View {
         .businessNavigationSurface()
         .toolbar {
             ToolbarItem(placement: .topBarLeading) { BusinessSidebarButton() }
-            ToolbarItem(placement: .principal) { BusinessBrandLogo(width: 150).frame(height: 36) }
+            ToolbarItem(placement: .principal) { BusinessBrandLogo(width: 150, foreground: .white).frame(height: 36) }
             ToolbarItem(placement: .topBarTrailing) {
                 NavigationLink { NewChatBookingPicker(bookings: bookings) } label: {
                     Image(systemName: "square.and.pencil")
@@ -52,7 +53,13 @@ struct ChatsView: View {
             }
         }
         .overlay { if loading && !hasLoadedThreads { ProgressView() } }
-        .task { await load() }
+        .task { await load(); openPendingChat() }
+        .onReceive(NotificationCenter.default.publisher(for: .iumrahBusinessChatOpen)) { _ in
+            Task { await load(); openPendingChat() }
+        }
+        .navigationDestination(isPresented: Binding(get: { pushedThread != nil }, set: { if !$0 { pushedThread = nil } })) {
+            if let thread = pushedThread { ChatConversationView(thread: thread) }
+        }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("iumrah.business.bookingOperationsChanged"))) { _ in
             Task { await load() }
         }
@@ -73,6 +80,14 @@ struct ChatsView: View {
             }
         }
         .refreshable { await load() }
+    }
+
+    private func openPendingChat() {
+        guard let key = BusinessNotificationRoute.pendingChat,
+              let thread = threads.first(where: { $0.id == key || $0.booking?.id == key || $0.relatedBookings.contains(where: { $0.id == key }) }) else { return }
+        filter = .all
+        if layout.supportsTwoPaneWorkspace { selectedThread = thread } else { pushedThread = thread }
+        BusinessNotificationRoute.pendingChat = nil
     }
 
     private var compactWorkspace: some View {

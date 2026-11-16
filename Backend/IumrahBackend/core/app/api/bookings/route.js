@@ -156,7 +156,7 @@ function travelerDetails(value, input) {
         consentAt: string(value.consentAt, 80) || new Date().toISOString(),
     };
 }
-function parsePayload(value) {
+export function parsePayload(value) {
     if (!record(value) || !isTripInput(value.input) || !record(value.route) || !record(value.stay))
         return null;
     const planId = value.planId;

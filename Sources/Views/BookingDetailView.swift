@@ -20,6 +20,39 @@ struct BookingDetailView: View {
     @State private var showGuidePicker = false
     @State private var restartingPriceLock = false
     @State private var loadGeneration = UUID()
+    @State private var workspace = 0
+    @State private var manualInfo: BusinessManualBookingInfo?
+    @State private var shareURL: URL?
+    @State private var shareError: String?
+    @State private var rotateShare = false
+    @State private var sharing = false
+
+    private var shareCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Ссылка на поездку").font(.headline)
+            if let shareURL { ShareLink(item: shareURL) { Label("Поделиться", systemImage: "square.and.arrow.up") }; Link("Открыть", destination: shareURL) }
+            Button(sharing ? "Создание…" : "Создать новую ссылку") { rotateShare = true }.disabled(sharing)
+            Text("Новая ссылка отменит предыдущую. Старый email или SMS больше не откроет пакет.").font(.caption).foregroundStyle(.secondary)
+            if let shareError { Text(shareError).font(.caption).foregroundStyle(.red) }
+        }.padding(18).frame(maxWidth: .infinity,alignment: .leading).businessCard(radius: 22)
+            .confirmationDialog("Отменить предыдущую ссылку и создать новую?", isPresented: $rotateShare, titleVisibility: .visible) {
+                Button("Создать новую", role: .destructive) { Task { await renewShare() } }
+            }
+    }
+    @MainActor private func renewShare() async {
+        sharing = true; defer { sharing = false }; shareError = nil
+        do { shareURL = URL(string: try await APIClient.shared.rotateManualShare(id: bookingID)) }
+        catch { shareError = error.localizedDescription }
+    }
+    private func manualCostCard(_ costs: [String: Double]) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Себестоимость менеджера").font(.headline)
+            ForEach(["flight","makkah","madinah","transfer","ziyarat","visa","guide","other","commission"], id: \.self) { key in
+                HStack { Text(["flight":"Перелёт","makkah":"Мекка","madinah":"Медина","transfer":"Трансфер","ziyarat":"Зияраты","visa":"Визы","guide":"Гид","other":"Прочее","commission":"Комиссия, %"][key] ?? key); Spacer(); Text((costs[key] ?? 0).formatted(.number.precision(.fractionLength(0...2)))) }
+            }
+            Text("Внутренние данные · USD. Не показываются в ссылке клиента.").font(.caption).foregroundStyle(.secondary)
+        }.padding(18).businessCard(radius: 22)
+    }
 
     private var hasUnsavedOperations: Bool {
         guard let operation = detail?.operation else { return false }
@@ -31,35 +64,34 @@ struct BookingDetailView: View {
             if let detail {
                 VStack(alignment: .leading, spacing: 16) {
                     hero(detail)
-                    operationsCard(detail)
-                    BookingSecurityAdminCard(bookingID: bookingID, security: detail.security) {
-                        Task { await load() }
+                    Picker("Раздел", selection: $workspace) {
+                        Text("Обзор").tag(0); Text("Поездка").tag(1); Text("Документы").tag(2); Text("Цена").tag(3)
+                    }.pickerStyle(.segmented)
+                    switch workspace {
+                    case 1:
+                        BusinessBookingItineraryEditor(bookingID: bookingID, startDate: detail.booking.startDate, endDate: detail.booking.endDate)
+                        sectionTitle("Перелёты", subtitle: "Рейс можно заменить только после проверки AeroDataBox.")
+                        flightCard(.outbound, detail: detail)
+                        flightCard(.return, detail: detail)
+                        sectionTitle("Размещение", subtitle: "Операционные изменения применяются только к этой поездке.")
+                        hotelCard(city: "Makkah", detail: detail)
+                        if !detail.booking.madinahHotel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || detail.assignment?.madinahHotel != nil { hotelCard(city: "Madinah", detail: detail) }
+                        guideCard(detail)
+                        BookingESIMAdminCard(bookingID: bookingID, esims: detail.esims ?? []) { Task { await load() } }
+                    case 2:
+                        BookingSecurityAdminCard(bookingID: bookingID, security: detail.security) { Task { await load() } }
+                        BookingCheckoutAdminCard(bookingID: bookingID, status: status, checkout: detail.checkout) { Task { await load() } }
+                    case 3:
+                        pricingCard(detail)
+                        if let cost = manualInfo?.cost { manualCostCard(cost) }
+                    default:
+                        operationsCard(detail)
+                        NavigationLink { ChatConversationView(booking: detail.booking) } label: {
+                            Label("Чат с паломником", systemImage: "message").font(.headline).frame(maxWidth: .infinity, alignment: .leading).padding(18).businessCard(radius: 22)
+                        }.buttonStyle(.plain)
+                        if manualInfo?.manual == true { shareCard }
+                        tripCard(detail.booking)
                     }
-                    BusinessBookingItineraryEditor(
-                        bookingID: bookingID,
-                        startDate: detail.booking.startDate,
-                        endDate: detail.booking.endDate
-                    )
-                    BookingCheckoutAdminCard(bookingID: bookingID, status: status, checkout: detail.checkout) {
-                        Task { await load() }
-                    }
-                    BookingESIMAdminCard(bookingID: bookingID, esims: detail.esims ?? []) {
-                        Task { await load() }
-                    }
-
-                    sectionTitle("Перелёты", subtitle: "Рейс можно заменить только после проверки AeroDataBox.")
-                    flightCard(.outbound, detail: detail)
-                    flightCard(.return, detail: detail)
-
-                    sectionTitle("Размещение", subtitle: "Операционные изменения применяются только к этой поездке.")
-                    hotelCard(city: "Makkah", detail: detail)
-                    if !detail.booking.madinahHotel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || detail.assignment?.madinahHotel != nil {
-                        hotelCard(city: "Madinah", detail: detail)
-                    }
-
-                    guideCard(detail)
-                    tripCard(detail.booking)
-                    pricingCard(detail)
                 }
                 .businessAdaptiveDetailWidth()
                 .padding(.horizontal, 18)
@@ -77,6 +109,7 @@ struct BookingDetailView: View {
         .businessNavigationSurface()
         .task {
             await load(showLoading: true)
+            manualInfo = try? await APIClient.shared.manualBookingInfo(id: bookingID)
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(60))
                 guard !Task.isCancelled else { break }

@@ -180,3 +180,9 @@ struct PushStatusResponse: Codable {
     let configured: Bool
     let devices: Int
 }
+
+struct BusinessPushTestResponse: Codable {
+    let ok: Bool
+    let sent: Int
+    let diagnostic: String
+}

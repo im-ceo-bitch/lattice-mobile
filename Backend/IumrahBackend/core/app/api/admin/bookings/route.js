@@ -26,3 +26,5 @@ export async function GET(request) {
         return NextResponse.json({ error: "BOOKINGS_LIST_FAILED" }, { status: 500, headers: { "Cache-Control": "no-store" } });
     }
 }
+
+export { createManualBooking as POST } from "../../../../lib/business-manual-booking.js";

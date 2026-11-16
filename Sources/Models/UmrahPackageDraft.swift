@@ -24,7 +24,7 @@ struct UmrahPackageDraft: Codable, Equatable {
         var checkOut = UmrahPackageDraft.stayCalendar.startOfDay(for: Date())
         var rooms = 1
         var room = ""
-        var meals = "Завтрак, обед и ужин"
+        var meals = "Без питания"
         // Explicit package amounts; catalog cache prices are never treated as a quote.
         var price = ""
         var nights: Int { UmrahPackageDraft.stayCalendar.dateComponents([.day], from: checkIn, to: checkOut).day ?? 0 }
@@ -47,6 +47,37 @@ struct UmrahPackageDraft: Codable, Equatable {
     var phone = ""
     var telegram = ""
     var notes = ""
+    // Optional for backwards-compatible decoding of existing protected drafts.
+    var email: String? = nil
+    var lastName: String? = nil
+    var language: String? = nil
+    var sendEmail: Bool? = nil
+    var commission: String? = nil
+    var visaPrice: String? = nil
+    var guidePrice: String? = nil
+    var otherPrice: String? = nil
+    var requestSecret: String? = nil
+    var receipt: BusinessManualBookingReceipt? = nil
+    var flightFares: [String: Double]? = nil
+    var selectedFareKeys: [String: String]? = nil
+    var selectedFareKinds: [String: String]? = nil
+    var costSubtotal: Double? {
+        guard let base = total,
+              let visa = Self.amount(visaPrice ?? "0"), let guide = Self.amount(guidePrice ?? "0"), let other = Self.amount(otherPrice ?? "0") else { return nil }
+        return base + visa + guide + other
+    }
+    var saleTotal: Double? {
+        guard let subtotal = costSubtotal, let rate = Self.amount(commission ?? "0"), rate <= 100 else { return nil }
+        return (subtotal * (1 + rate / 100) * 100).rounded() / 100
+    }
+    var bookingIssue: String? {
+        if clientName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (lastName ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "Укажите имя и фамилию." }
+        if phone.range(of: #"^\+[1-9][0-9]{7,14}$"#, options: .regularExpression) == nil { return "Укажите телефон в международном формате, например +998901234567." }
+        if sendEmail == true && (email ?? "").range(of: #"^\S+@\S+\.\S+$"#, options: .regularExpression) == nil { return "Укажите корректный email или отключите отправку." }
+        if saleTotal == nil { return "Проверьте себестоимость и комиссию (0–100%)." }
+        return nil
+    }
+
 
     static func amount(_ text: String) -> Double? {
         let normalized = text.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ",", with: ".")

@@ -349,6 +349,18 @@ async function handleBusinessPush(request, env, parts, user, businessSession = n
     `).bind(token, cleanText(user?.login, 180), environment, BUSINESS_APP_BUNDLE_ID, now, now, businessSession?.installation_id || null).run();
     return json({ ok: true, ready: apnsConfigured(env) });
   }
+  if (parts.length === 1 && parts[0] === 'test' && request.method === 'POST') {
+    if (!businessSession?.installation_id) return json({ok:false,error:'BUSINESS_SESSION_REQUIRED'},401);
+    if (!apnsConfigured(env)) return json({ok:false,error:'APNS_NOT_CONFIGURED'},503);
+    const rows=await env.HOTELS_DB.prepare('SELECT device_token,environment,app_bundle_id FROM business_push_devices WHERE enabled=1 AND installation_id=? AND LOWER(COALESCE(staff_login,\'\'))=? ORDER BY updated_at DESC LIMIT 1').bind(businessSession.installation_id,businessStaffLogin(user)).all();
+    if (!rows.results?.length) return json({ok:false,error:'NO_DEVICE_FOR_SESSION'},409);
+    let diagnostic=null;
+    const delivery=await sendAPNsToRows(env,rows.results,'iumrah Business','Тестовое уведомление APNs',{type:'business_push_test'},async(device,result)=>{
+      diagnostic=result.ok?'accepted':String(result.error||'NETWORK_ERROR').slice(0,300);
+      await env.HOTELS_DB.prepare('UPDATE business_push_devices SET last_error=?,last_success_at=CASE WHEN ?=1 THEN ? ELSE last_success_at END,enabled=?,updated_at=? WHERE device_token=?').bind(result.ok?null:diagnostic,result.ok?1:0,new Date().toISOString(),result.disable?0:1,new Date().toISOString(),device.device_token).run();
+    });
+    return json({ok:delivery.ok,sent:delivery.sent||0,diagnostic:diagnostic||'NETWORK_ERROR'});
+  }
   if (parts.length === 1 && parts[0] === 'status' && request.method === 'GET') {
     const row = await env.HOTELS_DB.prepare('SELECT COUNT(*) AS count FROM business_push_devices WHERE enabled=1').first();
     return json({ ok: true, configured: apnsConfigured(env), devices: Number(row?.count || 0) });
