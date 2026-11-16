@@ -98,7 +98,7 @@ async function ingest(request, env, provider, ctx) {
   let payload;
   try { payload = await request.json(); } catch { return json({ok:false,error:'INVALID_JSON'},400); }
   if (!payload || !Array.isArray(payload.records) || payload.records.length > 100 ||
-    (payload.records.length === 0 && !['ok','started','blocked','failed','site_changed','no_verified_fares','no_tasks'].includes(payload.status))) {
+    (payload.records.length === 0 && !['ok','started','blocked','failed','site_changed','no_verified_fares','no_tasks','partial'].includes(payload.status))) {
     return json({ok:false,error:'INVALID_RECORDS'},400);
   }
   const date = nowISO();
@@ -110,7 +110,7 @@ async function ingest(request, env, provider, ctx) {
       if (outcome === 'accepted') accepted++; else if (outcome === 'unchanged') {accepted++;unchanged++;unchangedKeys.add(normaliseFlight(entry,provider).key);} else if (outcome === 'review') review++; else unmatched++;
     } catch (e) { rejected++; if (errors.length < 5) errors.push(sanitiseError(e)); }
   }
-  const status = ['started','blocked','failed','site_changed','no_verified_fares','no_tasks'].includes(payload.status) ? payload.status :
+  let status = ['started','blocked','failed','site_changed','no_verified_fares','no_tasks'].includes(payload.status) ? payload.status :
     (rejected || unmatched || review || payload.status === 'partial') ? 'partial' : 'ok';
   if(BOT_PROVIDERS.has(provider)&&Array.isArray(payload.attempts)) {
     for(const attempt of payload.attempts.slice(0,250)) {
@@ -121,6 +121,17 @@ async function ingest(request, env, provider, ctx) {
       await env.FLIGHTS_DB.prepare('INSERT INTO flight_monitor_attempts(id,provider,flight_key,attempted_at,outcome,message,run_id) VALUES(?,?,?,?,?,?,?)')
         .bind(uid(),provider,key,date,(o==='verified'&&unchangedKeys.has(key))?'unchanged':o,preview(attempt.message,180),preview(payload.run_id,100)).run();
     }
+  }
+  // A terminal checkpoint report aggregates already committed batches. The
+  // authenticated bot uses a random 32-hex run ID, not user-provided wildcards.
+  if(BOT_PROVIDERS.has(provider) && /^[a-f0-9]{32}$/.test(payload.run_id||'') &&
+     payload.records.length===0 && (!payload.attempts || payload.attempts.length===0) && status!=='started') {
+    const totals=await env.FLIGHTS_DB.prepare(`SELECT COALESCE(SUM(accepted),0) AS accepted,
+      COALESCE(SUM(unmatched),0) AS unmatched,COALESCE(SUM(rejected),0) AS rejected
+      FROM monitor_runs WHERE provider=? AND status='started' AND instr(message,?)>0`)
+      .bind(provider,` · run=${payload.run_id} · `).first();
+    accepted=Number(totals?.accepted||0);unmatched=Number(totals?.unmatched||0);rejected=Number(totals?.rejected||0);
+    if(status==='ok'&&(rejected||unmatched))status='partial';
   }
   await env.FLIGHTS_DB.prepare('INSERT INTO monitor_runs(id,provider,checked_at,status,accepted,unmatched,rejected,message) VALUES(?,?,?,?,?,?,?,?)')
     .bind(uid(),provider,date,status,accepted,unmatched,rejected,
@@ -188,7 +199,7 @@ async function publicStatus(env) {
   // import/authentication credentials; do not imply any successful live query.
   const available={
     ignav:{ingest:!!env.IGNAV_INGEST_TOKEN,search:!!env.IGNAV_API_KEY},
-    aviasales_data:{ingest:!!env.ADMIN_TOKEN,search:!!env.AVIASALES_DATA_TOKEN},
+    aviasales_data:{ingest:!!env.ADMIN_TOKEN,search:!!(env.AVIASALES_DATA_TOKEN||env.TRAVELPAYOUTS_API_TOKEN)},
     aerodatabox:{ingest:!!env.AERODATABOX_INGEST_TOKEN,search:!!(env.AERODATABOX_RAPIDAPI_KEY || (env.IUMRAH_AERO_REQUEST && env.AERODATABOX_RAPIDAPI_KEY_BACKUP))},
     centrum:{ingest:!!env.BOT_INGEST_TOKEN},
     uzbekistan:{ingest:!!env.BOT_INGEST_TOKEN},
@@ -207,6 +218,7 @@ async function publicStatus(env) {
     if(!configured)issue=liveSearch?'SOURCE_API_KEY_MISSING':'BOT_INGEST_TOKEN_MISSING';
     else if(!lastRun&&!lastSearch)issue='NEVER_REPORTED';
     else if(lastRun?.status==='started' && Date.now()-Date.parse(lastRun.checked_at)>50*60000)issue='RUN_STALLED';
+    else if(!liveSearch && lastRun && Date.now()-Date.parse(lastRun.checked_at)>26*3600000)issue='RUN_OVERDUE';
     else if(lastRun?.status==='no_verified_fares')issue='NO_VERIFIED_FARES';
     else if(['failed','blocked','site_changed'].includes(lastRun?.status))issue='BOT_RUN_FAILED';
     else if(lastSearch?.status==='failed'||lastSearch?.status==='throttled')issue='SEARCH_FAILED';
@@ -266,9 +278,11 @@ async function refreshAeroDataBox(request,env) {
       results.push({flight_number:flight.flight_number,match:result==='accepted',result});
     } catch (error) {results.push({flight_number:flight.flight_number,error:sanitiseError(error)});}
   }
+  const matched=results.filter(x=>x.match).length, failed=results.filter(x=>x.error).length;
+  const status=!results.length?'no_tasks':failed===results.length?'failed':failed?'partial':matched?'ok':'no_verified_fares';
   await env.FLIGHTS_DB.prepare('INSERT INTO monitor_runs(id,provider,checked_at,status,accepted,unmatched,rejected,message) VALUES(?,?,?,?,?,?,?,?)')
-    .bind(uid(),'aerodatabox',nowISO(),results.some(x=>x.error)?'partial':'ok',results.filter(x=>x.match).length,0,results.filter(x=>x.error).length,'manual refresh').run();
-  return json({ok:true,results});
+    .bind(uid(),'aerodatabox',nowISO(),status,matched,0,failed,'schedule verification; '+results.length+' checked').run();
+  return json({ok:status!=='failed',status,results},status==='failed'?502:200);
 }
 async function adminFlightDiagnostics(request,env) {
   if (!env.ADMIN_TOKEN || !bearer(request,env.ADMIN_TOKEN)) return json({ok:false,error:'UNAUTHORIZED'},401);
@@ -284,7 +298,7 @@ async function adminFlightDiagnostics(request,env) {
     ignav:'iumrah-backend Worker cron 01:15 UTC (only when IGNAV_API_KEY is configured)'};
   return json({ok:true,server_time:nowISO(),source_keys_present:{
     IGNAV_API_KEY:!!env.IGNAV_API_KEY,IGNAV_INGEST_TOKEN:!!env.IGNAV_INGEST_TOKEN,
-    AVIASALES_DATA_TOKEN:!!env.AVIASALES_DATA_TOKEN,BOT_INGEST_TOKEN:!!env.BOT_INGEST_TOKEN,
+    AVIASALES_DATA_TOKEN:!!(env.AVIASALES_DATA_TOKEN||env.TRAVELPAYOUTS_API_TOKEN),BOT_INGEST_TOKEN:!!env.BOT_INGEST_TOKEN,
     AERODATABOX_RAPIDAPI_KEY:!!env.AERODATABOX_RAPIDAPI_KEY},
     scheduled,monitor_runs:recent.results||[],searches:searches.results||[],
     attempts:attempts.results||[],push_outbox:outbox.results||[]});

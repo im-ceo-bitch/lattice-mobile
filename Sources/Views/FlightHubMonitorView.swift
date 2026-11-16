@@ -257,6 +257,11 @@ struct FlightHubMonitorView: View {
                         if let reason = sourceReason(source) {
                             Text(reason).font(.caption2).foregroundStyle(.orange)
                                 .fixedSize(horizontal: false, vertical: true)
+                            if let detail = source.last_run?.message, source.issue != nil {
+                                DisclosureGroup("Диагностика") {
+                                    Text(detail).font(.caption2).foregroundStyle(.secondary).textSelection(.enabled)
+                                }.font(.caption2)
+                            }
                         }
                     }
                     Spacer(minLength: 3)
@@ -394,7 +399,7 @@ struct FlightHubMonitorView: View {
         case "SOURCE_API_KEY_MISSING":
             switch source.name {
             case "ignav": return "Нет IGNAV_API_KEY в iumrah-backend"
-            case "aviasales_data": return "Нет AVIASALES_DATA_TOKEN в iumrah-backend"
+            case "aviasales_data": return "Нет токена Travelpayouts / Aviasales"
             case "aerodatabox": return "Дополнительный API не настроен (необязателен)"
             default: return "Нет ключа источника"
             }
@@ -405,25 +410,32 @@ struct FlightHubMonitorView: View {
             }
             return "Поиск ещё не выполнялся или нет отчётов"
         case "RUN_STALLED": return "Запуск не завершён — проверьте логи Actions"
-        case "BOT_RUN_FAILED": return source.last_run?.message ?? "Ошибка последнего запуска"
+        case "RUN_OVERDUE": return "Нет свежего отчёта более 26 часов. Проверьте расписание Actions."
+        case "BOT_RUN_FAILED":
+            let detail = source.last_run?.message ?? ""
+            if detail.contains("DATE_EXACT_DAY") { return "Календарь сайта не подтвердил точную дату" }
+            if detail.contains("PROVIDER_HTTP_403") { return "Сайт отклонил запрос (HTTP 403)" }
+            return "Ошибка последней проверки. Подробности в отчёте Actions."
         case "SEARCH_FAILED": return source.last_search?.message ?? "Ошибка API-источника"
-        case "NO_VERIFIED_FARES": return "Бот работал, но не подтвердил ни одного тарифа"
+        case "NO_VERIFIED_FARES": return source.name == "aerodatabox" ? "Не подтверждено ни одного расписания" : "Бот работал, но не подтвердил ни одного тарифа"
         default: return nil
         }
     }
     private func sourceIcon(_ source: FlightHubStatus.Source) -> String {
         if !source.configured { return "exclamationmark.circle" }
-        if let run = source.last_run, run.status == "ok" { return "checkmark.circle.fill" }
+        if source.issue == nil, let run = source.last_run, run.status == "ok" { return "checkmark.circle.fill" }
         if source.last_run != nil { return "exclamationmark.triangle" }
         return "clock.arrow.circlepath"
     }
     private func sourceColor(_ source: FlightHubStatus.Source) -> Color {
         if !source.configured { return .orange }
-        if source.last_run?.status == "ok" { return .green }
+        if source.issue == nil && source.last_run?.status == "ok" { return .green }
         return .secondary
     }
     private func sourceState(_ source: FlightHubStatus.Source) -> String {
         if !source.configured { return "Не подключён" }
+        if source.issue == "RUN_OVERDUE" { return "Просрочено" }
+        if source.issue == "RUN_STALLED" { return "Завис" }
         guard let run = source.last_run else { return "Не запускался" }
         switch run.status {
         case "ok": return "Проверено"
@@ -431,7 +443,7 @@ struct FlightHubMonitorView: View {
         case "no_tasks": return "Нет заданий"
         case "started": return "Запущен"
         case "failed": return "Ошибка запуска"
-        case "no_verified_fares": return "Нет точной цены"
+        case "no_verified_fares": return source.name == "aerodatabox" ? "Нет совпадений" : "Нет точной цены"
         case "blocked": return "Блокировка сайта"
         case "site_changed": return "Сбой поиска"
         default: return "Требует проверки"
@@ -474,9 +486,8 @@ struct FlightHubMonitorView: View {
             lastLoaded = Date()
         } catch {
             self.error = error.localizedDescription
-            status = nil
-            flights = []
-            hasMore = false
+            // Retain the last successful status and page on a transient failure.
+            // lastLoaded remains the actual successful refresh time.
         }
     }
 

@@ -74,7 +74,8 @@ export async function searchIgnav(request,env,importDirect,{fetcher=fetch}={}){
  return json({ok:failed===0,source:'ignav',results});
 }
 export async function searchAviasales(request,env,{fetcher=fetch}={}){
- if(!env.AVIASALES_DATA_TOKEN)return json({ok:false,error:'AVIASALES_DATA_TOKEN_NOT_CONFIGURED',detail:'Use authenticated cache ingestion from the existing Aviasales integration.'},503);
+ const aviasalesToken=String(env.AVIASALES_DATA_TOKEN||env.TRAVELPAYOUTS_API_TOKEN||'').trim();
+ if(!aviasalesToken)return json({ok:false,error:'AVIASALES_DATA_TOKEN_NOT_CONFIGURED',detail:'Use authenticated cache ingestion from the existing Aviasales integration.'},503);
  const query=await request.json().catch(()=>null);
  if(!validPair(query))return json({ok:false,error:'INVALID_SEARCH'},400);
  const db=env.FLIGHTS_DB,key=`${query.origin.toUpperCase()}|${query.destination.toUpperCase()}|${query.departure_date}`;
@@ -82,7 +83,7 @@ export async function searchAviasales(request,env,{fetcher=fetch}={}){
  try{
   const u=new URL('https://api.travelpayouts.com/aviasales/v3/prices_for_dates');
   for(const [k,v] of Object.entries({origin:query.origin.toUpperCase(),destination:query.destination.toUpperCase(),departure_at:query.departure_date,one_way:'true',direct:'false',currency:'usd',limit:'30'}))u.searchParams.set(k,v);
-  const response=await fetcher(u.toString(),{headers:{'X-Access-Token':env.AVIASALES_DATA_TOKEN,'Accept':'application/json'}});
+  const response=await fetcher(u.toString(),{headers:{'X-Access-Token':aviasalesToken,'Accept':'application/json'}});
   if(!response.ok)throw Error('AVIASALES_HTTP_'+response.status);
   const payload=await response.json();
   const out=await importAviasalesCache(db,payload);
@@ -133,7 +134,19 @@ export async function scheduledIgnavSweep(env,importDirect,{fetcher=fetch}={}) {
  const near=candidates.filter(x=>x.offset<=7).sort(sort);
  const far=candidates.filter(x=>x.offset>7).sort(sort);
  const cap=Math.min(remaining,60);
- const selected=[...near.slice(0,Math.min(20,cap)),...far.slice(0,Math.max(0,cap-20))];
+ // Reserve part of the existing budget for catalog flights without a fresh
+ // exact price. This is an authorized API fallback, not an airline-site bypass.
+ const missing=await db.prepare(`SELECT f.origin,f.destination,f.departure_date
+   FROM flights f WHERE f.departure_date BETWEEN date('now','+5 hours') AND date('now','+5 hours','+30 days')
+   AND NOT EXISTS (SELECT 1 FROM flight_offers o WHERE o.flight_id=f.id
+     AND o.provider IN ('ignav','centrum','uzbekistan','flynas') AND julianday(o.checked_at)>=julianday('now',CASE WHEN o.provider='ignav' THEN '-4 hours' ELSE '-24 hours' END)
+     AND (o.expires_at IS NULL OR julianday(o.expires_at)>julianday('now')))
+   GROUP BY f.origin,f.destination,f.departure_date ORDER BY f.departure_date LIMIT 300`).all();
+ const priorityKeys=new Set((missing.results||[]).map(f=>`${f.origin}|${f.destination}|${f.departure_date}`));
+ const priority=candidates.filter(x=>priorityKeys.has(x.search_key)).sort(sort).slice(0,Math.min(20,cap));
+ const used=new Set(priority.map(x=>x.search_key));
+ const remainingCap=cap-priority.length,nearCap=Math.min(20,remainingCap);
+ const selected=[...priority,...near.filter(x=>!used.has(x.search_key)).slice(0,nearCap),...far.filter(x=>!used.has(x.search_key)).slice(0,remainingCap-nearCap)];
  if(selected.length<cap){
   const selectedKeys=new Set(selected.map(x=>x.search_key));
   selected.push(...[...near,...far].filter(x=>!selectedKeys.has(x.search_key)).slice(0,cap-selected.length));

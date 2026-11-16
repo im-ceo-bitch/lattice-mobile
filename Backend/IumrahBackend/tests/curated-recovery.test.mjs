@@ -1,0 +1,11 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import {DatabaseSync} from 'node:sqlite';
+import {recoverCurated} from '../scripts/recover-curated-flights.mjs';
+const ddl=fs.readFileSync(new URL('../scripts/curated-recovery-schema.sql',import.meta.url),'utf8');
+const now=new Date('2026-11-16T08:00:00Z');
+function db(create=true){const raw=new DatabaseSync(':memory:');if(create)raw.exec(ddl);return {raw,query:async(sql,params=[])=>{const p=raw.prepare(sql);if(/^(SELECT|PRAGMA)/i.test(sql))return p.all(...params);p.run(...params);return [];}};}
+function add(raw,id,day='2026-11-20',published=1){const i={legs:[{flight_number:'C6401',origin:'TAS',destination:'JED',departure_at:day+'T09:00:00+05:00',arrival_at:day+'T12:00:00+03:00'}]};raw.prepare(`INSERT INTO curated_flight_offers(id,source_candidate_id,outbound_origin,outbound_destination,outbound_date,itinerary_json,total_fare,per_traveler_fare,currency,traveler_count,observed_at,published,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id,id,'TAS','JED',day,JSON.stringify(i),200,200,'USD',1,now.toISOString(),published,now.toISOString(),now.toISOString());}
+test('diagnose is read-only; restore only active approved records; resume safely',async()=>{const s=db(),t=db(false);add(s.raw,'keep');add(s.raw,'expired','2026-11-15');add(s.raw,'draft','2026-11-20',0);const options={source:s.query,target:t.query,now};assert.equal((await recoverCurated(options)).eligible,1);assert.equal(t.raw.prepare("SELECT count(*) n FROM sqlite_master WHERE name='curated_flight_offers'").get().n,0);assert.equal((await recoverCurated({...options,apply:true})).copied,1);assert.equal(t.raw.prepare('SELECT id FROM curated_flight_offers').get().id,'keep');assert.equal((await recoverCurated({...options,apply:true})).copied,0);assert.equal(s.raw.prepare('SELECT count(*) n FROM curated_flight_offers').get().n,3);s.raw.close();t.raw.close();});
+test('never overwrite a populated independent destination',async()=>{const s=db(),t=db();add(s.raw,'source');add(t.raw,'target');await assert.rejects(recoverCurated({source:s.query,target:t.query,apply:true,now}),/TARGET_NOT_EMPTY_OR_CHANGED/);assert.equal(t.raw.prepare('SELECT id FROM curated_flight_offers').get().id,'target');s.raw.close();t.raw.close();});

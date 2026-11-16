@@ -13,7 +13,7 @@ import { hotelPricingSources } from "./hotel-pricing-sources";
 import { handleClientAccountSecurity } from "./client-account-security";
 import { handlePublicIdentityRequest } from "./public-identity";
 import { cleanupExpiredFlightCache, flightCalendarResponse } from "./flight-cache";
-import { deleteCuratedFlightAdmin, listCuratedFlightsAdmin, publicCuratedFlightRecommendations, resolvePublicCuratedFlightRecommendation, saveCuratedFlightAdmin } from "./curated-flights";
+import { deleteCuratedFlightAdmin, exportPublishedFlightsAdmin, listCuratedFlightsAdmin, publicCuratedFlightRecommendations, resolvePublicCuratedFlightRecommendation, saveCuratedFlightAdmin } from "./curated-flights";
 import { appleAppSiteAssociation, hotelWebFallback, publicStorefrontFlightBoard } from "./storefront";
 import { generatePackageQuote, generateStorefrontPackageQuote } from "./package-search";
 import { commitPackageQuoteReport } from "./booking-gateway";
@@ -126,8 +126,13 @@ export default {
       }
 
       if (url.pathname === "/api/admin/package/flights/curated") {
-        if (request.method === "GET") return listCuratedFlightsAdmin(env.HOTELS_DB);
+        if (request.method === "GET") return listCuratedFlightsAdmin(env.HOTELS_DB, env.BOOKINGS_DB);
         if (request.method === "POST") return saveCuratedFlightAdmin(request, env.HOTELS_DB, auth.user.login ?? auth.user.email ?? auth.user.id ?? "staff");
+        return json({ ok: false, error: "METHOD_NOT_ALLOWED" }, 405);
+      }
+
+      if (url.pathname === "/api/admin/package/flights/curated/export") {
+        if (request.method === "GET") return exportPublishedFlightsAdmin(env.HOTELS_DB, env.BOOKINGS_DB, auth.user.login ?? "");
         return json({ ok: false, error: "METHOD_NOT_ALLOWED" }, 405);
       }
 

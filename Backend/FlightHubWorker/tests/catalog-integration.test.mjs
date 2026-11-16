@@ -116,3 +116,15 @@ test('scheduled cleanup preserves historical flight audit while retaining active
  assert.equal(db.raw.prepare('SELECT COUNT(*) n FROM price_history').get().n,1);
  db.raw.close();
 });
+
+test('monitor checkpoints persist before terminal report and aggregate accepted counts',async()=>{
+ const db=makeDB(),env={FLIGHTS_DB:db,ADMIN_TOKEN:'admin',BOT_INGEST_TOKEN:'bot'};
+ const run_id='a'.repeat(32);
+ await call(env,'/v1/ingest/legacy_import','POST',{records:[{...record(),amount_minor:undefined}],status:'ok'},'admin');
+ const part=await call(env,'/v1/ingest/centrum','POST',{records:[record()],attempts:[],status:'started',run_id,message:'Checkpoint'},'bot');
+ assert.equal(part.json.accepted,1);assert.equal(db.raw.prepare('SELECT COUNT(*) n FROM flight_offers').get().n,1);
+ const end=await call(env,'/v1/ingest/centrum','POST',{records:[],attempts:[],status:'partial',run_id,message:'Terminal'},'bot');
+ assert.equal(end.code,200);assert.equal(end.json.accepted,1);assert.equal(end.json.status,'partial');
+ assert.equal((await call(env,'/v1/public/status')).json.sources.find(s=>s.name==='centrum').last_run.accepted,1);
+ db.raw.close();
+});

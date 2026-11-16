@@ -15,8 +15,23 @@ extension APIClient {
     func curatedFlights() async throws -> [BusinessCuratedFlightOffer] {
         let url = AppConfig.apiBaseURL.appending(path: "/api/admin/package/flights/curated")
         let (data, response) = try await perform(from: url)
+        if let http = response as? HTTPURLResponse, http.statusCode == 409,
+           let problem = try? JSONDecoder().decode(CuratedCatalogProblem.self, from: data),
+           problem.error == "CURATED_CATALOG_MIGRATION_REQUIRED" {
+            throw problem
+        }
         try validate(response, data: data)
         return try decoder.decode(BusinessCuratedFlightsResponse.self, from: data).offers
+    }
+
+    func exportPublishedFlights() async throws -> Data {
+        let url = AppConfig.apiBaseURL.appending(path: "/api/admin/package/flights/curated/export")
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 25
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        let (data, response) = try await perform(request)
+        try validate(response, data: data)
+        return data
     }
 
     func publishCuratedFlight(_ itinerary: BusinessFlightCurationItinerary, travelerCount: Int, priority: Int = 100) async throws -> BusinessCuratedFlightOffer? {
@@ -42,5 +57,13 @@ extension APIClient {
         let (data, response) = try await perform(request)
         try validate(response, data: data)
         _ = try? decoder.decode(BusinessCuratedFlightDeleteResponse.self, from: data)
+    }
+}
+
+private struct CuratedCatalogProblem: Decodable, LocalizedError {
+    let error: String
+    let legacyCount: Int?
+    var errorDescription: String? {
+        "Найдены опубликованные рейсы в старой базе iumrah-core (\(legacyCount ?? 0)). Требуется восстановление каталога в iumrah-hotels."
     }
 }

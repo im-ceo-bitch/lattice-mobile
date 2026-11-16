@@ -1,9 +1,11 @@
 import Foundation
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 struct FlightCurationView: View {
     var tabMode = false
+    @EnvironmentObject private var auth: AuthStore
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.businessAdaptiveLayout) private var layout
@@ -261,6 +263,14 @@ struct FlightCurationView: View {
     @State private var isFlightSyncing = false
     @State private var flightSyncMessage: String?
     @State private var flightSyncSavedCount: Int?
+    @State private var isLoadingPublished = false
+    @State private var publishedLoadWarning: String?
+    @State private var flightBackup: PublishedFlightBackup?
+    @State private var isFetchingFlightBackup = false
+    @State private var flightBackupMessage: String?
+    @State private var flightBackupDocument: PublishedFlightsJSONDocument?
+    @State private var flightBackupFilename = "iumrah-published-flights"
+    @State private var showFlightBackupExporter = false
 
     private enum FlightSyncProtectionError: LocalizedError {
         case emptyPublished
@@ -327,13 +337,10 @@ struct FlightCurationView: View {
             if UserDefaults.standard.string(forKey: "iumrah.price.pendingFlightKey") != nil {
                 workspace = .monitor
             }
+            if let login = auth.user?.login { flightBackup = PublishedFlightBackup.cached(owner: login) }
             flightSyncURL = BusinessSessionVault.flightSyncAccessURL
             await restoreFlightSyncAccess()
             await loadPublished()
-        }
-        .onChange(of: published) { _, _ in
-            guard flightSyncURL != nil else { return }
-            Task { await syncFlightSnapshot(silent: true) }
         }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
@@ -343,6 +350,13 @@ struct FlightCurationView: View {
             results = []
             hasSearched = false
             searchDiagnostics = nil
+        }
+        .fileExporter(isPresented: $showFlightBackupExporter, document: flightBackupDocument,
+                      contentType: .json, defaultFilename: flightBackupFilename) { result in
+            switch result {
+            case .success: flightBackupMessage = "JSON-файл сохранён. Его можно отправить или открыть в приложении «Файлы»."
+            case .failure(let error): flightBackupMessage = "Не удалось сохранить файл: \(error.localizedDescription)"
+            }
         }
         .alert("Не удалось выполнить действие", isPresented: Binding(
             get: { errorMessage != nil },
@@ -1183,12 +1197,27 @@ struct FlightCurationView: View {
                         .font(.caption.bold())
                         .foregroundStyle(.secondary)
                 }
+                Button {
+                    Task { await loadPublished() }
+                } label: {
+                    if isLoadingPublished { ProgressView() }
+                    else { Image(systemName: "arrow.clockwise") }
+                }
+                .disabled(isLoadingPublished)
+                .accessibilityLabel("Обновить опубликованные рейсы")
             }
 
+            publishedFlightBackupCard
             flightSyncCard
 
-            if published.isEmpty {
-                Text("Пока ничего не опубликовано. Выберите подходящий результат — он появится в клиентском блоке актуальных рейсов.")
+            if let publishedLoadWarning {
+                Label(publishedLoadWarning, systemImage: "exclamationmark.circle")
+                    .font(.caption).foregroundStyle(.orange)
+            }
+            if isLoadingPublished && published.isEmpty {
+                ProgressView().frame(maxWidth: .infinity)
+            } else if published.isEmpty {
+                Text(publishedLoadWarning == nil ? "Пока ничего не опубликовано. Выберите подходящий результат — он появится в клиентском блоке актуальных рейсов." : "Каталог временно недоступен. Повторите обновление после проверки сервера.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .padding(17)
@@ -1238,6 +1267,7 @@ struct FlightCurationView: View {
                                     .background(Color.red.opacity(0.08), in: Circle())
                             }
                             .buttonStyle(.plain)
+                            .disabled(publishedLoadWarning != nil || isLoadingPublished)
                         }
 
                         if offer.itinerary?.fareScope?.lowercased() == "charter",
@@ -1261,6 +1291,106 @@ struct FlightCurationView: View {
                     .background(BusinessDesign.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(BusinessDesign.line))
                 }
+            }
+        }
+    }
+
+    private var publishedFlightBackupCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                Image(systemName: "doc.badge.arrow.down")
+                    .font(.title2)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Резервная копия рейсов")
+                        .font(.headline)
+                    Text("Все опубликованные записи в JSON. Не зависит от ChatGPT Sync.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+            }
+            if let backup = flightBackup {
+                Text("Сохранено: \(backup.count) рейсов · \(backup.sourceLabel)\nДанные: \(backup.dataDate)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Button {
+                Task { await refreshPublishedFlightBackup(exportFile: true) }
+            } label: {
+                HStack {
+                    if isFetchingFlightBackup { ProgressView().controlSize(.small).tint(.white) }
+                    else { Image(systemName: "arrow.down.document") }
+                    Text("Скачать JSON")
+                    Spacer()
+                }
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 14)
+                .frame(height: 46)
+                .background(Color.black, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .disabled(isFetchingFlightBackup || showFlightBackupExporter)
+            if let backup = flightBackup {
+                Button {
+                    presentPublishedFlightBackup(backup, local: true)
+                } label: {
+                    Label("Скачать сохранённую копию", systemImage: "clock.arrow.circlepath")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 44)
+                        .background(BusinessDesign.secondarySurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .disabled(showFlightBackupExporter)
+            }
+            if let flightBackupMessage {
+                Text(flightBackupMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(16)
+        .background(BusinessDesign.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(BusinessDesign.line))
+    }
+
+    @MainActor
+    private func presentPublishedFlightBackup(_ backup: PublishedFlightBackup, local: Bool) {
+        guard auth.state == .signedIn, auth.user != nil, !showFlightBackupExporter else { return }
+        flightBackupDocument = PublishedFlightsJSONDocument(data: backup.data)
+        flightBackupFilename = backup.filename
+        flightBackupMessage = "\(local ? "Сохранённая копия" : backup.sourceLabel): \(backup.count) рейсов. Цены и наличие требуют повторной проверки."
+        showFlightBackupExporter = true
+    }
+
+    @MainActor
+    private func refreshPublishedFlightBackup(exportFile: Bool) async {
+        guard !isFetchingFlightBackup, let owner = auth.user?.login,
+              let token = BusinessSessionVault.sessionToken else { return }
+        isFetchingFlightBackup = true
+        defer { isFetchingFlightBackup = false }
+        do {
+            let data = try await api.exportPublishedFlights()
+            guard auth.state == .signedIn, auth.user?.login == owner, BusinessSessionVault.sessionToken == token else { return }
+            let backup = try PublishedFlightBackup(data: data)
+            do {
+                try backup.save(owner: owner)
+                flightBackup = PublishedFlightBackup.cached(owner: owner) ?? backup
+            } catch {
+                // A filesystem error must not prevent manual export of valid data.
+                flightBackupMessage = "JSON получен, но локальная копия не сохранена: \(error.localizedDescription)"
+            }
+            if exportFile { presentPublishedFlightBackup(backup, local: false) }
+        } catch {
+            guard auth.state == .signedIn, auth.user?.login == owner, BusinessSessionVault.sessionToken == token else { return }
+            if let saved = PublishedFlightBackup.cached(owner: owner) {
+                flightBackup = saved
+                if exportFile { presentPublishedFlightBackup(saved, local: true) }
+            } else if exportFile {
+                flightBackupMessage = "Не удалось получить рейсы. Сохранённой копии пока нет: \(error.localizedDescription)"
             }
         }
     }
@@ -1901,11 +2031,8 @@ struct FlightCurationView: View {
         }
 
         selectedBatchResultKeys.subtract(successfulKeys)
-        do {
-            published = try await api.curatedFlights()
-        } catch {
-            failures.append(error.localizedDescription)
-        }
+        await loadPublished()
+        if let publishedLoadWarning { failures.append(publishedLoadWarning) }
 
         if !failures.isEmpty {
             errorMessage = failures.prefix(3).joined(separator: "\n")
@@ -2065,7 +2192,7 @@ struct FlightCurationView: View {
         defer { publishingIDs.remove(itinerary.id) }
         do {
             _ = try await api.publishCuratedFlight(itinerary, travelerCount: 1)
-            published = try await api.curatedFlights()
+            await loadPublished()
             selectedCharterIDs.remove(itinerary.id)
         } catch {
             errorMessage = error.localizedDescription
@@ -2097,11 +2224,8 @@ struct FlightCurationView: View {
         }
 
         selectedCharterIDs.subtract(successful)
-        do {
-            published = try await api.curatedFlights()
-        } catch {
-            failures.append(error.localizedDescription)
-        }
+        await loadPublished()
+        if let publishedLoadWarning { failures.append(publishedLoadWarning) }
         if !failures.isEmpty {
             errorMessage = failures.prefix(3).joined(separator: "\n")
         }
@@ -2226,30 +2350,35 @@ struct FlightCurationView: View {
 
     @MainActor
     private func loadPublished() async {
+        guard !isLoadingPublished else { return }
+        isLoadingPublished = true
+        defer { isLoadingPublished = false }
         do {
-            var offers = try await api.curatedFlights()
-            let expired = offers.filter(isExpiredPublishedOffer)
-            if !expired.isEmpty {
-                for offer in expired {
-                    try? await api.deleteCuratedFlight(id: offer.id)
+            let offers = try await api.curatedFlights()
+            let current = offers.filter { $0.published && !isExpiredPublishedOffer($0) }
+            // Never delete server records during a read/foreground refresh.
+            // An unexpected empty response must not erase the current UI.
+            if current.isEmpty && (!published.isEmpty || (flightSyncSavedCount ?? 0) > 0) {
+                published = published.filter { !isExpiredPublishedOffer($0) }
+                publishedLoadWarning = "Сервер вернул пустой каталог. Показаны последние доступные данные; требуется проверка базы."
+            } else {
+                publishedLoadWarning = nil
+                published = current
+                if flightSyncURL != nil && !published.isEmpty {
+                    await syncFlightSnapshot(silent: true)
                 }
-                offers = try await api.curatedFlights()
-            }
-            published = offers.filter { !isExpiredPublishedOffer($0) }
-            // A foreground refresh must also heal a stale/empty public feed
-            // when the in-memory array is unchanged (onChange won't fire).
-            if flightSyncURL != nil && !published.isEmpty {
-                await syncFlightSnapshot(silent: true)
             }
         } catch {
-            errorMessage = error.localizedDescription
+            publishedLoadWarning = "Не удалось обновить каталог: \(error.localizedDescription). Последние загруженные данные сохранены."
         }
+        // Independent of sync success, including the zero-catalog/migration case.
+        await refreshPublishedFlightBackup(exportFile: false)
     }
 
     private func isExpiredPublishedOffer(_ offer: BusinessCuratedFlightOffer) -> Bool {
-        let rawDay = String(offer.outboundDate.prefix(10))
-        guard rawDay.count == 10, Self.apiDay.date(from: rawDay) != nil else { return false }
-        return rawDay < Self.apiDay.string(from: Date())
+        let today = Self.catalogDay.string(from: Date())
+        let days = [offer.outboundDate, offer.inboundDate].compactMap { $0 }.map { String($0.prefix(10)) }
+        return days.contains { $0.count == 10 && Self.catalogDay.date(from: $0) != nil && $0 < today }
     }
 
     @MainActor
@@ -2258,7 +2387,7 @@ struct FlightCurationView: View {
         defer { publishingIDs.remove(itinerary.id) }
         do {
             _ = try await api.publishCuratedFlight(itinerary, travelerCount: adults)
-            published = try await api.curatedFlights()
+            await loadPublished()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -2269,6 +2398,7 @@ struct FlightCurationView: View {
         do {
             try await api.deleteCuratedFlight(id: offer.id)
             published.removeAll { $0.id == offer.id }
+            await loadPublished()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -2302,7 +2432,7 @@ struct FlightCurationView: View {
         // again immediately before every write. An API failure throws and leaves
         // the previous feed untouched.
         let offers = try await api.curatedFlights()
-        let current = offers.filter { !isExpiredPublishedOffer($0) }
+        let current = offers.filter { $0.published && !isExpiredPublishedOffer($0) }
         guard !current.isEmpty else { throw FlightSyncProtectionError.emptyPublished }
         return current
     }
@@ -2324,6 +2454,8 @@ struct FlightCurationView: View {
             let actualOffers = try await freshFlightSyncOffers()
             let snapshot = try await api.saveFlightSyncSnapshot(offers: actualOffers)
             flightSyncSavedCount = snapshot.flightCount
+            published = actualOffers
+            publishedLoadWarning = nil
             UIPasteboard.general.string = url.appendingPathExtension("json").absoluteString
             flightSyncMessage = "Готово: \(snapshot.flightCount) рейсов синхронизировано. Прямая JSON-ссылка скопирована для ChatGPT."
         } catch {
@@ -2340,6 +2472,8 @@ struct FlightCurationView: View {
             let actualOffers = try await freshFlightSyncOffers()
             let snapshot = try await api.saveFlightSyncSnapshot(offers: actualOffers)
             flightSyncSavedCount = snapshot.flightCount
+            published = actualOffers
+            publishedLoadWarning = nil
             if !silent {
                 flightSyncMessage = "Синхронизировано: \(snapshot.flightCount) опубликованных рейсов."
             } else {
@@ -2507,6 +2641,15 @@ struct FlightCurationView: View {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withColonSeparatorInTimeZone]
         return formatter
+    }()
+
+    private static let catalogDay: DateFormatter = {
+        let f = DateFormatter()
+        f.calendar = Calendar(identifier: .gregorian)
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(identifier: "Asia/Tashkent")
+        f.dateFormat = "yyyy-MM-dd"
+        return f
     }()
 
     private static let apiDay: DateFormatter = {

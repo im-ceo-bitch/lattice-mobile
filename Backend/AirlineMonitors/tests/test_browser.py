@@ -50,6 +50,33 @@ class BrowserAdapterTests(unittest.TestCase):
         with self.assertRaisesRegex(browser.SiteChanged, 'CONTROL_NOT_VISIBLE'):
             browser.first_visible(_Page(_Delayed(999)), ['input[missing]'], timeout=5)
 
+    def test_calendar_navigates_to_exact_date_and_never_clicks_bare_day(self):
+        from datetime import date
+        from unittest.mock import Mock
+        field, next_month, exact = Mock(), Mock(), Mock()
+        field.get_attribute.side_effect = lambda key: 'readonly' if key == 'readonly' else 'text'
+        next_month.is_enabled.return_value = True
+        exact.is_enabled.return_value = True
+        exact.get_attribute.return_value = None
+        with patch.object(browser, 'first_visible', side_effect=[field, browser.SiteChanged('not this month'), next_month, exact]) as visible:
+            browser.select_departure_date(object(), ['input'], date(2026, 12, 14))
+        next_month.click.assert_called_once()
+        exact.click.assert_called_once()
+        options = visible.call_args_list[-1].args[1]
+        self.assertIn('[data-date="2026-12-14"]', options)
+        self.assertNotIn('button:text-is("14")', options)
+
+    def test_disabled_exact_day_is_not_published_as_no_fare(self):
+        from datetime import date
+        from unittest.mock import Mock
+        field, exact = Mock(), Mock()
+        field.get_attribute.side_effect = lambda key: 'readonly' if key == 'readonly' else 'text'
+        exact.is_enabled.return_value = False
+        with patch.object(browser, 'first_visible', side_effect=[field, exact]):
+            with self.assertRaisesRegex(browser.SiteChanged, 'DATE_EXACT_DAY_DISABLED'):
+                browser.select_departure_date(object(), ['input'], date(2026, 12, 14))
+        exact.click.assert_not_called()
+
     def test_official_flynas_url_is_search_page_not_info_page(self):
         config = Path(__file__).resolve().parents[1] / 'config' / 'flynas.json'
         self.assertEqual(json.loads(config.read_text())['booking_url'], 'https://www.flynas.com/en/flights')

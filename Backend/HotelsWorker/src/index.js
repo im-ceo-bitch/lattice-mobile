@@ -3014,7 +3014,25 @@ async function saveBusinessFlightSyncSnapshot(request, env, user) {
     return json({ ok: false, error: 'FLIGHT_SYNC_EMPTY_SNAPSHOT_REJECTED', previousCount }, 409);
   }
   if (previousCount >= 10 && flights.length < previousCount / 2) {
-    return json({ ok: false, error: 'FLIGHT_SYNC_SUSPICIOUS_COUNT_DROP', previousCount, receivedCount: flights.length }, 409);
+    // Expired flights or explicit deletions can legitimately shrink a feed.
+    // Accept the smaller non-empty list ONLY if every ID and fare matches the
+    // full current server-side published catalog. On any DB error keep the old snapshot.
+    let verified = false;
+    if (flights.length > 0) {
+      try {
+        const today = new Date(Date.now() + 5 * 3600000).toISOString().slice(0,10);
+        const result = await env.HOTELS_DB.prepare(`SELECT id, outbound_origin, outbound_destination, outbound_date, per_traveler_fare, currency, observed_at
+          FROM curated_flight_offers WHERE published=1 AND outbound_date>=? AND (inbound_date IS NULL OR inbound_date>=?) LIMIT 501`).bind(today,today).all();
+        const rows = result.results || [];
+        const byID = new Map(rows.map(row => [row.id, row]));
+        verified = rows.length === flights.length && new Set(flights.map(f => f.id)).size === flights.length && flights.every(f => {
+          const row = byID.get(f.id);
+          return row && row.outbound_origin === f.from && row.outbound_destination === f.to && row.outbound_date === f.date &&
+            Number(row.per_traveler_fare) === f.price.amount && row.currency === f.price.currency && row.observed_at === f.observed_at;
+        });
+      } catch { /* no canonical proof: preserve old snapshot */ }
+    }
+    if (!verified) return json({ ok: false, error: 'FLIGHT_SYNC_SUSPICIOUS_COUNT_DROP', previousCount, receivedCount: flights.length }, 409);
   }
 
   const now = new Date().toISOString();

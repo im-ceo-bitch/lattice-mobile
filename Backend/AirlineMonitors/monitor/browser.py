@@ -155,31 +155,56 @@ def select_departure_date(page, candidates, target):
             try:
                 field.fill(text)
                 field.press('Tab')
-                if text in field.input_value():
+                if text == field.input_value():
                     return
             except Exception:
                 continue
     field.click()
-    # Only click dates whose accessibility metadata contains the full date.
-    # Selecting the day number alone can silently select the wrong month.
+    # Exact date metadata only; never select a bare day number. Some calendars
+    # render the next month only after an explicit navigation click.
     month = target.strftime('%B')
     year = target.year
     day = target.day
     ru_months = ['января','февраля','марта','апреля','мая','июня',
                  'июля','августа','сентября','октября','ноября','декабря']
-    day_long = f'{month} {day}, {year}'
-    day_long2 = f'{day} {month} {year}'
     ru_long = f'{day} {ru_months[target.month-1]} {year}'
-    options = [
-        f'[data-date="{fmt}"]', f'[data-day="{fmt}"]',
-        f'[aria-label*="{fmt}"]', f'[title*="{fmt}"]',
-        f'[aria-label*="{day_long}"]', f'[aria-label*="{day_long2}"]',
-        f'[aria-label*="{ru_long}"]', f'[title*="{day_long}"]',
-    ]
-    try:
-        first_visible(page, options, timeout=3500).click()
-    except SiteChanged as exc:
-        raise SiteChanged(f'DATE_EXACT_DAY_NOT_FOUND target={fmt}; booking calendar needs calibration') from exc
+    forms = [fmt, f'{month} {day}, {year}', f'{day} {month} {year}',
+             f'{month} {day} {year}', ru_long, target.strftime('%d.%m.%Y'),
+             target.strftime('%d/%m/%Y'), f'{day:02d} {month} {year}']
+    options = [f'[{attr}="{value}"]' for attr in ('data-date','data-day','data-value','datetime') for value in forms]
+    options += [f'[{attr}="{value}"]' for attr in ('aria-label','title') for value in forms]
+    options += [f'[{attr}$=", {value}"]' for attr in ('aria-label','title') for value in forms]
+    ordinal = 'th' if 11 <= day % 100 <= 13 else {1:'st',2:'nd',3:'rd'}.get(day % 10,'th')
+    english_picker = f'Choose {target.strftime("%A")}, {month} {day}{ordinal}, {year}'
+    options.append(f'[aria-label="{english_picker}"]')
+    # jQuery UI explicitly labels each cell with zero-based month and year.
+    options.append(f'.ui-datepicker-calendar td[data-year="{year}"][data-month="{target.month-1}"] a:text-is("{day}")')
+    # Datepicker implementations commonly use YYYY-MM-DDT00:00:00 attributes.
+    options += [f'[{attr}^="{fmt}T"]' for attr in ('data-date','data-day','data-value','datetime')]
+    nav = ['button[aria-label="Next month" i]', 'button[aria-label="Следующий месяц" i]',
+           'button[title="Next month" i]', 'button[title="Следующий месяц" i]',
+           '[data-testid="calendar-next"]', '.react-datepicker__navigation--next',
+           '.ui-datepicker-next', '.flatpickr-next-month', '.rdp-button_next',
+           'button[aria-label="Go to next month" i]']
+    for step in range(3):
+        try:
+            candidate = first_visible(page, options, timeout=2500)
+        except SiteChanged:
+            if step == 2: break
+            try:
+                next_button = first_visible(page, nav, timeout=1000)
+                if not next_button.is_enabled(): break
+                next_button.click(timeout=1500)
+            except Exception:
+                break
+            continue
+        # Disabled dates are not evidence of a zero fare. A selector match is
+        # not sufficient when the widget refuses the interaction.
+        if not candidate.is_enabled() or candidate.get_attribute('aria-disabled') == 'true':
+            raise SiteChanged(f'DATE_EXACT_DAY_DISABLED target={fmt}')
+        candidate.click(timeout=3500)
+        return
+    raise SiteChanged(f'DATE_EXACT_DAY_NOT_FOUND target={fmt}; booking calendar needs calibration')
 
 
 def _read_results(page, settings, timeout_ms=19000):

@@ -308,15 +308,119 @@ function mapAdminRow(row: CuratedRow) {
   };
 }
 
-export async function listCuratedFlightsAdmin(db: D1Like | undefined): Promise<Response> {
+// Independent, read-only backup: no schema initialization, synchronization,
+// publication or deletion. Includes every row marked published, even past dates.
+async function readPublishedBackupRows(db: D1Like): Promise<CuratedRow[]> {
+  const table = await db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='curated_flight_offers'").first<{name: string}>();
+  if (!table) return [];
+  const rows: CuratedRow[] = [];
+  let cursor: string | null = null;
+  for (;;) {
+    const query = cursor === null
+      ? db.prepare("SELECT * FROM curated_flight_offers WHERE published=1 ORDER BY id ASC LIMIT 200")
+      : db.prepare("SELECT * FROM curated_flight_offers WHERE published=1 AND id>? ORDER BY id ASC LIMIT 200").bind(cursor);
+    const page: D1LikeResult = await query.all<CuratedRow>();
+    if (page.success === false || !Array.isArray(page.results)) throw Error("FLIGHT_EXPORT_READ_FAILED");
+    const batch = page.results;
+    rows.push(...batch);
+    if (batch.length < 200) return rows;
+    const next: string = batch[batch.length - 1].id;
+    if (!next || next === cursor) throw Error("FLIGHT_EXPORT_CURSOR_FAILED");
+    cursor = next;
+  }
+}
+
+type D1LikeResult = { results?: CuratedRow[]; success?: boolean };
+
+function backupFlight(row: CuratedRow, today: string) {
+  const offer = mapAdminRow(row);
+  const itinerary = offer.itinerary as (CuratedItinerary & { price_type?: string; source_url?: string }) | null;
+  const normalized = normalizeItinerary(itinerary);
+  const offerType = normalized ? canonicalOfferType(normalized, row.offer_type) : row.offer_type || itinerary?.offer_type || (itinerary?.legs?.length === 1 ? "one_way" : "paired_one_way");
+  const journeyRole = normalized ? canonicalJourneyRole(normalized, offerType, row.journey_role) : row.journey_role || itinerary?.journey_role || (offerType === "one_way" ? "outbound" : "complete");
+  const numbers = offer.flightNumbers.map(n => n.toUpperCase().replace(/\s+/g, ""));
+  const comparisonKey = offerType === "one_way"
+    ? [row.outbound_origin, row.outbound_destination, numbers[0] || itinerary?.legs?.[0]?.flight_number || "UNKNOWN", row.outbound_date].join("-")
+    : (normalized ? curatedFingerprint(normalized) : row.fingerprint) || row.id;
+  return {
+    id: row.id, comparison_key: comparisonKey, from: row.outbound_origin, to: row.outbound_destination,
+    date: row.outbound_date, inbound_date: row.inbound_date, inbound_from: row.inbound_origin, inbound_to: row.inbound_destination,
+    airline_codes: offer.airlineCodes, airline_names: offer.airlineNames, flight_numbers: numbers,
+    offer_type: offerType, journey_role: journeyRole, fare_scope: itinerary?.fare_scope ?? null,
+    price_type: itinerary?.price_type ?? null, price: {amount: offer.perTravelerFare, currency: row.currency},
+    observed_at: row.observed_at, legs: itinerary?.legs ?? [], itinerary,
+    total_fare: offer.totalFare, traveler_count: offer.travelerCount, priority: offer.priority,
+    source_candidate_id: row.source_candidate_id, source_provider: row.source_provider,
+    cabin_class: row.cabin_class, fingerprint: row.fingerprint, published: true,
+    updated_at: row.updated_at, created_at: row.created_at,
+    expired: row.outbound_date < today || Boolean(row.inbound_date && row.inbound_date < today),
+  };
+}
+
+export async function exportPublishedFlightsAdmin(db: D1Like | undefined, legacyDB: D1Like | undefined, login: string): Promise<Response> {
+  const now = new Date().toISOString();
+  const today = new Date(Date.now() + 5 * 3600000).toISOString().slice(0, 10);
+  const response = (flights: unknown[], source: string, snapshotUpdatedAt: string | null = null) => {
+    return new Response(JSON.stringify({
+      ok: true, type: "iumrah_business_published_flights", version: 1, read_only: true,
+      export_source: source, exported_at: now, updated_at: snapshotUpdatedAt || now,
+      snapshot_updated_at: snapshotUpdatedAt, flight_count: flights.length,
+      sync_state: source === "canonical_database" ? "ready" : "backup",
+      scope: source === "saved_sync_snapshot" ? "last_saved_snapshot" : "all_rows_marked_published",
+      requires_price_recheck: true, flights,
+    }, null, 2) + "\n", {headers: {
+      "content-type": "application/json; charset=utf-8", "cache-control": "no-store",
+      "content-disposition": 'attachment; filename="iumrah-published-flights.json"',
+      "x-content-type-options": "nosniff",
+    }});
+  };
+  // Prefer current source of truth; never combine old and new catalogues, as
+  // the legacy one may contain deleted/replaced offers.
+  for (const [candidate, source] of [[db, "canonical_database"], [legacyDB === db ? undefined : legacyDB, "legacy_database"]] as const) {
+    if (!candidate) continue;
+    try {
+      const rows = await readPublishedBackupRows(candidate);
+      if (rows.length) return response(rows.map(row => backupFlight(row, today)), source);
+    } catch (error) { console.warn("FLIGHT_EXPORT_DATABASE_READ_FAILED", source, String(error)); }
+  }
+  // The previous sync snapshot is independent of the current curated table and
+  // belongs to the authenticated staff login. No public URL/token is necessary.
+  const owner = login.trim().toLowerCase();
+  for (const candidate of [db, legacyDB === db ? undefined : legacyDB]) {
+    if (!candidate || !owner) continue;
+    try {
+      const row = await candidate.prepare("SELECT snapshot_json, snapshot_updated_at FROM business_flight_sync_feeds WHERE owner_login=? LIMIT 1")
+        .bind(owner).first<{snapshot_json: string; snapshot_updated_at: string | null}>();
+      if (row?.snapshot_updated_at) {
+        const parsed = JSON.parse(row.snapshot_json) as {flights?: unknown[]};
+        if (Array.isArray(parsed.flights) && parsed.flights.length && parsed.flights.every(f => f && typeof f === "object" && typeof (f as {id?: unknown}).id === "string")) {
+          return response(parsed.flights, "saved_sync_snapshot", row.snapshot_updated_at);
+        }
+      }
+    } catch (error) { console.warn("FLIGHT_EXPORT_SNAPSHOT_READ_FAILED", String(error)); }
+  }
+  return json({ok: false, error: "PUBLISHED_FLIGHTS_BACKUP_UNAVAILABLE"}, 503);
+}
+
+export async function listCuratedFlightsAdmin(db: D1Like | undefined, legacyDB?: D1Like): Promise<Response> {
   if (!db) return json({ ok: false, error: "HOTELS_DB_NOT_CONFIGURED" }, 503);
   await ensureCuratedFlightSchema(db);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = new Date(Date.now() + 5 * 3600000).toISOString().slice(0, 10);
   const result = await db.prepare(`SELECT * FROM curated_flight_offers
-    WHERE outbound_date >= ?
+    WHERE outbound_date >= ? AND (inbound_date IS NULL OR inbound_date >= ?)
     ORDER BY published DESC, priority ASC, outbound_date ASC, per_traveler_fare ASC
-    LIMIT 300`).bind(today).all<CuratedRow>();
-  return json({ ok: true, offers: (result.results ?? []).map(mapAdminRow) });
+    LIMIT 500`).bind(today,today).all<CuratedRow>();
+  const rows = result.results ?? [];
+  // Detect the documented migration mismatch without exposing or silently
+  // republishing legacy offers. Explicit recovery is a separate operator task.
+  if (!rows.length && legacyDB && legacyDB !== db) {
+    const table = await legacyDB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='curated_flight_offers'").first<{name: string}>();
+    if (table) {
+      const legacy = await legacyDB.prepare(`SELECT COUNT(*) AS n FROM curated_flight_offers WHERE published=1 AND outbound_date>=? AND (inbound_date IS NULL OR inbound_date>=?)`).bind(today,today).first<{n: number}>();
+      if (Number(legacy?.n ?? 0)>0) return json({ok:false,error:"CURATED_CATALOG_MIGRATION_REQUIRED",legacyCount:Number(legacy?.n)},409);
+    }
+  }
+  return json({ ok: true, offers: rows.map(mapAdminRow) });
 }
 
 export async function saveCuratedFlightAdmin(request: Request, db: D1Like | undefined, createdBy?: string): Promise<Response> {

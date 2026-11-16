@@ -18,6 +18,7 @@ from .browser import search_one,save_diagnostic,SiteChanged,AccessBlocked,NoFare
 ROOT=Path(__file__).resolve().parent.parent
 logging.basicConfig(level=logging.INFO,format='%(asctime)s %(levelname)s %(message)s')
 LOG=logging.getLogger('iumrah-airline-monitor')
+ACTIVE_RUN_ID=None
 
 def endpoint():
  value=os.getenv('FLIGHT_HUB_URL','').strip().rstrip('/')
@@ -40,13 +41,14 @@ def publish(provider,records,attempts,status,message,run_id):
   json={'records':records,'attempts':attempts,'status':status,'message':message,'run_id':run_id},timeout=40)
  r.raise_for_status()
  payload=r.json()
- if payload.get('rejected'):raise ValueError('Flight Hub rejected records: '+str(payload.get('errors')))
+ if payload.get('rejected'): LOG.error('Flight Hub rejected %s record(s): %s',payload['rejected'],payload.get('errors'))
  return payload
 
 def task_key(task):
  return '|'.join(str(task[v]).upper() for v in ('airline_code','flight_number','origin','destination','departure_date'))
 
 def run_monitor():
+ global ACTIVE_RUN_ID
  p=argparse.ArgumentParser()
  p.add_argument('--provider',choices=['centrum','uzbekistan','flynas'],required=True)
  p.add_argument('--limit',type=int,default=20,help='page size, not maximum run size')
@@ -57,6 +59,7 @@ def run_monitor():
  settings=json.loads((ROOT/'config'/f'{a.provider}.json').read_text())
  started=datetime.now(timezone.utc).isoformat()
  run_id=uuid.uuid4().hex
+ ACTIVE_RUN_ID=run_id
  page_size=max(1,min(a.limit,35))
  output=Path(a.output)/a.provider
  output.mkdir(parents=True,exist_ok=True)
@@ -78,7 +81,9 @@ def run_monitor():
    if not tasks:break
    LOG.info('Page: %d pending published flights',len(tasks))
    for task in tasks:
+    if time.monotonic()>=deadline:break
     key=task_key(task)
+    before_offers=len(offers)
     try:
      found=search_one(page,settings,task,output/'diagnostics')
      offers.extend(found)
@@ -97,7 +102,7 @@ def run_monitor():
      outcome='site_changed' if isinstance(e,SiteChanged) else 'failed'
      attempts.append({'flight_key':key,'outcome':outcome,'message':str(e)[:150]})
      failures.append({'flight':task,'error':str(e)});save_diagnostic(page,output/'diagnostics',task,e)
-     if isinstance(e,SiteChanged):
+     if isinstance(e,SiteChanged) and not any(code in str(e) for code in ("DATE_EXACT_DAY_NOT_FOUND", "DATE_EXACT_DAY_DISABLED", "EXACT_FARE_NOT_PROVEN")):
       stage=str(e).split(':',1)[0]
       consecutive_count=consecutive_count+1 if stage==consecutive_stage else 1
       consecutive_stage=stage
@@ -105,6 +110,13 @@ def run_monitor():
        calibration_required=True
        LOG.error('Circuit breaker: %d consecutive browser failures at %s; stop this provider run', consecutive_count,stage)
     processed+=1
+    # Commit each completed task before visiting the next page. If the runner
+    # crashes/times out, completed observations and attempts survive in D1.
+    task_offers=offers[before_offers:]
+    for offset in range(0,max(1,len(task_offers)),100):
+     checkpoint=publish(a.provider,task_offers[offset:offset+100],attempts[-1:] if offset==0 else [],'started',f'Checkpoint: {processed} checked',run_id)
+     if checkpoint.get('rejected') or checkpoint.get('unmatched') or checkpoint.get('review'):
+      failures.append({'flight':task,'error':'INGEST_REQUIRES_REVIEW'})
     if blocked or calibration_required or time.monotonic()>=deadline:break
     if processed<a.max_tasks:time.sleep(max(8,settings.get('min_pause_seconds',12)))
    if blocked or calibration_required:break
@@ -118,20 +130,14 @@ def run_monitor():
   'failure_stages':dict(reason_counts),'first_problem':first_problem[:250],
   'calibration_required':calibration_required}
  (output/'latest.json').write_text(json.dumps(report,indent=2,ensure_ascii=False),encoding='utf-8')
- # Each API ingestion accepts <=100 fares. All attempted tasks receive diagnostic records.
- if not offers and not attempts:
-  result=publish(a.provider,[],[],status,'No published tasks',run_id)
- else:
-  result={}
-  # Put the first real browser failure into D1, not just the uploaded artifact.
-  # Business can then distinguish airport/date/calendar/results/matching errors.
-  summary=(f'{processed} checked; {len(failures)} failed; {len(offers)} exact fares; '
-           f'{"STOPPED_EARLY; " if calibration_required else ""}first={first_problem[:115]}' if failures else
-           f'{processed} checked; {len(offers)} exact fares; no failures')
-  for i in range(0,max(len(offers),len(attempts)),100):
-   result=publish(a.provider,offers[i:i+100],attempts[i:i+100],status,summary,run_id)
+ # Checkpoints are already committed; send a terminal report without replaying
+ # fares or attempts. The backend aggregates accepted counts for this run ID.
+ summary=(f'{processed} checked; {len(failures)} failed; {len(offers)} exact fares; '
+          f'{"STOPPED_EARLY; " if calibration_required else ""}first={first_problem[:115]}' if failures else
+          f'{processed} checked; {len(offers)} exact fares; no failures')
+ result=publish(a.provider,[],[],status,summary,run_id)
  LOG.info('Hub: %s; total visited=%s',result,processed)
- return 0 if status in ('ok','no_tasks','partial','no_verified_fares') else 2
+ return 0 if result.get('status') in ('ok','no_tasks','partial','no_verified_fares') else 2
 
 def main():
  try:
@@ -154,7 +160,7 @@ def main():
   except Exception: LOG.exception('FATAL_ARTIFACT_WRITE_FAILED')
   if name in ('centrum','uzbekistan','flynas'):
    try:
-    publish(name,[],[],'failed',f"{report['reason']}: {report['detail']}",uuid.uuid4().hex)
+    publish(name,[],[],'failed',f"{report['reason']}: {report['detail']}",(ACTIVE_RUN_ID or uuid.uuid4().hex))
    except Exception: LOG.exception('FATAL_REPORT_DELIVERY_FAILED: inspect GitHub Actions logs')
   return 2
 

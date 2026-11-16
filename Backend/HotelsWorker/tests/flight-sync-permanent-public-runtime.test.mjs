@@ -14,6 +14,7 @@ const fragment = source.slice(start, end);
 
 function mockEnv() {
   const rows = new Map();
+  const canonical = [];
   const db = {
     prepare(sql) {
       const values = [];
@@ -33,6 +34,7 @@ function mockEnv() {
           throw new Error('Unknown .first query: '+sql);
         },
         async all() {
+          if (/FROM curated_flight_offers WHERE published=1/.test(sql)) return {results:canonical};
           if (/SELECT owner_login FROM business_flight_sync_feeds WHERE enabled=1/.test(sql)) {
             return {results:[...rows.values()].filter(r=>r.enabled===1).map(r=>({owner_login:r.owner_login}))};
           }
@@ -61,7 +63,7 @@ function mockEnv() {
       return statement;
     }
   };
-  return {HOTELS_DB:db,rows};
+  return {HOTELS_DB:db,rows,canonical};
 }
 function createSubject() {
   const sandbox = {
@@ -197,4 +199,18 @@ test('SwiftUI always re-fetches published flights before sync, and distinguishes
   assert.match(swift,/api.saveFlightSyncSnapshot\(offers: actualOffers\)/);
   assert.doesNotMatch(swift,/api.saveFlightSyncSnapshot\(offers: published\)/);
   assert.match(swift,/flightSyncSavedCount/);
+});
+
+
+test('legitimate non-empty reduction requires full canonical ID and fare match',async()=>{
+  const s=createSubject(),env=mockEnv(),user={owner:'keeper'};
+  await s.rotateBusinessFlightSyncAccess(env,user);
+  const date='2027-02-01', observed_at='2026-11-16T10:00:00Z';
+  const originals=Array.from({length:12},(_,i)=>({id:`f${i}`,from:'TAS',to:'JED',date,price:{amount:200,currency:'USD'},observed_at}));
+  const post=flights=>s.saveBusinessFlightSyncSnapshot(new Request('https://iumrah.app',{method:'POST',body:JSON.stringify({flights})}),env,user);
+  assert.equal((await post(originals)).status,200);
+  env.canonical.push({id:'f0',outbound_origin:'TAS',outbound_destination:'JED',outbound_date:date,per_traveler_fare:200,currency:'USD',observed_at});
+  assert.equal((await post([{...originals[0],price:{amount:201,currency:'USD'}}])).status,409);
+  assert.equal((await post([originals[0]])).status,200);
+  assert.equal(env.rows.get(user.owner).flight_count,1);
 });
