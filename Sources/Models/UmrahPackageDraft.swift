@@ -58,6 +58,9 @@ struct UmrahPackageDraft: Codable, Equatable {
     var otherPrice: String? = nil
     var requestSecret: String? = nil
     var receipt: BusinessManualBookingReceipt? = nil
+    var submissionMode: String? = nil
+    var offerHours: Int? = nil
+    var offerReceipt: BusinessOffer? = nil
     var flightFares: [String: Double]? = nil
     var selectedFareKeys: [String: String]? = nil
     var selectedFareKinds: [String: String]? = nil
@@ -168,7 +171,8 @@ final class UmrahDraftStore: ObservableObject {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("UmrahBusinessDraft-\(ownerKey).json")
     }
-    init(owner: String) {
+    init(owner: String, initial: UmrahPackageDraft? = nil) {
+        if let initial { draft = initial }
         ownerKey = SHA256.hash(data: Data(owner.utf8)).map { String(format: "%02x", $0) }.joined()
         do {
             if FileManager.default.fileExists(atPath: file.path) {

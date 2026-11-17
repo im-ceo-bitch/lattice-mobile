@@ -5,8 +5,10 @@ struct UmrahBuilderView: View {
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var store: UmrahDraftStore
 
-    init(owner: String) {
-        _store = StateObject(wrappedValue: UmrahDraftStore(owner: owner))
+    private let editingOffer: BusinessOffer?
+    init(owner: String, editingOffer: BusinessOffer? = nil, initial: UmrahPackageDraft? = nil) {
+        self.editingOffer = editingOffer
+        _store = StateObject(wrappedValue: UmrahDraftStore(owner: editingOffer.map { owner + ":" + $0.id + ":" + String($0.revision) } ?? owner, initial: initial))
     }
     @State private var step = 0
     @State private var error: String?
@@ -15,6 +17,7 @@ struct UmrahBuilderView: View {
     private let steps = ["Авиабилеты", "Проживание", "Услуги", "Стоимость", "Клиент"]
     @State private var submitting = false
     @State private var showConfirmation = false
+    @State private var showOfferConfirmation = false
 
     var body: some View {
         ScrollViewReader { reader in
@@ -22,13 +25,14 @@ struct UmrahBuilderView: View {
                 VStack(alignment: .leading, spacing: 22) {
                     Color.clear.frame(height: 0).id("top")
                     Text("СОЗДАТЬ UMRAH").font(.caption.weight(.semibold)).tracking(3).foregroundStyle(.secondary)
-                    Text(store.draft.requestSecret != nil ? "Бронирование" : steps[step]).font(.system(size: 34, weight: .bold, design: .rounded)).tracking(-1)
+                    Text(store.draft.offerReceipt != nil ? "Предложение" : store.draft.requestSecret != nil ? (store.draft.submissionMode == "offer" ? "Предложение" : "Бронирование") : steps[step]).font(.system(size: 34, weight: .bold, design: .rounded)).tracking(-1)
                     HStack(spacing: 6) {
                         ForEach(steps.indices, id: \.self) { index in
                             Capsule().fill(index <= step ? BusinessDesign.ink : BusinessDesign.line).frame(height: 4)
                         }
                     }.accessibilityLabel("Шаг \(step + 1) из \(steps.count): \(steps[step])")
-                    if let receipt = store.draft.receipt { receiptView(receipt) }
+                    if let offer = store.draft.offerReceipt { offerReceiptView(offer) }
+                    else if let receipt = store.draft.receipt { receiptView(receipt) }
                     else if store.draft.requestSecret != nil { pendingView }
                     else { switch step {
                     case 0: UmrahFlightStep(draft: $store.draft)
@@ -50,13 +54,13 @@ struct UmrahBuilderView: View {
             ToolbarItem(placement: .principal) { BusinessBrandLogo(width: 150, foreground: .white).frame(height: 36) }
             ToolbarItem(placement: .topBarLeading) { Button("Закрыть") { store.save(); if store.storageError == nil { dismiss() } } }
             ToolbarItem(placement: .topBarTrailing) {
-                Menu { Button("Начать заново", role: .destructive) { restart = true }.disabled(store.draft.requestSecret != nil && store.draft.receipt == nil) } label: { Image(systemName: "ellipsis.circle") }
+                Menu { Button("Начать заново", role: .destructive) { restart = true }.disabled(store.draft.requestSecret != nil && store.draft.receipt == nil && store.draft.offerReceipt == nil) } label: { Image(systemName: "ellipsis.circle") }
             }
         }
         .confirmationDialog("Удалить текущий черновик?", isPresented: $restart, titleVisibility: .visible) {
             Button("Начать заново", role: .destructive) { store.draft = UmrahPackageDraft(); step = 0; error = nil; store.save() }.disabled(submitting)
         }
-        .safeAreaInset(edge: .bottom) { if store.draft.requestSecret == nil { footer } }
+        .safeAreaInset(edge: .bottom) { if store.draft.requestSecret == nil && store.draft.offerReceipt == nil { footer } }
         .environment(\.locale, Locale(identifier: "ru_RU"))
         .onChange(of: scenePhase) { _, phase in if phase != .active { store.save() } }
         .onDisappear { store.save() }
@@ -64,6 +68,9 @@ struct UmrahBuilderView: View {
         .confirmationDialog("Создать заявку на умру?", isPresented: $showConfirmation, titleVisibility: .visible) {
             Button("Создать бронирование") { Task { await submit() } }
         } message: { Text("Начнётся проверка наличия. Оплата и подтверждение поставщиков пока не выполняются.") }
+        .confirmationDialog(editingOffer == nil ? "Создать предложение?" : "Обновить предложение?", isPresented: $showOfferConfirmation, titleVisibility: .visible) {
+            Button(editingOffer == nil ? "Создать предложение" : "Обновить предложение") { Task { await submitOffer() } }
+        } message: { Text("Наличие не резервируется. Клиент сможет принять актуальную версию по той же ссылке.") }
         .alert("Черновик сохранён", isPresented: $saved) {
             Button("Хорошо", role: .cancel) { }
         } message: { Text("Пакет сохранён на этом устройстве.") }
@@ -78,7 +85,7 @@ struct UmrahBuilderView: View {
                 else { Text("Цена не заполнена").font(.caption) }
             }
             Spacer(minLength: 0)
-            Button(step == 4 ? "Создать" : "Продолжить") {
+            Button(step == 4 ? (editingOffer == nil ? "Создать бронь" : "Сохранить") : "Продолжить") {
                 if step < 4 {
                     if let issue = store.draft.issue(at: step) { error = issue; return }
                     step += 1; error = nil
@@ -86,6 +93,7 @@ struct UmrahBuilderView: View {
                     for index in 0..<3 {
                         if let issue = store.draft.issue(at: index) { error = issue; step = index; return }
                     }
+                    if editingOffer != nil { if store.draft.saleTotal == nil { error = "Проверьте стоимость"; return }; showOfferConfirmation = true; return }
                     if let issue = store.draft.bookingIssue { error = issue; return }
                     showConfirmation = true
                 }
@@ -157,7 +165,13 @@ struct UmrahBuilderView: View {
     }
     private var clientForm: some View {
         VStack(alignment: .leading, spacing: 18) {
-            UmrahPanel(title: "Контакт паломника") {
+            UmrahPanel(title: "Предложение") {
+                Text("Клиент ещё не принял решение. Контакты не обязательны: отправьте постоянную ссылку.").font(.subheadline).foregroundStyle(.secondary)
+                Picker("Срок действия", selection: Binding(get: { store.draft.offerHours ?? 24 }, set: { store.draft.offerHours = $0 })) { Text("24 часа").tag(24); Text("48 часов").tag(48); Text("7 дней").tag(168) }.pickerStyle(.segmented)
+                Picker("Язык клиента", selection: optional(\.language, default: "ru")) { Text("Русский").tag("ru"); Text("O‘zbekcha").tag("uz"); Text("Ўзбекча").tag("uz-cyrl"); Text("English").tag("en") }
+                Button { for index in 0..<3 { if let issue = store.draft.issue(at: index) { error = issue; step = index; return } }; if store.draft.saleTotal == nil { error = "Проверьте стоимость"; return }; showOfferConfirmation = true } label: { Label(editingOffer == nil ? "Создать предложение" : "Обновить предложение", systemImage: "doc.text").frame(maxWidth: .infinity) }.buttonStyle(.borderedProminent).tint(.blue).disabled(submitting)
+            }
+            if editingOffer == nil { UmrahPanel(title: "Бронирование · клиент согласен") {
                 TextField("Имя как в паспорте", text: $store.draft.clientName).textContentType(.givenName)
                 TextField("Фамилия как в паспорте", text: optional(\.lastName, default: "")).textContentType(.familyName)
                 TextField("Телефон +998…", text: $store.draft.phone).keyboardType(.phonePad).textContentType(.telephoneNumber)
@@ -166,13 +180,14 @@ struct UmrahBuilderView: View {
                 Toggle("Отправить подтверждение на email", isOn: Binding(get: { store.draft.sendEmail ?? false }, set: { store.draft.sendEmail = $0 }))
                 Text("После создания можно отправить защищённую ссылку через сообщения или WhatsApp. Регистрация для просмотра не нужна.").font(.caption).foregroundStyle(.secondary)
             }
+            }
             Button("Сохранить черновик") { store.save(); saved = store.storageError == nil }
         }
     }
     private var pendingView: some View {
         UmrahPanel(title: "Отправка заявки") {
             Text("Черновик зафиксирован. Повтор отправки использует тот же ключ, чтобы не создавать дубликат.").font(.subheadline)
-            Button(submitting ? "Отправляем…" : "Повторить / проверить") { Task { await submit() } }.disabled(submitting)
+            Button(submitting ? "Отправляем…" : "Повторить / проверить") { Task { if store.draft.submissionMode == "offer" { await submitOffer() } else { await submit() } } }.disabled(submitting)
         }
     }
     private func receiptView(_ receipt: BusinessManualBookingReceipt) -> some View {
@@ -194,6 +209,7 @@ struct UmrahBuilderView: View {
         guard !submitting else { return }; error = nil
         if store.draft.requestSecret == nil {
             if let issue = store.draft.bookingIssue { error = issue; return }
+            store.draft.submissionMode = "booking"
             store.draft.requestSecret = (UUID().uuidString + UUID().uuidString).replacingOccurrences(of: "-", with: "").lowercased()
             store.save()
             if let issue = store.storageError { store.draft.requestSecret = nil; error = issue; return }
@@ -204,9 +220,46 @@ struct UmrahBuilderView: View {
             store.draft.receipt = receipt; store.save()
             NotificationCenter.default.post(name: .iumrahBusinessBookingChanged, object: receipt.bookingID)
         } catch {
-            if case APIError.server(let code) = error, ["INVALID_REQUEST", "INVALID_BOOKING", "INVALID_MANUAL_COST", "TRIP_DATE_IN_PAST", "INVALID_EMAIL"].contains(code), store.draft.receipt == nil {
+            if case APIError.server(let code) = error, ["INVALID_REQUEST", "INVALID_BOOKING", "INVALID_MANUAL_COST", "TRIP_DATE_IN_PAST", "INVALID_EMAIL", "INVALID_OFFER", "INVALID_CONTACT"].contains(code), store.draft.receipt == nil {
                 store.draft.requestSecret = nil; store.save()
             }
+            self.error = error.localizedDescription
+        }
+    }
+    private func offerPreviewURL(_ url: URL) -> URL? { var c = URLComponents(url: url, resolvingAgainstBaseURL: false); c?.queryItems = [URLQueryItem(name: "preview", value: "1")]; return c?.url }
+    private func offerReceiptView(_ offer: BusinessOffer) -> some View {
+        UmrahPanel(title: "Предложение готово") {
+            Image(systemName: "checkmark.seal.fill").font(.largeTitle).foregroundStyle(.blue)
+            Text(offer.id).font(.caption.monospaced()).textSelection(.enabled)
+            Text(offer.totalUsd, format: .currency(code: "USD")).font(.title2.bold())
+            Text("Наличие не зарезервировано · " + offer.statusTitle).font(.caption).foregroundStyle(.secondary)
+            if let url = URL(string: offer.shareURL) {
+                ShareLink(item: url) { Label("Поделиться предложением", systemImage: "square.and.arrow.up") }
+                if let preview = offerPreviewURL(url) { Link("Предпросмотр без учёта просмотра", destination: preview) }
+            }
+            NavigationLink("Управление предложением") { BusinessOfferDetailView(id: offer.id) }
+            Button(editingOffer == nil ? "Создать новую умру" : "Готово") {
+                if editingOffer != nil { dismiss() } else { store.draft = UmrahPackageDraft(); step = 0; error = nil; store.save() }
+            }
+        }
+    }
+    @MainActor private func submitOffer() async {
+        guard !submitting else { return }; error = nil
+        if store.draft.requestSecret == nil {
+            store.draft.submissionMode = "offer"
+            store.draft.requestSecret = (UUID().uuidString + UUID().uuidString).replacingOccurrences(of: "-", with: "").lowercased()
+            store.save()
+            if let issue = store.storageError { store.draft.requestSecret = nil; error = issue; return }
+        }
+        submitting = true; defer { submitting = false }
+        do {
+            let offer: BusinessOffer
+            if let editingOffer { offer = try await APIClient.shared.editOffer(editingOffer, draft: store.draft) }
+            else { offer = try await APIClient.shared.createOffer(store.draft) }
+            store.draft.offerReceipt = offer; store.save()
+            NotificationCenter.default.post(name: .iumrahBusinessOfferChanged, object: offer.id)
+        } catch {
+            if case APIError.server(let code) = error, ["INVALID_OFFER", "INVALID_REQUEST", "OFFER_CHANGED"].contains(code) { store.draft.requestSecret = nil; store.save() }
             self.error = error.localizedDescription
         }
     }

@@ -1,0 +1,162 @@
+{
+  "base": "lattice-mobile-main 5.zip + iumrah-business-operations-20261116.zip",
+  "date": "2026-11-17",
+  "type": "cumulative-root-overlay",
+  "files": [
+    {
+      "path": "Backend/HotelsWorker/src/index.js",
+      "sha256": "c28b9edb1c0235d9e3da5da81e5a10adc1099bd532fdff0a692baa7c3bde1981"
+    },
+    {
+      "path": "Backend/IumrahBackend/core/app/api/admin/bookings/route.js",
+      "sha256": "e40bebd6bb2d8306d9c759ae347aeee6753f890b0949092ac105acaa9bcc2109"
+    },
+    {
+      "path": "Backend/IumrahBackend/core/app/api/bookings/route.js",
+      "sha256": "8a1ed9529a4fb8c7a480f4766a93bfabc62249861d448cd8a89e91ae9b540aab"
+    },
+    {
+      "path": "Backend/IumrahBackend/core/lib/business-manual-booking.js",
+      "sha256": "19902b8179ab03aa7b9456aa7129d9827aa49f57cf4b6541fd129e1edafb4402"
+    },
+    {
+      "path": "Backend/IumrahBackend/core/lib/business-offer-page.js",
+      "sha256": "0ae295466fad3d47184dba76fa9c152c4b7ea51dfa714747a6d07b037706cd76"
+    },
+    {
+      "path": "Backend/IumrahBackend/core/lib/business-offers.js",
+      "sha256": "3fbabe77390676efd8064de9a8c758c770f2e0104039f85286bf94d3108431a0"
+    },
+    {
+      "path": "Backend/IumrahBackend/core/routes.js",
+      "sha256": "ae7506e4dd64a77e2933917443947d0c064fb6c7fb3ba5ca46658e6b930c4f86"
+    },
+    {
+      "path": "Backend/IumrahBackend/src/index.js",
+      "sha256": "6d1caa240e40617b41b23602ee9af559065367d536cae2c3f75567d1676346f0"
+    },
+    {
+      "path": "Backend/IumrahBackend/src/router.js",
+      "sha256": "c6a49d374b155ff3d7d55eec6ea8a71713ace46a2e7a39f356ed97b790e2ab95"
+    },
+    {
+      "path": "Backend/IumrahBackend/tests/core-runtime.test.mjs",
+      "sha256": "2db4318d115e88e536a97050c1efe733c5b643239510c7e619727f012b04a76d"
+    },
+    {
+      "path": "IUMRAH_BUSINESS_OPERATIONS_20261116.md",
+      "sha256": "271e12a7cab99eac7e4074383d95b43f84122bdf243a677b790d4b328a832c5f"
+    },
+    {
+      "path": "IUMRAH_BUSINESS_OPERATIONS_20261116_MANIFEST.json",
+      "sha256": "d470c9c2acdbceb70e1db340aada7273a7b52278f216e4dd0dbecd4529672e53"
+    },
+    {
+      "path": "IUMRAH_BUSINESS_SALES_OFFERS_20261117.md",
+      "sha256": "80d8bb43c00dd515792f18652480db0f6a5ea9df6138b9f18bafd3ffdc931d41"
+    },
+    {
+      "path": "Sources/Core/BusinessAnimationPalette.swift",
+      "sha256": "f10c86e2738aeb6e3b41e151992415012eed885da753073eedb52e9b4be391bd"
+    },
+    {
+      "path": "Sources/Core/BusinessNotifications.swift",
+      "sha256": "e02a5a50fd3a7de6bda7aa71c0e857f83ef06fafaada0fa3c73c86bf5c7d9778"
+    },
+    {
+      "path": "Sources/Core/Design.swift",
+      "sha256": "6194cb061befbae16e7ebf0da011dbd5235de9cb874487e4d531f37e6b3ed515"
+    },
+    {
+      "path": "Sources/Core/IumrahOrbitV5.swift",
+      "sha256": "017e434eca181fd315b5871ffa6057ef935f6173e70226a8eeab2f9c404a7209"
+    },
+    {
+      "path": "Sources/Models/AdminModels.swift",
+      "sha256": "94c0dc3dd92253afd9a2c98946e95b4bdce10ad111bf71a84134141138e617c8"
+    },
+    {
+      "path": "Sources/Models/BusinessManualBookingReceipt.swift",
+      "sha256": "cf5825a14e4d529f9ed187539e76bd217b4ea5487ccdd6cf6e9dd223d160045a"
+    },
+    {
+      "path": "Sources/Models/UmrahPackageDraft.swift",
+      "sha256": "69af59374356c01994cf228b2f616c95b3b31ccb5cc088d5226930890dfd4b13"
+    },
+    {
+      "path": "Sources/Networking/APIClient+ManualBooking.swift",
+      "sha256": "d3fc317cea0d812a5b6b6124fc99532116cfdbd4aa5fa8bb15321cac8de049cc"
+    },
+    {
+      "path": "Sources/Networking/APIClient+Offers.swift",
+      "sha256": "7672ecd43708e7a1323d5da10c9c997940e2e50ffb2cfa02fa2d3c899a24886c"
+    },
+    {
+      "path": "Sources/Networking/APIClient.swift",
+      "sha256": "f7a5e3033e802f1c6e02faf70a0901e39caa1988b3f85a7aa427446e0e0799cf"
+    },
+    {
+      "path": "Sources/Views/BookingDetailView.swift",
+      "sha256": "3485e89daf036e7a0ed2c00920f63c34732724174b1f8cc4d50092ea2e765d66"
+    },
+    {
+      "path": "Sources/Views/BookingsView.swift",
+      "sha256": "d40797526cfaeab476ddbc32505e5980195b1eae0248ebf7fd8c51fceb1ff81c"
+    },
+    {
+      "path": "Sources/Views/BusinessCatalogsView.swift",
+      "sha256": "d75b068992bcaf932640d7c3539285e8fcef529475e902bf4548527da807a6bc"
+    },
+    {
+      "path": "Sources/Views/BusinessOffersView.swift",
+      "sha256": "97f3f41b57c3060f68d76ecbab922046f28f0e0630ff81d48fd0ec609fd7d684"
+    },
+    {
+      "path": "Sources/Views/BusinessPushDiagnosticsView.swift",
+      "sha256": "ad0946bbbf988c502d1a76efa7d83ccf7989e73b00b96adb24be51fde78a4e2b"
+    },
+    {
+      "path": "Sources/Views/BusinessSidebar.swift",
+      "sha256": "e9deddee0dbfe2aedd3e0978a7184c45f0588004da6ad9adebb72320f3896e5f"
+    },
+    {
+      "path": "Sources/Views/BusinessTabView.swift",
+      "sha256": "4e03d47e4c7bdf112432739fcb4dfbac0ff57d4ffdbd193e6273c45046ff0ab2"
+    },
+    {
+      "path": "Sources/Views/ChatsView.swift",
+      "sha256": "b673f2cb6424528400ad4d6eed31c196124ee8bd2573da2f2ff0b2f26a36a7b8"
+    },
+    {
+      "path": "Sources/Views/FlightCurationView.swift",
+      "sha256": "65fe3a226d19f458ad4aa39657f87e95d6a888c6e39572bb6b706c627f6a14eb"
+    },
+    {
+      "path": "Sources/Views/HotelsView.swift",
+      "sha256": "1aa040efe7accd0116e5982f6244545850b91a5cf6e1d6f4a4741d9a5cf86f93"
+    },
+    {
+      "path": "Sources/Views/OverviewView.swift",
+      "sha256": "77dd4477919bc13664e9132b9ee4f35b277722ecc65d8cb8f3137fcd1e4f623a"
+    },
+    {
+      "path": "Sources/Views/RootView.swift",
+      "sha256": "d747ca369135d49131cce5c23573f3c3bcb5db8042b8b953aa186a8077fdffd7"
+    },
+    {
+      "path": "Sources/Views/UmrahBuilderView.swift",
+      "sha256": "cd34fe8262c11d8c0e32d205d3a7413a7a2700a1ff09732660fc3d0ca294915d"
+    },
+    {
+      "path": "Tests/run_umrah_draft_tests.py",
+      "sha256": "18e0f0dcb261052cf657c896da37f920efe1fc6cc928034021b5399a67cce7e3"
+    }
+  ],
+  "tests": {
+    "server_passed": 139,
+    "server_failed": 0,
+    "swift_syntax": "passed",
+    "draft_behavior": "passed",
+    "live_deployment": "not_tested"
+  }
+}

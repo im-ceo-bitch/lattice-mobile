@@ -13,7 +13,11 @@ extension APIClient {
         return try decoder.decode(Result.self,from:data).shareURL
     }
     func createManualBooking(_ draft: UmrahPackageDraft) async throws -> BusinessManualBookingReceipt {
-        guard let secret = draft.requestSecret, let outbound = draft.outbound, let inbound = draft.inbound,
+        let payload = try manualPackagePayload(draft)
+        return try await offerRequest(path: draft.submissionMode == "booking" ? "/api/admin/offers" : "/api/admin/bookings", method: "POST", payload: payload)
+    }
+    func manualPackagePayload(_ draft: UmrahPackageDraft) throws -> [String: Any] {
+        guard let outbound = draft.outbound, let inbound = draft.inbound,
               let first = outbound.legs.first, let last = outbound.legs.last, let back = inbound.legs.first, let end = inbound.legs.last,
               let arrival = draft.arrival, let departure = draft.departure, let total = draft.saleTotal else { throw APIError.server("INVALID_MANUAL_BOOKING") }
         let formatter = DateFormatter(); formatter.dateFormat = "yyyy-MM-dd"; formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.timeZone = TimeZone(identifier: "Asia/Riyadh")
@@ -47,11 +51,12 @@ extension APIClient {
         func legs(_ flight: UmrahPackageDraft.Flight) -> [[String: String]] { flight.legs.map { ["airline":$0.airline,"number":$0.flightNumber,"origin":$0.origin,"destination":$0.destination,"departure":$0.departureAt,"arrival":$0.arrivalAt] } }
         func room(_ stay: UmrahPackageDraft.Stay) -> [String: Any] { ["room":stay.room,"rooms":stay.rooms,"meals":stay.meals] }
         let details: [String: Any] = ["outbound":legs(outbound),"inbound":legs(inbound),"makkah":room(draft.makkah),"madinah":draft.includeMedina ? room(draft.medina) as Any : NSNull(),"vehicle":draft.vehicle,"pickup":ISO8601DateFormatter().string(from:draft.pickup)]
-        var request = URLRequest(url: AppConfig.apiBaseURL.appending(path: "/api/admin/bookings"))
-        request.httpMethod = "POST"; request.timeoutInterval = 40
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: ["booking":booking,"manualDetails":details,"cost":cost,"requestSecret":secret,"lang":draft.language ?? "ru","email":draft.email ?? "","sendEmail":draft.sendEmail ?? false])
-        let (data,response) = try await perform(request); try validate(response,data:data)
-        return try decoder.decode(BusinessManualBookingReceipt.self, from:data)
+        var editor = draft
+        editor.clientName = ""; editor.lastName = nil; editor.phone = ""; editor.email = nil; editor.telegram = ""; editor.notes = ""; editor.sendEmail = nil
+        editor.requestSecret = nil; editor.receipt = nil; editor.offerReceipt = nil; editor.submissionMode = nil
+        let editorDraft = String(decoding: try JSONEncoder().encode(editor), as: UTF8.self)
+        var payload: [String: Any] = ["booking":booking,"manualDetails":details,"cost":cost,"requestSecret":draft.requestSecret ?? "","lang":draft.language ?? "ru","email":draft.email ?? "","sendEmail":draft.sendEmail ?? false,"hours":draft.offerHours ?? 24,"editorDraft":editorDraft]
+        if let mode = draft.submissionMode { payload["mode"] = mode }
+        return payload
     }
 }

@@ -30,6 +30,7 @@ struct BookingDetailView: View {
     private var shareCard: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Ссылка на поездку").font(.headline)
+            if let packageID = manualInfo?.packageID { Text(packageID).font(.caption.monospaced()).textSelection(.enabled) }
             if let shareURL { ShareLink(item: shareURL) { Label("Поделиться", systemImage: "square.and.arrow.up") }; Link("Открыть", destination: shareURL) }
             Button(sharing ? "Создание…" : "Создать новую ссылку") { rotateShare = true }.disabled(sharing)
             Text("Новая ссылка отменит предыдущую. Старый email или SMS больше не откроет пакет.").font(.caption).foregroundStyle(.secondary)
@@ -110,6 +111,7 @@ struct BookingDetailView: View {
         .task {
             await load(showLoading: true)
             manualInfo = try? await APIClient.shared.manualBookingInfo(id: bookingID)
+            if let url = manualInfo?.shareURL { shareURL = URL(string: url) }
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(60))
                 guard !Task.isCancelled else { break }

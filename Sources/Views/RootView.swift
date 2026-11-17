@@ -36,6 +36,7 @@ struct RootView: View {
                 Task { await auth.expireWeeklySessionIfNeeded() }
             } else if state == .signedOut {
                 appLock.didSignOut()
+                BusinessNotificationRoute.pendingOffer = nil
                 BusinessNotificationRoute.pendingBooking = nil
                 BusinessNotificationRoute.pendingChat = nil
             }

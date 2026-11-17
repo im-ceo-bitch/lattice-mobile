@@ -1,5 +1,5 @@
 // One Cloudflare Worker, with the existing implementations preserved as modules.
-import hotels, { HotelImportWorkflow, materializeBookingIdentity } from '../../HotelsWorker/src/index.js';
+import hotels, { HotelImportWorkflow, materializeBookingIdentity, sendStaffPush } from '../../HotelsWorker/src/index.js';
 import flights from '../../FlightHubWorker/src/index.js';
 import packages from '../package-engine/src/index.ts';
 import { requestAeroDataBox, aeroDataBoxConfiguration } from '../package-engine/src/flight-detail.ts';
@@ -10,4 +10,4 @@ import { bookingRewardsAmounts } from '../package-engine/src/booking-control.ts'
 import { syncReferralForBooking } from '../package-engine/src/referral-rewards.ts';
 import { createBackendRouter } from './router.js';
 export { HotelImportWorkflow };
-export default createBackendRouter({hotels,flights,packages,core,requestAeroDataBox,aeroDataBoxConfiguration,verifyBookingQuote,sendBookingEmailStatus,retryBookingStatusEmails,materializeBookingIdentity,syncReferralForBooking,bookingRewardsAmounts});
+export default createBackendRouter({hotels,flights,packages,core,requestAeroDataBox,aeroDataBoxConfiguration,verifyBookingQuote,sendBookingEmailStatus,retryBookingStatusEmails,materializeBookingIdentity,syncReferralForBooking,bookingRewardsAmounts,sendStaffPush});

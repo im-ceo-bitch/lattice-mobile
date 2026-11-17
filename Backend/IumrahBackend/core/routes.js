@@ -1,3 +1,4 @@
+import { offerPage, readOffer, acceptOffer, listOffers, createOffer, offerDetail, updateOffer, staffAcceptOffer } from "./lib/business-offers.js";
 import { sharePage, shareRead, manualBookingInfo, rotateManualShare } from "./lib/business-manual-booking.js";
 import * as r0 from "./app/api/account/apple/sign-in/route.js";
 import * as r1 from "./app/api/account/dashboard/route.js";
@@ -49,6 +50,11 @@ import * as telegramWebhook from "./app/api/telegram/webhook/route.js";
 import { startStaffRecovery, finishStaffRecovery } from "./lib/staff-recovery.js";
 import {nativeMini,nativeTelegramSetup} from "./lib/telegram-native.js";
 export const routes = [
+  { pattern: /^\/api\/offers$/, keys: [], handlers: { GET: offerPage, POST: readOffer } },
+  { pattern: /^\/api\/offers\/accept$/, keys: [], handlers: { POST: acceptOffer } },
+  { pattern: /^\/api\/admin\/offers$/, keys: [], handlers: { GET: listOffers, POST: createOffer } },
+  { pattern: /^\/api\/admin\/offers\/([^\/]+)$/, keys: ["id"], handlers: { GET: offerDetail, PATCH: updateOffer } },
+  { pattern: /^\/api\/admin\/offers\/([^\/]+)\/accept$/, keys: ["id"], handlers: { POST: staffAcceptOffer } },
   {pattern:/^\/api\/internal\/telegram\/setup$/,keys:[],handlers:{POST:nativeTelegramSetup}},
   {pattern:/^\/telegram\/(?:mini(?:\/.*)?|mini-asset\/[^/]+|status-image\/[^/]+|support-image\/[^/]+)$/,keys:[],handlers:{GET:nativeMini,POST:nativeMini}},
   {pattern:/^\/api\/auth\/staff\/recovery\/start$/,keys:[],handlers:{POST:startStaffRecovery}},

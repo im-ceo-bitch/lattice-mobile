@@ -93,6 +93,7 @@ struct BusinessTabView: View {
         .onReceive(NotificationCenter.default.publisher(for: .iumrahBusinessFlightPriceOpen)) { _ in
             navigation.navigate(to: .flights)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .iumrahBusinessOfferOpen)) { _ in navigation.navigate(to: .bookings) }
         .onReceive(NotificationCenter.default.publisher(for: .iumrahBusinessBookingOpen)) { _ in
             navigation.navigate(to: .bookings)
         }
@@ -100,7 +101,7 @@ struct BusinessTabView: View {
             navigation.navigate(to: .chats)
         }
         .onAppear {
-            if BusinessNotificationRoute.pendingBooking != nil { navigation.navigate(to: .bookings) }
+            if BusinessNotificationRoute.pendingBooking != nil || BusinessNotificationRoute.pendingOffer != nil { navigation.navigate(to: .bookings) }
             else if BusinessNotificationRoute.pendingChat != nil { navigation.navigate(to: .chats) }
             else if UserDefaults.standard.string(forKey: "iumrah.price.pendingFlightKey") != nil {
                 navigation.navigate(to: .flights)

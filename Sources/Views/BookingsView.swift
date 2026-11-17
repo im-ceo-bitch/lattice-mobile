@@ -35,6 +35,7 @@ private enum BookingListFilter: String, CaseIterable, Identifiable {
 struct BookingsView: View {
     @Environment(\.businessAdaptiveLayout) private var layout
 
+    @State private var showOffers = false
     @State private var bookings: [BookingSummary] = []
     @State private var loading = true
     @State private var deleting = false
@@ -56,12 +57,12 @@ struct BookingsView: View {
     }
 
     var body: some View {
-        Group {
-            if layout.supportsTwoPaneWorkspace {
-                desktopWorkspace
-            } else {
-                compactList
-            }
+        VStack(spacing: 0) {
+            Picker("Раздел", selection: $showOffers) { Text("Бронирования").tag(false); Text("Предложения").tag(true) }
+                .pickerStyle(.segmented).padding(.horizontal, 16).padding(.vertical, 10)
+            if showOffers { BusinessOffersView(search: search) }
+            else if layout.supportsTwoPaneWorkspace { desktopWorkspace }
+            else { compactList }
         }
         .background(BusinessDesign.background)
         .navigationTitle("")
@@ -79,7 +80,7 @@ struct BookingsView: View {
             }
         }
         .overlay {
-            if (loading && bookings.isEmpty) || deleting {
+            if !showOffers && ((loading && bookings.isEmpty) || deleting) {
                 ZStack {
                     BusinessDesign.background.opacity(deleting ? 0.88 : 0.72).ignoresSafeArea()
                     ProgressView(deleting ? "Удаляю…" : "")
@@ -87,12 +88,14 @@ struct BookingsView: View {
             }
         }
         .searchable(text: $search, prompt: "Имя, номер брони, iumrah ID")
-        .task { await load(); openPendingBooking() }
+        .task { if BusinessNotificationRoute.pendingOffer != nil { showOffers = true }; await load(); openPendingBooking() }
         .onReceive(NotificationCenter.default.publisher(for: .iumrahBusinessBookingOpen)) { notification in
+            showOffers = false
             pendingBookingID = notification.object as? String
             Task { await load(); openPendingBooking() }
         }
-        .onChange(of: scenePhase) { _, phase in if phase == .active { openPendingBooking() } }
+        .onReceive(NotificationCenter.default.publisher(for: .iumrahBusinessOfferOpen)) { _ in showOffers = true; search = "" }
+        .onChange(of: scenePhase) { _, phase in if phase == .active { if BusinessNotificationRoute.pendingOffer != nil { showOffers = true }; openPendingBooking() } }
         .onReceive(NotificationCenter.default.publisher(for: bookingOperationsChangedNotification)) { _ in
             Task { await load() }
         }
@@ -125,7 +128,7 @@ struct BookingsView: View {
     private func openPendingBooking() {
         guard let id = pendingBookingID ?? BusinessNotificationRoute.pendingBooking,
               let booking = bookings.first(where: { $0.id == id }) else { return }
-        filter = .all; search = ""; selectedBooking = booking
+        showOffers = false; filter = .all; search = ""; selectedBooking = booking
         pendingBookingID = nil; BusinessNotificationRoute.pendingBooking = nil
     }
 

@@ -9,6 +9,8 @@ extension Notification.Name {
     static let iumrahBusinessSecurityNewSession = Notification.Name("iumrah.business.securityNewSession")
     static let iumrahBusinessChatChanged = Notification.Name("iumrah.business.chatChanged")
     static let iumrahBusinessChatRead = Notification.Name("iumrah.business.chatRead")
+    static let iumrahBusinessOfferChanged = Notification.Name("iumrah.business.offerChanged")
+    static let iumrahBusinessOfferOpen = Notification.Name("iumrah.business.offerOpen")
     static let iumrahBusinessBookingChanged = Notification.Name("iumrah.business.bookingOperationsChanged")
     static let iumrahBusinessBookingOpen = Notification.Name("iumrah.business.bookingOpen")
     static let iumrahBusinessChatOpen = Notification.Name("iumrah.business.chatOpen")
@@ -18,6 +20,7 @@ extension Notification.Name {
 @MainActor
 enum BusinessNotificationRoute {
     // In-memory only: never persist private booking identifiers outside the locked session.
+    static var pendingOffer: String?
     static var pendingBooking: String?
     static var pendingChat: String?
 }
@@ -71,9 +74,13 @@ final class BusinessAppDelegate: NSObject, UIApplicationDelegate, UNUserNotifica
     }
 
     private func handleOperationalNotification(_ userInfo: [AnyHashable: Any], opened: Bool) {
-        guard BusinessSessionVault.sessionToken != nil,
-              let type = userInfo["type"] as? String,
-              let key = userInfo["bookingID"] as? String, !key.isEmpty, key.count <= 180 else { return }
+        guard BusinessSessionVault.sessionToken != nil, let type = userInfo["type"] as? String else { return }
+        if type == "offer_viewed", let id = userInfo["offerID"] as? String, id.hasPrefix("PKG-"), id.count <= 180 {
+            NotificationCenter.default.post(name: .iumrahBusinessOfferChanged, object: id)
+            if opened { BusinessNotificationRoute.pendingOffer = id; NotificationCenter.default.post(name: .iumrahBusinessOfferOpen, object: id) }
+            return
+        }
+        guard let key = userInfo["bookingID"] as? String, !key.isEmpty, key.count <= 180 else { return }
         switch type {
         case "chat_message", "chat_image":
             NotificationCenter.default.post(name: .iumrahBusinessChatChanged, object: key)

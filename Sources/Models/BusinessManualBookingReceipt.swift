@@ -8,6 +8,7 @@ struct BusinessManualBookingReceipt: Codable, Equatable {
     let shareURL: String
     let emailStatus: String
     let totalUsd: Double
+    var packageID: String? = nil
     var emailDescription: String {
         switch emailStatus {
         case "accepted": return "Принято почтовым сервисом"
@@ -23,4 +24,66 @@ struct BusinessManualBookingInfo: Codable {
     let manual: Bool
     let cost: [String: Double]?
     let emailStatus: String?
+    var packageID: String? = nil
+    var shareURL: String? = nil
+}
+
+struct BusinessOffer: Codable, Equatable, Identifiable {
+    let id: String
+    let revision: Int
+    let status: String
+    let totalUsd: Double
+    let travelers: Int
+    let startDate: String
+    let endDate: String
+    let makkah: String
+    let lang: String
+    let createdAt: String
+    let expiresAt: String
+    let views: Int
+    let sentAt: String?
+    let firstViewedAt: String?
+    let bookingID: String?
+    let convertedAt: String?
+    let shareURL: String
+    var editable: Bool { status != "converted" && status != "revoked" }
+    var active: Bool { editable && status != "expired" }
+    var statusTitle: String {
+        switch status {
+        case "created": return "Создано"
+        case "sent": return "Отмечено отправленным"
+        case "viewed": return "Просмотрено"
+        case "converted": return "Забронировано"
+        case "expired": return "Срок истёк"
+        case "revoked": return "Отозвано"
+        default: return status
+        }
+    }
+}
+struct BusinessOfferEvent: Codable, Equatable {
+    let kind: String
+    let createdAt: String
+    var title: String {
+        switch kind {
+        case "created": return "Пакет создан"
+        case "sent": return "Отмечено отправленным"
+        case "first_viewed": return "Первый просмотр ссылки"
+        case "converted": return "Бронирование создано"
+        case "edited": return "Пакет обновлён"
+        case "revoked": return "Предложение отозвано"
+        default: return kind
+        }
+    }
+}
+struct BusinessOfferDetail: Decodable {
+    let offer: BusinessOffer
+    let editorDraft: String
+    let events: [BusinessOfferEvent]
+    private enum CodingKeys: String, CodingKey { case editorDraft, events }
+    init(from decoder: Decoder) throws {
+        offer = try BusinessOffer(from: decoder)
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        editorDraft = try c.decode(String.self, forKey: .editorDraft)
+        events = try c.decode([BusinessOfferEvent].self, forKey: .events)
+    }
 }

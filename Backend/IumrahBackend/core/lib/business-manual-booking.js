@@ -6,7 +6,7 @@ const headers = {'cache-control':'no-store','x-content-type-options':'nosniff','
 const json = (body,status=200)=>NextResponse.json(body,{status,headers});
 const origin = 'https://iumrah-backend.helloiumrah.workers.dev';
 const validSecret = s => typeof s==='string' && /^[a-f0-9]{64}$/.test(s);
-async function schema(db) {
+export async function schema(db) {
   await ensureBookingSchema(db);
   await db.prepare(`CREATE TABLE IF NOT EXISTS business_manual_bookings (request_hash TEXT PRIMARY KEY, booking_id TEXT NOT NULL UNIQUE, share_hash TEXT NOT NULL UNIQUE, staff_login TEXT NOT NULL, cost_json TEXT NOT NULL, email_status TEXT NOT NULL DEFAULT 'not_requested', created_at TEXT NOT NULL)`).run();
 }
@@ -19,20 +19,20 @@ export function manualTotals(cost, count) {
   const total=subtotal+Math.round(subtotal*cost.commission/100);
   return total>0&&total<=25000000?{totalUsd:total/100,perPilgrimUsd:Math.round(total/count)/100}:null;
 }
-function safeDetails(d) {
+export function safeDetails(d) {
   const str=(s,n=160)=>typeof s==='string'?s.slice(0,n):'';
   const legs=v=>Array.isArray(v)?v.slice(0,12).filter(l=>l&&typeof l==='object').map(l=>Object.fromEntries(['airline','number','origin','destination','departure','arrival'].map(k=>[k,str(l[k])]))):[];
   const room=r=>r&&typeof r==='object'?{room:str(r.room),rooms:Math.min(6,Math.max(1,Number.isInteger(r.rooms)?r.rooms:1)),meals:str(r.meals)}:null;
   return {outbound:legs(d?.outbound),inbound:legs(d?.inbound),makkah:room(d?.makkah),madinah:room(d?.madinah),vehicle:str(d?.vehicle),pickup:str(d?.pickup)};
 }
-async function authorize(request) {
+export async function authorize(request) {
   const session=await verifyStaffSessionToken(readCookie(request.headers.get('cookie'),STAFF_SESSION_COOKIE));
   if(!session||!request.headers.get('x-iumrah-business-session')) return null;
   const check=await backendFetch(`${origin}/api/admin/hotels/operations/me`,{headers:{cookie:request.headers.get('cookie')||'', 'x-iumrah-business-session':request.headers.get('x-iumrah-business-session')}});
   return check.ok?session:null;
 }
 const localized={ru:['Заявка на умру принята','Проверяем наличие. Оплата пока не требуется.','Открыть поездку'],uz:['Umra arizangiz qabul qilindi','Mavjudlik tekshirilmoqda. Hozircha to‘lov talab etilmaydi.','Safarni ochish'],'uz-cyrl':['Умра аризангиз қабул қилинди','Мавжудлик текширилмоқда. Ҳозирча тўлов талаб этилмайди.','Сафарни очиш'],en:['Umrah request received','Availability is being checked. No payment is required yet.','View trip']};
-async function sendEmail(env,email,lang,url,id) {
+export async function sendEmail(env,email,lang,url,id) {
   if(!env.RESEND_API_KEY) return 'not_configured';
   const copy=localized[lang]||localized.ru;
   try {
@@ -96,12 +96,15 @@ export async function shareRead(request) {
   const db=getBookingDb();if(!db)return json({error:'UNAVAILABLE'},503);await schema(db);
   const row=await db.prepare('SELECT b.id,b.status,b.lang,b.payload_json FROM business_manual_bookings m JOIN bookings b ON b.id=m.booking_id WHERE m.share_hash=?').bind(await hashBookingToken(body.token)).first();
   if(!row)return json({error:'NOT_FOUND'},404);
+  return json(await publicBooking(row));
+}
+export async function publicBooking(row) {
   const b=JSON.parse(row.payload_json),d=b.selectionDetails||{};
   const operation=await requestEnv().HOTELS_DB?.prepare?.('SELECT booking_number,status FROM pilgrim_trips WHERE booking_id=?').bind(row.id).first().catch(()=>null);
   const status=operation?.status?String(operation.status).toUpperCase():row.status;
   // Deliberately whitelist. No names, contacts, passport, cost report or access token.
   const flight=d.flight||{};const hotel=h=>h?{name:h.name,checkIn:h.checkIn,checkOut:h.checkOut}:null;
-  return json({id:row.id,bookingNumber:operation?.booking_number??null,status,lang:row.lang,totalUsd:b.totalUsd,travelers:b.input?.travelers?.adults,startDate:b.input?.startDate,endDate:b.input?.endDate,flight:{airline:flight.airline,outboundOrigin:flight.outboundOrigin,outboundDestination:flight.outboundDestination,outboundDate:flight.outboundDate,returnOrigin:flight.returnOrigin,returnDestination:flight.returnDestination,returnDate:flight.returnDate},makkah:hotel(d.makkahHotel),madinah:hotel(d.madinahHotel),services:b.includedServices,details:safeDetails(b.manualDetails)});
+  return {id:row.id,bookingNumber:operation?.booking_number??null,status,lang:row.lang,totalUsd:b.totalUsd,perPilgrimUsd:b.perPilgrimUsd,travelers:(b.input?.travelers?.adults||0)+(b.input?.travelers?.children||0)+(b.input?.travelers?.infants||0),startDate:b.input?.startDate,endDate:b.input?.endDate,flight:{airline:flight.airline,outboundOrigin:flight.outboundOrigin,outboundDestination:flight.outboundDestination,outboundDate:flight.outboundDate,returnOrigin:flight.returnOrigin,returnDestination:flight.returnDestination,returnDate:flight.returnDate},makkah:hotel(d.makkahHotel),madinah:hotel(d.madinahHotel),services:b.includedServices,details:safeDetails(b.manualDetails)};
 }
 export function sharePage() {
   const nonce=crypto.randomUUID().replaceAll('-','');
@@ -114,12 +117,16 @@ export async function manualBookingInfo(request,{params}) {
   const {id}=await params;const db=getBookingDb();if(!db)return json({error:'UNAVAILABLE'},503);await schema(db);
   const row=await db.prepare('SELECT m.cost_json,m.email_status FROM business_manual_bookings m JOIN bookings b ON b.id=m.booking_id WHERE m.booking_id=?').bind(id).first();
   if(!row)return json({manual:false});
-  const data=JSON.parse(row.cost_json);return json({manual:true,cost:data.cost,emailStatus:row.email_status});
+  const data=JSON.parse(row.cost_json);
+  const offer=await db.prepare('SELECT id,token FROM business_offers WHERE booking_id=?').bind(id).first().catch(()=>null);
+  return json({manual:true,cost:data.cost,emailStatus:row.email_status,packageID:offer?.id??null,shareURL:offer?`${origin}/api/offers#${offer.token}`:null});
 }
 export async function rotateManualShare(request,{params}) {
   const staff=await authorize(request);if(!staff)return json({error:'FORBIDDEN'},403);
   const {id}=await params;const db=getBookingDb();if(!db)return json({error:'UNAVAILABLE'},503);await schema(db);
   const token=await hashBookingToken(crypto.randomUUID()+crypto.randomUUID());
+  const offer=await db.prepare('SELECT id FROM business_offers WHERE booking_id=?').bind(id).first().catch(()=>null);
+  if(offer){await db.batch([db.prepare('UPDATE business_offers SET token=?,token_hash=? WHERE id=?').bind(token,await hashBookingToken(token),offer.id),db.prepare('UPDATE business_manual_bookings SET share_hash=? WHERE booking_id=?').bind(await hashBookingToken(await hashBookingToken('manual-offer-share:'+token)),id)]);return json({shareURL:`${origin}/api/offers#${token}`});}
   const result=await db.prepare('UPDATE business_manual_bookings SET share_hash=? WHERE booking_id=? AND EXISTS (SELECT 1 FROM bookings WHERE id=?)').bind(await hashBookingToken(token),id,id).run();
   if(Number(result.meta?.changes??0)!==1)return json({error:'MANUAL_BOOKING_NOT_FOUND'},404);
   return json({shareURL:`${origin}/api/bookings/share#${token}`});
