@@ -1,3 +1,4 @@
+import { normalizeClientPushToken, clientPushProvider, fcmConfigured, deliverClientPushRows, sendFCM } from './fcm.js';
 import { documentRequirements, readinessFor, validatedAmount, paymentSatisfied, serviceRequirements, operationalProgress, queueFor } from "./booking-foundation.js";
 import { accountIDFromChatKey, chatScope, chatScopeSQL, staffChatScope, chatScopeVersion, carePushTargets, persistCarePushResult } from "./care-identity.js";
 import { incrementalChatPage } from "./chat-incremental.js";
@@ -885,10 +886,18 @@ async function deliverCareChatPush(env, bookingID, body, type) {
 
 async function sendClientPush(env, bookingID, title, body, data = {}) {
   if(['payment_review','travel_document'].includes(data.type))return queueBookingPush(env,bookingID,null,data.type);
-  if (!apnsConfigured(env)) return {ok:false,skipped:'APNS_NOT_CONFIGURED'};
+  if (!clientPushReady(env)) return {ok:false,skipped:'PUSH_NOT_CONFIGURED'};
   const {scope,rows}=await carePushTargets(env.HOTELS_DB,bookingID,CLIENT_APP_BUNDLE_ID);
   const payload={...data,bookingID:scope.pilgrimID&&String(data.type||'').startsWith('chat_')?'account':bookingID,...(scope.pilgrimID?{pilgrimID:pilgrimPublicID(scope.pilgrimID)}:{})};
-  return sendAPNsToRows(env,rows,title,body,payload,(device,result)=>persistCarePushResult(env.HOTELS_DB,device,bookingID,result).catch(()=>{}),CLIENT_APP_BUNDLE_ID);
+  return sendClientPushRows(env,rows,title,body,payload,(device,result)=>persistCarePushResult(env.HOTELS_DB,device,bookingID,result).catch(()=>{}));
+}
+
+function clientPushReady(env, token) {
+  return token ? (clientPushProvider(token)==='fcm' ? fcmConfigured(env) : apnsConfigured(env)) : (apnsConfigured(env)||fcmConfigured(env));
+}
+async function sendClientPushRows(env, rows, title, body, data, persistResult) {
+  return deliverClientPushRows(env, rows, title, body, data, persistResult,
+    apple=>sendAPNsToRows(env,apple,title,body,data,persistResult,CLIENT_APP_BUNDLE_ID),apnsConfigured(env));
 }
 
 async function sendAPNsToRows(env, rows, title, body, data, persistResult, fallbackTopic = BUSINESS_APP_BUNDLE_ID) {
@@ -953,11 +962,11 @@ function clientNotificationCopy(localeRaw, type, value) {
   return { title: 'iumrah Care', body: String(value || '') };
 }
 
-// Durable best-effort APNs queue: one row per booking/event/recipient. No personal
+// Durable best-effort APNs/FCM queue: one row per booking/event/recipient. No personal
 // document titles or contact information is included in the notification text.
 const BOOKING_PUSH_TYPES=new Set(['booking_status','availability_delay','itinerary_update','umrah_certificate','certificate_update','payment_review','travel_document']);
 async function queueBookingPush(env,bookingID,status,eventType){
-  if(!apnsConfigured(env))return {ok:false,skipped:'APNS_NOT_CONFIGURED'};
+  if(!clientPushReady(env))return {ok:false,skipped:'PUSH_NOT_CONFIGURED'};
   const {rows}=await carePushTargets(env.HOTELS_DB,bookingID,CLIENT_APP_BUNDLE_ID);
   if(!rows.length)return {ok:false,skipped:'NO_DEVICES',sent:0,total:0};
   const now=new Date().toISOString(),event=crypto.randomUUID(),db=env.HOTELS_DB;
@@ -966,7 +975,7 @@ async function queueBookingPush(env,bookingID,status,eventType){
   const result=await retryBookingPushOutbox(env,event);return {ok:result.sent>0,sent:result.sent,total:recipients.length,queued:recipients.length-result.sent};
 }
 export async function retryBookingPushOutbox(env,event=null){
-  if(!env.HOTELS_DB||!apnsConfigured(env))return {sent:0};
+  if(!env.HOTELS_DB||!clientPushReady(env))return {sent:0};
   const db=env.HOTELS_DB,now=new Date().toISOString();
   // Bounded retention; expired or exhausted records never become eligible again.
   const expired=new Date(Date.now()-24*3600_000).toISOString();
@@ -974,7 +983,7 @@ export async function retryBookingPushOutbox(env,event=null){
   await db.prepare("DELETE FROM booking_push_delivery_v3 WHERE state<>'pending' AND created_at<?").bind(new Date(Date.now()-7*86400_000).toISOString()).run();
   const q="SELECT * FROM booking_push_delivery_v3 WHERE state='pending' AND next_attempt_at<=? AND (lease_until IS NULL OR lease_until<?)";
   const result=await (event?db.prepare(q+' AND event_id=? ORDER BY created_at,id LIMIT 50').bind(now,now,event):db.prepare(q+' ORDER BY next_attempt_at,id LIMIT 20').bind(now,now)).all();
-  let sent=0;const jwt=await apnsJWT(env);
+  let sent=0;
   for(const row of result.results||[]){
     const lease=crypto.randomUUID(),until=new Date(Date.now()+2*60_000).toISOString();
     const claimed=await db.prepare("UPDATE booking_push_delivery_v3 SET lease_token=?,lease_until=?,attempts=attempts+1 WHERE id=? AND state='pending' AND (lease_until IS NULL OR lease_until<?)").bind(lease,until,row.id,now).run();
@@ -990,10 +999,22 @@ export async function retryBookingPushOutbox(env,event=null){
         if(!device)state='skipped'; // Revalidate current authorized targets before every retry.
         else{
           const copy=clientNotificationCopy(device.locale,type==='booking_status'?'status':type,row.expected_status);
+          const payload={type,bookingID:row.booking_id,...(type==='booking_status'?{status:row.expected_status}:{}),...(scope.pilgrimID?{pilgrimID:pilgrimPublicID(scope.pilgrimID)}:{})};
+          const provider=clientPushProvider(device.device_token);
+          if(!provider){state='failed';error='INVALID_DEVICE_TOKEN';}
+          else if(!clientPushReady(env,device.device_token)){error='PUSH_PROVIDER_NOT_CONFIGURED';}
+          else if(provider==='fcm'){
+            const delivery=await sendFCM(env,device.device_token,copy.title,copy.body,{...payload,eventID:row.id});
+            if(delivery.ok){state='sent';sent++;}
+            else{error=delivery.error||'FCM_FAILED';const code=delivery.response?.status;state=delivery.disable?'failed':(!code||code===401||code===403||code===429||code>=500)?'pending':'failed';}
+            await persistCarePushResult(db,device,row.booking_id,delivery).catch(()=>{});
+          }else{
+          const jwt=await apnsJWT(env);
           const base=device.environment==='development'?'https://api.sandbox.push.apple.com':'https://api.push.apple.com';
           const response=await fetch(`${base}/3/device/${device.device_token}`,{method:'POST',headers:{authorization:`bearer ${jwt}`,'apns-topic':cleanText(device.app_bundle_id,220)||CLIENT_APP_BUNDLE_ID,'apns-push-type':'alert','apns-priority':'10','apns-id':row.id,'apns-collapse-id':row.id,'apns-expiration':String(Math.floor(Date.now()/1000)+3600),'content-type':'application/json'},body:JSON.stringify({aps:{alert:copy,sound:'default','thread-id':row.booking_id},type,bookingID:row.booking_id,...(type==='booking_status'?{status:row.expected_status}:{}),...(scope.pilgrimID?{pilgrimID:pilgrimPublicID(scope.pilgrimID)}:{})})});
           if(response.ok){state='sent';sent++;await persistCarePushResult(db,device,row.booking_id,{ok:true,response}).catch(()=>{});}
           else{const detail=await response.text().catch(()=>''),disable=response.status===410||/BadDeviceToken|Unregistered|DeviceTokenNotForTopic/i.test(detail);error=String(response.status);state=disable?'failed':(response.status===429||response.status===403||response.status>=500)?'pending':'failed';await persistCarePushResult(db,device,row.booking_id,{ok:false,response,disable,error}).catch(()=>{});}
+          }
         }
       }
     }catch{error='transport_or_configuration';}
@@ -6710,21 +6731,47 @@ async function handleClientOperations(request, env, parts) {
 }
 
 async function sendInitialBookingPush(env,bookingID,device,locale){
- if(!apnsConfigured(env))return false;
+ if(!clientPushReady(env,device.device_token))return false;
  await env.HOTELS_DB.prepare(`CREATE TABLE IF NOT EXISTS booking_initial_push_delivery (booking_id TEXT NOT NULL,device_token TEXT NOT NULL,created_at TEXT NOT NULL,result TEXT NOT NULL,PRIMARY KEY(booking_id,device_token))`).run();
  const claim=await env.HOTELS_DB.prepare('INSERT OR IGNORE INTO booking_initial_push_delivery(booking_id,device_token,created_at,result) VALUES(?,?,?,?)').bind(bookingID,device.device_token,new Date().toISOString(),'sending').run();
  if(Number(claim.meta?.changes||0)!==1){const prior=await env.HOTELS_DB.prepare('SELECT result FROM booking_initial_push_delivery WHERE booking_id=? AND device_token=?').bind(bookingID,device.device_token).first();return prior?.result==='accepted';}
  const lang=String(locale).toLowerCase();const copy=lang.startsWith('uz-cyrl')?['Брон яратилди','Мавжудлик текширилмоқда.']:lang.startsWith('uz')?['Bron yaratildi','Mavjudlik tekshirilmoqda.']:lang.startsWith('en')?['Booking created','Checking availability.']:['Бронирование создано','Проверяем наличие.'];
- const result=await sendAPNsToRows(env,[device],copy[0],copy[1],{type:'booking_created',bookingID,status:'availability_check'},async()=>{},CLIENT_APP_BUNDLE_ID).catch(()=>null);
+ const result=await sendClientPushRows(env,[device],copy[0],copy[1],{type:'booking_created',bookingID,status:'availability_check'},(target,delivery)=>persistCarePushResult(env.HOTELS_DB,target,bookingID,delivery).catch(()=>{})).catch(()=>null);
  const accepted=Number(result?.sent||0)>0;
  await env.HOTELS_DB.prepare('UPDATE booking_initial_push_delivery SET result=? WHERE booking_id=? AND device_token=?').bind(accepted?'accepted':'failed',bookingID,device.device_token).run();
  return accepted;
 }
 async function registerClientPushDevice(request,env){
- const payload=await request.json().catch(()=>null);const bookingID=cleanText(payload?.bookingID||payload?.bookingId,180);const token=cleanText(payload?.deviceToken,256)?.toLowerCase();if(!bookingID)return json({ok:false,error:'BOOKING_ID_REQUIRED'},400);if(!token||!/^[0-9a-f]{32,256}$/.test(token))return json({ok:false,error:'INVALID_DEVICE_TOKEN'},400);
- const auth=payload?.notifyCreated===true?await requireBookingToken(request,env,bookingID,{syncTrip:false}):await requireClientBooking(request,env,bookingID,{syncTrip:false});if(!auth.ok)return auth.response;if(auth.pilgrim)return json({ok:true,ready:apnsConfigured(env),bookingID,appBundleID:CLIENT_APP_BUNDLE_ID});const environment=payload?.environment==='development'?'development':'production';const appBundleID=cleanText(payload?.appBundleID||payload?.appBundleId,220)||CLIENT_APP_BUNDLE_ID;if(appBundleID!==CLIENT_APP_BUNDLE_ID)return json({ok:false,error:'INVALID_APP_BUNDLE_ID'},400);const locale=cleanText(payload?.locale,32)||'ru';const now=new Date().toISOString();
- await env.HOTELS_DB.prepare(`INSERT INTO client_push_subscriptions(device_token,booking_id,environment,app_bundle_id,locale,enabled,created_at,updated_at,last_error) VALUES(?,?,?,?,?,1,?,?,NULL) ON CONFLICT(device_token,booking_id) DO UPDATE SET environment=excluded.environment,app_bundle_id=excluded.app_bundle_id,locale=excluded.locale,enabled=1,updated_at=excluded.updated_at,last_error=NULL`).bind(token,bookingID,environment,appBundleID,locale,now,now).run();let initialPushAccepted=false;if(payload?.notifyCreated===true&&normalizedTripStatus(auth.trip?.status||auth.booking?.status)==='availability_check'){initialPushAccepted=await sendInitialBookingPush(env,bookingID,{device_token:token,environment,app_bundle_id:appBundleID},locale).catch(()=>false);}return json({ok:true,ready:apnsConfigured(env),bookingID,appBundleID:CLIENT_APP_BUNDLE_ID,initialPushAccepted});
+ const payload=await request.json().catch(()=>null);
+ const bookingID=cleanText(payload?.bookingID||payload?.bookingId,180);
+ const token=normalizeClientPushToken(payload?.deviceToken);
+ if(!bookingID)return json({ok:false,error:'BOOKING_ID_REQUIRED'},400);
+ if(!token)return json({ok:false,error:'INVALID_DEVICE_TOKEN'},400);
+ const appBundleID=cleanText(payload?.appBundleID||payload?.appBundleId,220)||CLIENT_APP_BUNDLE_ID;
+ if(appBundleID!==CLIENT_APP_BUNDLE_ID)return json({ok:false,error:'INVALID_APP_BUNDLE_ID'},400);
+ const auth=payload?.notifyCreated===true?await requireBookingToken(request,env,bookingID,{syncTrip:false}):await requireClientBooking(request,env,bookingID,{syncTrip:false});
+ if(!auth.ok)return auth.response;
+ const environment=payload?.environment==='development'?'development':'production';
+ const locale=cleanText(payload?.locale,32)||'ru';const now=new Date().toISOString();
+ const android=clientPushProvider(token)==='fcm';
+ let initialPushAccepted=false;
+ if(!auth.pilgrim){
+   await env.HOTELS_DB.prepare(`INSERT INTO client_push_subscriptions(device_token,booking_id,environment,app_bundle_id,locale,enabled,created_at,updated_at,last_error) VALUES(?,?,?,?,?,1,?,?,NULL) ON CONFLICT(device_token,booking_id) DO UPDATE SET environment=excluded.environment,app_bundle_id=excluded.app_bundle_id,locale=excluded.locale,enabled=1,updated_at=excluded.updated_at,last_error=NULL`).bind(token,bookingID,environment,appBundleID,locale,now,now).run();
+ }
+ // Android's current registration does not send notifyCreated. Only send the
+ // first receipt while the booking is still awaiting availability, once per token.
+ // Resolve current ownership again so a claimed booking never targets old guests.
+ if((android||(!auth.pilgrim&&payload?.notifyCreated===true))&&normalizedTripStatus(auth.trip?.status||auth.booking?.status)==='availability_check'){
+   let device={device_token:token,environment,app_bundle_id:appBundleID};
+   if(android){
+     const targets=await carePushTargets(env.HOTELS_DB,bookingID,CLIENT_APP_BUNDLE_ID);
+     device=targets.rows.find(row=>row.device_token===token);
+   }
+   if(device)initialPushAccepted=await sendInitialBookingPush(env,bookingID,device,locale).catch(()=>false);
+ }
+ return json({ok:true,ready:clientPushReady(env,token),bookingID,appBundleID:CLIENT_APP_BUNDLE_ID,initialPushAccepted});
 }
+
 
 
 const CLIENT_NOTIFICATION_SCOPES = new Set(['all','authenticated','guest','has_trip']);
@@ -6774,8 +6821,8 @@ async function registerClientNotificationDevice(request, env) {
   const installationID = cleanText(payload?.installationID || payload?.installationId, 128);
   if (!validClientInstallation(installationID)) return json({ ok: false, error: 'INVALID_INSTALLATION_ID' }, 400);
 
-  let deviceToken = cleanText(payload?.deviceToken, 256)?.toLowerCase() || null;
-  if (deviceToken && !/^[0-9a-f]{32,256}$/.test(deviceToken)) return json({ ok: false, error: 'INVALID_DEVICE_TOKEN' }, 400);
+  const deviceToken = normalizeClientPushToken(payload?.deviceToken);
+  if (payload?.deviceToken != null && payload.deviceToken !== '' && !deviceToken) return json({ ok: false, error: 'INVALID_DEVICE_TOKEN' }, 400);
   const environment = payload?.environment === 'development' ? 'development' : 'production';
   const appBundleID = cleanText(payload?.appBundleID || payload?.appBundleId, 220) || CLIENT_APP_BUNDLE_ID;
   if (appBundleID !== CLIENT_APP_BUNDLE_ID) return json({ ok: false, error: 'INVALID_APP_BUNDLE_ID' }, 400);
@@ -6817,7 +6864,7 @@ async function registerClientNotificationDevice(request, env) {
   ).run();
 
   if(account.authenticated && deviceToken) await env.HOTELS_DB.prepare('UPDATE client_push_subscriptions SET enabled=0 WHERE device_token=?').bind(deviceToken).run();
-  return json({ ok: true, ready: apnsConfigured(env), installationID, appBundleID: CLIENT_APP_BUNDLE_ID, authenticated: !!authenticated, hasTrip: !!hasTrip });
+  return json({ ok: true, ready: clientPushReady(env, deviceToken), installationID, appBundleID: CLIENT_APP_BUNDLE_ID, authenticated: !!authenticated, hasTrip: !!hasTrip });
 }
 
 async function clientSystemNotificationFeed(request, env) {
@@ -6920,7 +6967,7 @@ async function listClientSystemNotifications(env) {
 }
 
 async function sendClientSystemNotificationPush(env, scope, notification) {
-  if (!apnsConfigured(env)) return { ok: false, skipped: 'APNS_NOT_CONFIGURED', sent: 0, total: 0 };
+  if (!clientPushReady(env)) return { ok: false, skipped: 'PUSH_NOT_CONFIGURED', sent: 0, total: 0 };
   let lastInstallationID = '';
   let sent = 0;
   let total = 0;
@@ -6945,18 +6992,18 @@ async function sendClientSystemNotificationPush(env, scope, notification) {
       destination: notification.destination,
       ...(notification.destinationBookingID ? { destinationBookingID: notification.destinationBookingID } : {})
     };
-    const result = await sendAPNsToRows(env, devices, notification.title, notification.body, data, async (device, delivery) => {
+    const result = await sendClientPushRows(env, devices, notification.title, notification.body, data, async (device, delivery) => {
       const now = new Date().toISOString();
       if (delivery.ok) {
         await env.HOTELS_DB.prepare(`
-          UPDATE client_notification_devices SET last_success_at=?,last_error=NULL,updated_at=? WHERE installation_id=?
-        `).bind(now, now, device.installation_id).run().catch(() => {});
-      } else if (delivery.response) {
+          UPDATE client_notification_devices SET last_success_at=?,last_error=NULL,updated_at=? WHERE installation_id=? AND device_token=?
+        `).bind(now, now, device.installation_id, device.device_token).run().catch(() => {});
+      } else if (delivery.error) {
         await env.HOTELS_DB.prepare(`
-          UPDATE client_notification_devices SET enabled=?,last_error=?,updated_at=? WHERE installation_id=?
-        `).bind(delivery.disable ? 0 : 1, delivery.error.slice(0, 900), now, device.installation_id).run().catch(() => {});
+          UPDATE client_notification_devices SET enabled=CASE WHEN ?=1 THEN 0 ELSE enabled END,last_error=?,updated_at=? WHERE installation_id=? AND device_token=?
+        `).bind(delivery.disable ? 1 : 0, delivery.error.slice(0, 900), now, device.installation_id, device.device_token).run().catch(() => {});
       }
-    }, CLIENT_APP_BUNDLE_ID);
+    });
     sent += Number(result.sent || 0);
     total += Number(result.total || 0);
     if (devices.length < 200) break;
@@ -7015,7 +7062,7 @@ async function createClientSystemNotification(request, env, user) {
   `).bind(sentAt, sentCount, failedCount, id).run();
 
   const row = await env.HOTELS_DB.prepare('SELECT * FROM client_system_notifications WHERE id=?').bind(id).first();
-  return json({ ok: true, notification: mapClientSystemNotification(row), delivery: { sent: sentCount, attempted, pushReady: apnsConfigured(env) } }, 201);
+  return json({ ok: true, notification: mapClientSystemNotification(row), delivery: { sent: sentCount, attempted, pushReady: clientPushReady(env) } }, 201);
 }
 
 async function requireBookingToken(request,env,bookingID,options={}){

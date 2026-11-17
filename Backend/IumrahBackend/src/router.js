@@ -1,3 +1,4 @@
+import { fcmConfigured } from '../../HotelsWorker/src/fcm.js';
 import {botConfigured,telegramRetrySecret,notifyTelegramStatus} from '../core/lib/telegram-native.js';
 import {runCore} from '../core/runtime.js';
 import { cutoverStatus, coreReady } from './cutover.js';
@@ -103,7 +104,7 @@ export function createBackendRouter({hotels, flights, packages, core, requestAer
         };
         const coreReady = bindings.HOTELS_DB && bindings.BOOKINGS_DB && bindings.FLIGHTS_DB;
         const fullyConfigured = coreReady && bindings.HOTELS_MEDIA;
-        return json({ok:!!coreReady,status:fullyConfigured?'configured':'degraded',fullyConfigured:!!fullyConfigured,service:'iumrah-backend',bindings,modules:{hotels:true,flights:true,packages:!!packages,core:!!core,coreCutoverEnabled:ready},...(aeroDataBoxConfiguration ? aeroDataBoxConfiguration(env) : {}),kind:'binding-presence-only'},coreReady?200:503);
+        return json({ok:!!coreReady,status:fullyConfigured?'configured':'degraded',fullyConfigured:!!fullyConfigured,service:'iumrah-backend',bindings,modules:{hotels:true,flights:true,packages:!!packages,core:!!core,coreCutoverEnabled:ready},...(aeroDataBoxConfiguration ? aeroDataBoxConfiguration(env) : {}),pushProviders:{apns:!!(env.APNS_PRIVATE_KEY&&env.APNS_KEY_ID&&env.APPLE_TEAM_ID),fcm:fcmConfigured(env)},kind:'binding-presence-only'},coreReady?200:503);
       }
       return json({ok:false,error:'NOT_FOUND'},404);
     },
@@ -116,7 +117,7 @@ export function createBackendRouter({hotels, flights, packages, core, requestAer
         if (!Number.isFinite(date.getTime())) return;
         const h=date.getUTCHours(),m=date.getUTCMinutes();
         const jobs=[];
-        if(retryBookingPushOutbox&&env.APNS_PRIVATE_KEY)jobs.push(()=>retryBookingPushOutbox(env));
+        if(retryBookingPushOutbox&&(env.APNS_PRIVATE_KEY||fcmConfigured(env)))jobs.push(()=>retryBookingPushOutbox(env));
         if (h===1 && m===15) jobs.push(()=>flights.scheduled?.(controller,env,ctx));
         if (h===3 && m===0) jobs.push(()=>hotels.scheduled?.(controller,env,ctx));
         if (packages && coreReady(env,core) && env.IUMRAH_PACKAGE_CRON_ENABLED==='1') jobs.push(()=>packages.scheduled?.(controller,env,ctx));

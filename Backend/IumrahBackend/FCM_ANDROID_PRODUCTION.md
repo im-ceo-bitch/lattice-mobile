@@ -1,6 +1,6 @@
 # iumrah Signal: Android push (FCM HTTP v1)
 
-Base: lattice-mobile-main 3.zip, Booking Experience foundation 1A merged. No workflow, D1 schema, iOS code or app signing changes.
+Base: Booking Experience 3.0 Release QA merged with the Android FCM patch. No workflow, D1 schema, iOS code or app signing changes.
 
 ## Deploy
 
@@ -14,7 +14,7 @@ Base: lattice-mobile-main 3.zip, Booking Experience foundation 1A merged. No wor
 
 - Existing production APNs hex tokens are normalized as before. Case-sensitive FCM tokens are preserved; token shape routes them to the corresponding transport. No schema migration. Existing authenticated live-session and guest booking targeting rules still apply. New Android initial booking receipt is attempted at registration if the current booking still awaits availability, deduplicated per booking/token using the existing receipt table. Existing Apple initial delivery behavior is retained.
 - FCM uses a signed RSA OAuth assertion and the official HTTP v1 endpoint with an expiring in-memory access token. Notification and string data are sent together for native system notifications and app navigation. Channel `iumrah_trip_updates` and icon match the Android source. Only `UNREGISTERED` disables a token; temporary failures do not re-enable or revoke it. APNs and FCM failures are isolated. No private key, OAuth bearer or raw FCM error body is written to logs or D1.
-- Existing status change event in Business operations sends both transports; payment confirmation is a booking status transition. Existing document, Care chat, security and system notification hooks use the same dispatcher. The legacy direct Core admin status path is not changed. No Firebase database, auth, or hosting is used. The existing direct push delivery is best effort (no durable FCM retry queue added). Existing bulk Signal delivery limits are unchanged.
+- Existing status change event in Business operations sends both transports; payment confirmation is a booking status transition. Existing document, Care chat, security and system notification hooks use the same dispatcher. The legacy direct Core admin status path is not changed. No Firebase database, auth, or hosting is used. Booking status, document, payment, itinerary, delay and certificate events share the durable APNs/FCM outbox with bounded retries, current-recipient validation and stale-status suppression. Initial booking receipts, Care chat and Signal broadcasts remain best effort. Provider acceptance does not prove device receipt; ambiguous failures can lead to duplicates. Existing bulk Signal delivery limits are unchanged.
 
 ## Verification
 

@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {DatabaseSync} from 'node:sqlite';
-import * as helpers from '../../HotelsWorker/src/booking-foundation.js';
+import * as foundation from '../../HotelsWorker/src/booking-foundation.js';
+import * as transport from '../../HotelsWorker/src/fcm.js';
+const helpers={...foundation,...transport};
 const base=new URL('../../HotelsWorker/',import.meta.url);
 const src=readFileSync(new URL('src/index.js',base),'utf8').replace(/^import .*;\n/gm,'').replace('export default {','const worker = {').replace(/export (async function|class) /g,'$1 ').replace('export { sendStaffPush };','');
 const names=['updateOperationsBooking','saveServiceOperation','saveBookingManager','recordBookingRefund','requestBookingCancellation','dismissCancellationRequest','saveItineraryExecution','saveBookingItinerary','operationsCenterData','bookingItineraryDetail','withBookingMutation','submitTravelFeedback','closeTravelFinance','issueTravelCertificate','travelFinancialClose','travelCertificates','travelFeedback','clientNotificationCopy','reconcileHistoricalPayment','correctTravelCertificate','foundationPayment','retryBookingPushOutbox','queueBookingPush'];
@@ -124,11 +126,11 @@ test('certificate corrections retire old identity and record reason; revoked cer
 });
 
 test('APNs queue retries only unsuccessful current targets, rejects stale status and expires exhausted attempts',async()=>{
- const {db,env}=fixture();Object.assign(env,{APNS_PRIVATE_KEY:'test',APNS_KEY_ID:'test',APPLE_TEAM_ID:'test'});env.HOTELS_DB.testDevices=[{device_token:'device1',locale:'ru',environment:'development'},{device_token:'device2',locale:'en',environment:'development'}];
- const oldFetch=globalThis.fetch,calls=[];let retry=false;globalThis.fetch=async(url,init)=>{calls.push({url,id:init.headers['apns-id'],payload:JSON.parse(init.body)});return new Response(null,{status:url.endsWith('device1')||retry?200:503});};
+ const {db,env}=fixture();Object.assign(env,{APNS_PRIVATE_KEY:'test',APNS_KEY_ID:'test',APPLE_TEAM_ID:'test'});env.HOTELS_DB.testDevices=[{device_token:'1'.repeat(64),locale:'ru',environment:'development'},{device_token:'2'.repeat(64),locale:'en',environment:'development'}];
+ const oldFetch=globalThis.fetch,calls=[];let retry=false;globalThis.fetch=async(url,init)=>{calls.push({url,id:init.headers['apns-id'],payload:JSON.parse(init.body)});return new Response(null,{status:url.endsWith('1'.repeat(64))||retry?200:503});};
  try{
   const result=await api.queueBookingPush(env,'b','availability_check','booking_status');assert.equal(result.sent,1);assert.equal(result.total,2);assert.equal(calls.length,2);assert.equal(db.prepare("SELECT COUNT(*) n FROM booking_push_delivery_v3 WHERE state='pending'").get().n,1);
-  const failed=calls.find(c=>c.url.endsWith('device2'));retry=true;db.exec("UPDATE booking_push_delivery_v3 SET next_attempt_at='2000-01-01' WHERE state='pending'");assert.equal((await api.retryBookingPushOutbox(env)).sent,1);assert.equal(calls.length,3);assert.equal(calls[2].id,failed.id);
+  const failed=calls.find(c=>c.url.endsWith('2'.repeat(64)));retry=true;db.exec("UPDATE booking_push_delivery_v3 SET next_attempt_at='2000-01-01' WHERE state='pending'");assert.equal((await api.retryBookingPushOutbox(env)).sent,1);assert.equal(calls.length,3);assert.equal(calls[2].id,failed.id);
   retry=false;await api.queueBookingPush(env,'b','availability_check','booking_status');const count=calls.length;db.exec("UPDATE pilgrim_trips SET status='payment_pending'; UPDATE booking_push_delivery_v3 SET next_attempt_at='2000-01-01' WHERE state='pending'");await api.retryBookingPushOutbox(env);assert.equal(calls.length,count);assert.equal(db.prepare("SELECT COUNT(*) n FROM booking_push_delivery_v3 WHERE state='skipped'").get().n,1);
   await api.queueBookingPush(env,'b',null,'travel_document');env.HOTELS_DB.testDevices=[env.HOTELS_DB.testDevices[0]];db.exec("UPDATE booking_push_delivery_v3 SET next_attempt_at='2000-01-01' WHERE state='pending'");const before=calls.length;await api.retryBookingPushOutbox(env);assert.equal(calls.length,before);assert.equal(db.prepare("SELECT COUNT(*) n FROM booking_push_delivery_v3 WHERE state='skipped'").get().n,2);
  }finally{globalThis.fetch=oldFetch;db.close();}

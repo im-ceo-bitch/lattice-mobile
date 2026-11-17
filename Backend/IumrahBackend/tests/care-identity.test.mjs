@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import {ensureSchema} from '../scripts/apply-package-schema.mjs';
 import {carePushTargets,accountChatKey,staffChatScope} from '../../HotelsWorker/src/care-identity.js';
 const hook=registerHooks({resolve(specifier,context,next){if(specifier==='cloudflare:workers')return {url:'data:text/javascript,export class WorkflowEntrypoint {}',shortCircuit:true};return next(specifier,context);}});
-const {default:worker}=await import('../../HotelsWorker/src/index.js');hook.deregister();
+const {default:worker,retryBookingPushOutbox}=await import('../../HotelsWorker/src/index.js');hook.deregister();
 const schema=JSON.parse(fs.readFileSync(new URL('../schema/bootstrap-v21.json',import.meta.url),'utf8')).HOTELS_DB;
 const sha=s=>createHash('sha256').update(s).digest('hex');
 const stamp='2026-01-01T00:00:00Z',expires='2099-01-01T00:00:00Z';
@@ -151,11 +151,15 @@ test('real Worker routes Android FCM and Apple APNs, keeps case, scopes guest/ac
   assert.equal(signal.delivery.sent,2);assert.equal(signal.delivery.pushReady,true);assert.equal(messages.find(x=>x.payload.message).payload.message.data.type,'system_notification');
   messages.length=0;
   env.HOTELS_MEDIA.put=async()=>{};
-  const doc=await worker.fetch(new Request(base+'/api/admin/hotels/operations/bookings/a/documents?kind=visa&title=Visa',{method:'POST',headers:{...staff,'content-type':'application/pdf'},body:new Uint8Array([37,80,68,70])}),env);
+  // Booking Experience requires an eligible stage and document slots.
+  sql.exec(fs.readFileSync(new URL("../../HotelsWorker/migrations/0044_business_intelligence.sql",import.meta.url),"utf8"));
+  sql.exec("UPDATE pilgrim_trips SET status='booking_confirmed',booking_snapshot_json='{\"includedServices\":[\"visa\"],\"input\":{\"travelers\":{\"adults\":1}}}' WHERE booking_id='a'");
+  const doc=await worker.fetch(new Request(base+'/api/admin/hotels/operations/bookings/a/documents?kind=visa&title=Visa&slot=visa%3A1',{method:'POST',headers:{...staff,'content-type':'application/pdf'},body:new Uint8Array([37,80,68,70])}),env);
   await data(doc);assert.equal(messages.length,2);assert.equal(messages.find(x=>x.payload.message).payload.message.data.type,'travel_document');
   messages.length=0;
-  sql.exec("CREATE TABLE bookings(id TEXT PRIMARY KEY,status TEXT,updated_at TEXT); INSERT INTO bookings VALUES('a','READY_TO_TRAVEL','2026-01-01'); UPDATE pilgrim_trips SET status='ready_to_travel' WHERE booking_id='a'");
+  sql.exec("CREATE TABLE bookings(id TEXT PRIMARY KEY,status TEXT,updated_at TEXT,total_cents INTEGER,payload_json TEXT); INSERT INTO bookings VALUES('a','READY_TO_TRAVEL','2026-01-01',100000,'{}'); UPDATE pilgrim_trips SET status='ready_to_travel' WHERE booking_id='a'");
   env.BOOKINGS_DB=db;
+  await data(await go('/api/admin/hotels/operations/bookings/a/service-operation',staff,'PUT',{key:'visa',availability:'confirmed'}));
   const moved=await go('/api/admin/hotels/operations/bookings/a',staff,'PATCH',{status:'in_trip'});
   await data(moved);assert.equal(messages.length,2);assert.equal(messages.find(x=>x.payload.message).payload.message.data.status,'in_trip');
   assert.equal(sql.prepare("SELECT status FROM bookings WHERE id='a'").get().status,'IN_TRIP');
@@ -163,5 +167,32 @@ test('real Worker routes Android FCM and Apple APNs, keeps case, scopes guest/ac
   await data(await go(A+accountChatKey(1)+'/messages',staff,'POST',{body:'invalid token test'}));
   assert.equal(sql.prepare('SELECT enabled,last_error FROM client_notification_devices WHERE installation_id=?').get('android-installation-01').enabled,0);
   assert.equal(sql.prepare('SELECT enabled FROM client_notification_devices WHERE installation_id=?').get('apple-installation-001').enabled,1);
+ }finally{globalThis.fetch=originalFetch;sql.close();}
+});
+
+
+test('FCM-only booking outbox retries temporary failures and skips stale or already accepted events',async()=>{
+ const {sql,env,go,register}=await fixture();const originalFetch=globalThis.fetch;
+ const rsa=generateKeyPairSync('rsa',{modulusLength:2048});
+ env.FCM_SERVICE_ACCOUNT_JSON=JSON.stringify({type:'service_account',project_id:'iumrah-outbox',client_email:'push@iumrah-outbox.iam.gserviceaccount.com',private_key:rsa.privateKey.export({type:'pkcs8',format:'pem'})});
+ const token='AndroidOutbox:APA91bMixedCase_'+ 'X'.repeat(140);let fail=true;const calls=[];
+ globalThis.fetch=async(url,init)=>{
+   if(String(url)==='https://oauth2.googleapis.com/token')return Response.json({access_token:'mock',expires_in:3600});
+   assert.ok(String(url).startsWith('https://fcm.googleapis.com'));const msg=JSON.parse(init.body).message;calls.push(msg);
+   return fail?Response.json({error:{details:[{'@type':'type.googleapis.com/google.firebase.fcm.v1.FcmError',errorCode:'UNAVAILABLE'}]}},{status:503}):Response.json({name:'accepted'});
+ };
+ try{
+  sql.exec(fs.readFileSync(new URL('../../HotelsWorker/migrations/0044_business_intelligence.sql',import.meta.url),'utf8'));
+  await data(await register('android-outbox-001',token,accountA));
+  sql.exec("UPDATE pilgrim_trips SET status='availability_check',availability_started_at='2000-01-01' WHERE booking_id='a'");
+  const delay=await data(await go('/api/admin/hotels/operations/bookings/a/availability-delay',staff,'POST',{}));
+  assert.equal(delay.sent,0);assert.equal(calls.length,1);assert.equal(calls[0].token,token);assert.equal(calls[0].data.type,'availability_delay');
+  assert.equal(sql.prepare("SELECT state FROM booking_push_delivery_v3 WHERE booking_id='a'").get().state,'pending');
+  fail=false;sql.exec("UPDATE booking_push_delivery_v3 SET next_attempt_at='2000-01-01'");
+  assert.equal((await retryBookingPushOutbox(env)).sent,1);assert.equal(calls.length,2);assert.equal(calls[0].data.eventID,calls[1].data.eventID);
+  assert.equal((await retryBookingPushOutbox(env)).sent,0);assert.equal(calls.length,2);
+  sql.exec("UPDATE booking_push_delivery_v3 SET state='pending',next_attempt_at='2000-01-01'; UPDATE pilgrim_trips SET status='payment_pending' WHERE booking_id='a'");
+  assert.equal((await retryBookingPushOutbox(env)).sent,0);assert.equal(calls.length,2);
+  assert.equal(sql.prepare("SELECT state FROM booking_push_delivery_v3 WHERE booking_id='a'").get().state,'skipped');
  }finally{globalThis.fetch=originalFetch;sql.close();}
 });
