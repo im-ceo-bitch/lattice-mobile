@@ -3,6 +3,8 @@ import type { Env } from "./env";
 
 type CareRequestPayload = {
   locale?: unknown;
+  clientRequestID?: unknown;
+  source?: unknown;
   firstName?: unknown;
   lastName?: unknown;
   phone?: unknown;
@@ -122,6 +124,7 @@ async function ensureSchema(db: D1Like) {
   await db.prepare(
     "CREATE INDEX IF NOT EXISTS idx_iumrah_care_requests_status_due ON iumrah_care_package_requests(status,response_due_at)",
   ).run();
+  await db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_care_request_client_key ON iumrah_care_package_requests(json_extract(payload_json, '$.clientRequestID')) WHERE json_valid(payload_json)").run();
   schemaReady = true;
 }
 
@@ -159,7 +162,10 @@ export async function createCarePackageRequest(request: Request, env: Env): Prom
     return json({ ok: false, error: "CARE_REQUEST_MONTH_REQUIRED" }, 400);
   }
 
+  const clientRequestID = typeof body.clientRequestID === "string" && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(body.clientRequestID) ? body.clientRequestID : null;
+  const source = body.source === "telegram" ? "telegram" : "ios";
   const normalized = {
+    clientRequestID,
     locale: clean(body.locale, 16) || "ru",
     firstName,
     lastName,
@@ -218,14 +224,15 @@ export async function createCarePackageRequest(request: Request, env: Env): Prom
     const contactName = [normalized.firstName, normalized.lastName].filter(Boolean).join(" ");
     normalized.accountID = await optionalVerifiedAccountID(request, env.HOTELS_DB);
 
-    await env.HOTELS_DB.prepare(`INSERT INTO iumrah_care_package_requests (
+    const payloadJson = JSON.stringify(normalized);
+    const inserted = await env.HOTELS_DB.prepare(`INSERT OR IGNORE INTO iumrah_care_package_requests (
       id,request_type,status,source,locale,contact_name,contact_phone,contact_telegram,account_id,
       origin_code,timing_mode,preferred_month,flexible_window_days,exact_start_date,exact_end_date,
       adults,children,infants,rooms,scope,first_saudi_city,priority,hotel_class,transfer_preference,
       direct_flights_preferred,checked_baggage_preferred,include_ziyarat,include_esim,guide_preference,
       budget_usd,notes,payload_json,created_at,response_due_at,updated_at
     ) VALUES (
-      ?1,'CARE_BUILD','CARE_REQUEST','ios',?2,?3,?4,?5,?6,
+      ?1,'CARE_BUILD','CARE_REQUEST',?32,?2,?3,?4,?5,?6,
       ?7,?8,?9,?10,?11,?12,
       ?13,?14,?15,?16,?17,?18,?19,?20,?21,
       ?22,?23,?24,?25,?26,
@@ -237,9 +244,15 @@ export async function createCarePackageRequest(request: Request, env: Env): Prom
       normalized.rooms, normalized.scope, normalized.firstSaudiCity, normalized.priority, normalized.hotelClass,
       normalized.transferPreference, normalized.directFlightsPreferred ? 1 : 0, normalized.checkedBaggagePreferred ? 1 : 0,
       normalized.includeZiyarat ? 1 : 0, normalized.includeESIM ? 1 : 0, normalized.guidePreference, normalized.budgetUSD,
-      normalized.notes || null, JSON.stringify(normalized), createdAt, responseDueAt,
+      normalized.notes || null, payloadJson, createdAt, responseDueAt, source,
     ).run();
 
+    if (Number(inserted.meta?.changes ?? 0) === 0) {
+      if (!clientRequestID) return json({ ok: false, error: "CARE_REQUEST_CREATE_FAILED" }, 409);
+      const old = await env.HOTELS_DB.prepare("SELECT id,status,created_at,response_due_at,payload_json,source FROM iumrah_care_package_requests WHERE json_valid(payload_json) AND json_extract(payload_json,'$.clientRequestID')=? LIMIT 1").bind(clientRequestID).first<{id:string;status:string;created_at:string;response_due_at:string;payload_json:string;source:string}>();
+      if (!old || old.payload_json !== payloadJson || old.source !== source) return json({ok:false,error:"CARE_REQUEST_KEY_CONFLICT"},409);
+      return json({ok:true,requestID:old.id,status:old.status,createdAt:old.created_at,responseDueAt:old.response_due_at},200);
+    }
     return json({ ok: true, requestID: id, status: "CARE_REQUEST", createdAt, responseDueAt }, 201);
   } catch (error) {
     console.error("care-package-request-create-failed", error);

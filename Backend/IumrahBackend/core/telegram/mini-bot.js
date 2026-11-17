@@ -1,3 +1,4 @@
+import { conciergeCopy, conciergeIntent, conciergeAnswer, advancePlan, conciergeAirports } from "./concierge.js";
 import { STATUS_ASSETS } from './status-assets.js';
 import { MINI_ASSETS } from './mini-assets.js';
 import { SUPPORT_ASSETS } from './support-assets.js';
@@ -19,7 +20,7 @@ const I18N = {
             newBooking: { title: "Новое бронирование", body: "Ваша бронь создана и передана в систему iumrah. Скоро начнётся автоматическая проверка рейсов, отелей и остальных компонентов поездки." },
             checking: { title: "Проверка наличия", body: "iumrah проверяет рейсы, отели и остальные компоненты вашей поездки." },
             paymentWaiting: { title: "Наличие подтверждено", body: "Можно переходить к оплате и заполнению данных паломников. Цена удерживается ограниченное время." },
-            paymentReceived: { title: "Оплата получена", body: "Платёж уже получен и сейчас проходит подтверждение." },
+            paymentReceived: { title: "Проверяем оплату", body: "Чек отправлен. Ожидайте подтверждения поступления средств." },
             confirmed: { title: "Бронирование подтверждено", body: "Мы готовим документы и подтверждения по вашей поездке." },
             ready: { title: "Документы готовы", body: "Поездка готова. Основные документы и подтверждения уже собраны." },
             inTrip: { title: "Паломник в поездке", body: "Ваша поездка уже началась. Основные данные остаются доступны в iumrah." },
@@ -43,7 +44,7 @@ const I18N = {
             newBooking: { title: "New booking", body: "Your booking has been created and sent to the iumrah system. Automatic verification of flights, hotels and the remaining trip components will begin shortly." },
             checking: { title: "Checking availability", body: "iumrah is checking flights, hotels and the remaining trip components." },
             paymentWaiting: { title: "Availability confirmed", body: "You can now proceed with payment and pilgrim details. The price is held for a limited time." },
-            paymentReceived: { title: "Payment received", body: "Your payment has been received and is now being reviewed." },
+            paymentReceived: { title: "Reviewing payment", body: "Your receipt has been submitted and is being reviewed." },
             confirmed: { title: "Booking confirmed", body: "We are preparing your travel documents and confirmations." },
             ready: { title: "Documents ready", body: "Your trip is ready. Core documents and confirmations are already prepared." },
             inTrip: { title: "Pilgrim is in trip", body: "Your Umrah journey is already active. Core details remain available in iumrah." },
@@ -67,7 +68,7 @@ const I18N = {
             newBooking: { title: "Yangi bron", body: "Broningiz yaratildi va iumrah tizimiga yuborildi. Tez orada parvozlar, mehmonxonalar va safarning qolgan qismlari avtomatik tekshiriladi." },
             checking: { title: "Mavjudlik tekshirilmoqda", body: "iumrah parvozlar, mehmonxonalar va safarning qolgan qismlarini tekshirmoqda." },
             paymentWaiting: { title: "Mavjudlik tasdiqlandi", body: "Endi to'lov va ziyoratchilar ma'lumotlarini topshirishingiz mumkin. Narx cheklangan vaqtga ushlab turiladi." },
-            paymentReceived: { title: "To'lov qabul qilindi", body: "To'lov qabul qilindi va hozir tasdiqlanmoqda." },
+            paymentReceived: { title: "To‘lov tekshirilmoqda", body: "Chek yuborildi. Mablag‘ tushganini tasdiqlash kutilmoqda." },
             confirmed: { title: "Bron tasdiqlandi", body: "Safaringiz bo'yicha hujjatlar va tasdiqlar tayyorlanmoqda." },
             ready: { title: "Hujjatlar tayyor", body: "Safar tayyor. Asosiy hujjatlar va tasdiqlar allaqachon tayyor." },
             inTrip: { title: "Ziyoratchi safarda", body: "Umra safaringiz boshlandi. Asosiy ma'lumotlar iumrah ichida mavjud." },
@@ -91,7 +92,7 @@ const I18N = {
             newBooking: { title: "Янги брон", body: "Бронингиз яратилди ва iumrah тизимига юборилди. Яқин орада парвозлар, меҳмонхоналар ва сафарнинг қолган қисмлари автоматик текширилади." },
             checking: { title: "Мавжудлик текширилмоқда", body: "iumrah парвозлар, меҳмонхоналар ва сафарнинг қолган қисмларини текширмоқда." },
             paymentWaiting: { title: "Мавжудлик тасдиқланди", body: "Энди тўлов ва зиёратчилар маълумотларини топширишингиз мумкин. Нарх чекланган вақтга ушлаб турилади." },
-            paymentReceived: { title: "Тўлов қабул қилинди", body: "Тўлов қабул қилинди ва ҳозир тасдиқланмоқда." },
+            paymentReceived: { title: "Тўлов текширилмоқда", body: "Чек юборилди. Маблағ тушганини тасдиқлаш кутилмоқда." },
             confirmed: { title: "Брон тасдиқланди", body: "Сафарингиз бўйича ҳужжатлар ва тасдиқлар тайёрланмоқда." },
             ready: { title: "Ҳужжатлар тайёр", body: "Сафар тайёр. Асосий ҳужжатлар ва тасдиқлар аллақачон тайёр." },
             inTrip: { title: "Зиёратчи сафарда", body: "Умра сафарингиз бошланди. Асосий маълумотлар iumrah ичида мавжуд." },
@@ -498,7 +499,8 @@ async function sendBotHome(env, chatID, telegramUserID, locale, runtimeBaseURL, 
     const copy = botUX(locale);
     await setMiniAppMenuButton(env, chatID, locale, runtimeBaseURL);
     await ensurePinnedMiniAppMessage(env, chatID, telegramUserID, locale, runtimeBaseURL);
-    await sendMessage(env, chatID, `<b>${escapeHtml(copy.welcomeTitle)}</b>\n\n${escapeHtml(copy.welcomeBody)}`, persistentReplyKeyboard(env, locale, runtimeBaseURL));
+    await sendMessage(env, chatID, `<b>iumrah Concierge</b>\n\n${escapeHtml(conciergeCopy(locale).welcome)}`, {remove_keyboard:true});
+    await sendMessage(env,chatID,escapeHtml(conciergeCopy(locale).help),conciergeKeyboard(env,locale,runtimeBaseURL));
     if (includeStatus)
         await showBookings(env, chatID, telegramUserID, runtimeBaseURL, locale);
 }
@@ -626,7 +628,7 @@ function lifecycle(payload) {
         };
     }
     if (status === "PAYMENT_PENDING") {
-        if (trip.paymentReceivedAt) {
+        if (/^(?:receipt_submitted|submitted|review|checking)$/i.test(trip.paymentStatus || "") && trip.paymentReceivedAt) {
             return {
                 kind: "payment_confirmation",
                 deadlineAt: deadline(trip.paymentConfirmationDeadlineAt, trip.paymentReceivedAt, 10 * 60),
@@ -695,7 +697,7 @@ function statusCopy(locale, status, paymentStatus) {
         case "AVAILABILITY_CHECK":
             return copy.checking;
         case "PAYMENT_PENDING":
-            if (paymentStatus && /received|review|checking|submitted/i.test(paymentStatus))
+            if (paymentStatus && /^(?:receipt_submitted|submitted|review|checking)$/i.test(paymentStatus))
                 return copy.paymentReceived;
             return copy.paymentWaiting;
         case "PAID":
@@ -887,6 +889,7 @@ async function handleCallback(env, callback, runtimeBaseURL) {
     const data = clean(callback.data, 128);
     const message = callback.message;
     const chatID = message?.chat.id;
+    if (data.startsWith("concierge:") && chatID) return handleConciergeCallback(env,callback,runtimeBaseURL);
     if (data.startsWith("lang:")) {
         if (!chatID)
             return;
@@ -966,6 +969,111 @@ async function handleCallback(env, callback, runtimeBaseURL) {
     }
     await answerCallback(env, callback.id);
 }
+// Conversation drafts are encrypted, expire after 24h, and never hold passport/receipt data.
+async function ensureConciergeSchema(env) {
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS telegram_concierge_session(user_id INTEGER PRIMARY KEY, ciphertext TEXT NOT NULL, iv TEXT NOT NULL, expires_at TEXT NOT NULL)`).run();
+}
+async function conciergeSession(env, userID) {
+    await ensureConciergeSchema(env);
+    const row=await env.DB.prepare('SELECT ciphertext,iv FROM telegram_concierge_session WHERE user_id=? AND expires_at>?').bind(userID,new Date().toISOString()).first();
+    if(!row)return {};
+    try{return JSON.parse(await decryptSecret(env,row.ciphertext,row.iv))||{};}catch{return {};}
+}
+async function saveConciergeSession(env,userID,session) {
+    const e=await encryptSecret(env,JSON.stringify(session));
+    await env.DB.prepare(`INSERT INTO telegram_concierge_session(user_id,ciphertext,iv,expires_at) VALUES(?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET ciphertext=excluded.ciphertext,iv=excluded.iv,expires_at=excluded.expires_at`).bind(userID,e.ciphertext,e.iv,new Date(Date.now()+86400000).toISOString()).run();
+}
+function conciergeKeyboard(env,locale,runtimeBaseURL,bookingID) {
+    const c=conciergeCopy(locale), base=miniBaseURL(env,runtimeBaseURL);
+    const rows=[];
+    if(base&&bookingID)rows.push([{text:c.open,web_app:{url:`${base}/telegram/mini?booking=${encodeURIComponent(bookingID)}`}}]);
+    else if(base)rows.push([{text:botUX(locale).openMini,web_app:{url:`${base}/telegram/mini`}}]);
+    rows.push([{text:c.plan,callback_data:'concierge:plan'},{text:c.trip,callback_data:'concierge:trip'}]);
+    rows.push([{text:c.manager,callback_data:'concierge:manager'}]);
+    if(base&&bookingID)rows.push([{text:c.care,web_app:{url:`${base}/telegram/mini?booking=${encodeURIComponent(bookingID)}&tab=care`}}]);
+    return {inline_keyboard:rows};
+}
+function draftKeyboard(draft,c){
+    const rows=[];if(draft.step==='city')for(let i=0;i<conciergeAirports.length;i+=3)rows.push(conciergeAirports.slice(i,i+3).map(x=>({text:x,callback_data:'concierge:airport:'+x})));
+    if(draft.step==='confirm')rows.push([{text:c.submit,callback_data:'concierge:submit:'+draft.id.slice(0,8)}]);
+    rows.push([{text:c.cancel,callback_data:'concierge:cancel'}]);return {inline_keyboard:rows};
+}
+async function askPlan(env,chatID,draft,locale){
+    const c=conciergeCopy(locale);
+    let msg=c[draft.step];if(draft.step==='confirm')msg=[`${draft.originCode} · ${draft.exactStartDate} — ${draft.exactEndDate}`,`${c.days}: ${draft.days} · ${c.people}: ${draft.adults+draft.children+draft.infants}`,draft.firstName+' '+draft.lastName,draft.phone,c.confirm].join('\n\n');
+    return sendMessage(env,chatID,escapeHtml(msg),draftKeyboard(draft,c));
+}
+async function startPlan(env,chatID,userID,locale,session){
+    delete session.managerBookingID;session.draft={id:crypto.randomUUID(),step:'date'};await saveConciergeSession(env,userID,session);return askPlan(env,chatID,session.draft,locale);
+}
+async function submitPlan(env,chatID,userID,locale,session,shortID,username,runtimeBaseURL){
+    const c=conciergeCopy(locale),d=session.draft;if(!d||d.step!=='confirm'||d.id.slice(0,8)!==shortID)return sendMessage(env,chatID,escapeHtml(c.bad));
+    // Reuse the same client key after a timeout. Backend unique index makes retry idempotent.
+    const {id,step,days,...details}=d;
+    const result=await fetchServerJSON(env,'/api/package/care-requests',null,{method:'POST',body:JSON.stringify({...details,clientRequestID:id,source:'telegram',locale,telegram:/^[A-Za-z0-9_]{5,32}$/.test(username||'')?'@'+username:'',timingMode:'exact_dates',scope:'makkahAndMadinah',guidePreference:'live',notes:'Telegram Concierge · '+days+' days; preferences to confirm with client.'})});
+    if(result.status>=200&&result.status<300&&result.body?.requestID){session.lastRequestID=result.body.requestID;delete session.draft;await saveConciergeSession(env,userID,session);return sendMessage(env,chatID,escapeHtml(c.submitted+'\n'+result.body.requestID),conciergeKeyboard(env,locale,runtimeBaseURL));}
+    return sendMessage(env,chatID,escapeHtml(c.retry),draftKeyboard(d,c));
+}
+function offerTokenFromText(value){
+    try{const u=new URL(value);if(u.protocol!=='https:'||u.username||u.password||u.port||!['iumrah.uz','iumrah.app','iumrah.us','iumrah-backend.helloiumrah.workers.dev'].includes(u.hostname))return null;return /^\/offer\/([a-f0-9]{64})$/.exec(u.pathname)?.[1]||((u.pathname==='/api/offers')&&/^#[a-f0-9]{64}$/.test(u.hash)?u.hash.slice(1):null);}catch{return null;}
+}
+async function showConciergeOffer(env,chatID,token,locale){
+    const c=conciergeCopy(locale),r=await fetchServerJSON(env,`/api/bookings/offers/${token}`,null);const o=r.body,p=o?.package;
+    if(r.status!==200||o.status!=='available'||!p)return sendMessage(env,chatID,escapeHtml(c.offerBad));
+    const i=p.input||{},n=i.travelers||{},total=Number(p.totalUsd);
+    const msg=[c.offer,String(o.packageID||''),`${i.startDate||''} — ${i.endDate||''}`,`${c.people}: ${Number(n.adults||0)+Number(n.children||0)+Number(n.infants||0)}`,p.hotelNames?.makkah,p.hotelNames?.madinah,Number.isFinite(total)?`USD ${total.toFixed(2)}`:''].filter(Boolean).join('\n');
+    return sendMessage(env,chatID,escapeHtml(msg),{inline_keyboard:[[{text:c.openOffer,url:`${serverOrigin(env)}/offer/${token}`}]]});
+}
+async function conciergeBooking(env,chatID,userID,locale,runtimeBaseURL,session,intent,messageID,body,selected){
+    const c=conciergeCopy(locale),rows=await linkedRowsForUser(env,userID);
+    if(!rows.length){return sendMessage(env,chatID,escapeHtml(c.link),{inline_keyboard:[[{text:textFor(locale).actions.connectTelegram,url:TELEGRAM_CONNECT_URL}],[{text:c.care,url:LIVE_SUPPORT_TELEGRAM_URL}],[{text:c.plan,callback_data:'concierge:plan'}]]});}
+    const row=rows.find(r=>r.booking_id===selected)||(!selected&&rows.find(r=>r.booking_id===session.bookingID))||(!selected&&rows.length===1?rows[0]:null);
+    if(!row){const choices=[];for(const r of rows){try{const credential=await decryptSecret(env,r.booking_token_ciphertext,r.booking_token_iv);const p=await fetchTrip(env,r.booking_id,credential);choices.push([{text:bookingReference(p.trip),callback_data:`concierge:select:${intent}:${r.booking_id}`}]);}catch{}}
+        return sendMessage(env,chatID,escapeHtml(choices.length?c.choose:c.unavailable),choices.length?{inline_keyboard:choices}:conciergeKeyboard(env,locale,runtimeBaseURL));}
+    const token=await decryptSecret(env,row.booking_token_ciphertext,row.booking_token_iv).catch(()=>null);if(!token)return sendMessage(env,chatID,escapeHtml(c.unavailable));
+    try{await fetchTrip(env,row.booking_id,token);}catch{return sendMessage(env,chatID,escapeHtml(c.unavailable),bookingRecoveryKeyboard(row.booking_id,locale));}
+    session.bookingID=row.booking_id;await saveConciergeSession(env,userID,session);
+    if(intent==='manager'){
+        if(!body){session.managerBookingID=row.booking_id;await saveConciergeSession(env,userID,session);return sendMessage(env,chatID,escapeHtml(c.managerPrompt),{inline_keyboard:[[{text:c.cancel,callback_data:'concierge:cancel'}]]});}
+        const r=await fetchServerJSON(env,`/api/catalog/hotels/client/chats/${encodeURIComponent(row.booking_id)}/messages`,token,{method:'POST',body:JSON.stringify({body:body.slice(0,4000),clientMessageID:`tg-${userID}-${messageID}`})});
+        if(r.status>=200&&r.status<300){delete session.managerBookingID;await saveConciergeSession(env,userID,session);}
+        return sendMessage(env,chatID,escapeHtml(r.status>=200&&r.status<300?c.sent:c.notSent),conciergeKeyboard(env,locale,runtimeBaseURL,row.booking_id));
+    }
+    const bundle=await miniBookingBundle(env,row);if(!bundle)return sendMessage(env,chatID,escapeHtml(c.unavailable));
+    const answer=conciergeAnswer(intent,bundle,locale), status=intent==='trip'?statusCopy(locale,bundle.trip.status,bundle.trip.paymentStatus).title+'\n':'';
+    const text=escapeHtml(status+answer);
+    return sendMessage(env,chatID,text,conciergeKeyboard(env,locale,runtimeBaseURL,row.booking_id));
+}
+async function handleConciergeMessage(env,message,locale,runtimeBaseURL){
+    const v=message.text.trim(),userID=message.from.id,chatID=message.chat.id,c=conciergeCopy(locale),session=await conciergeSession(env,userID);
+    const offer=offerTokenFromText(v);if(offer)return showConciergeOffer(env,chatID,offer,locale);
+    if(/^\/cancel(?:@\w+)?$/i.test(v)){delete session.draft;delete session.managerBookingID;await saveConciergeSession(env,userID,session);return sendMessage(env,chatID,escapeHtml(c.cancelled),conciergeKeyboard(env,locale,runtimeBaseURL));}
+    const manager=/^(?:менеджер|manager|menejer|менежер)\s*:\s*(.+)$/isu.exec(v);
+    if(manager)return conciergeBooking(env,chatID,userID,locale,runtimeBaseURL,session,'manager',message.message_id,manager[1],session.managerBookingID);
+    if(session.managerBookingID&&!v.startsWith('/')&&!session.draft)return conciergeBooking(env,chatID,userID,locale,runtimeBaseURL,session,'manager',message.message_id,v,session.managerBookingID);
+    if(session.draft&&session.draft.step!=='confirm'&&!v.startsWith('/')){
+        const next=advancePlan(session.draft,v);if(!next)return sendMessage(env,chatID,escapeHtml(c.bad+'\n'+c[session.draft.step]),draftKeyboard(session.draft,c));
+        session.draft=next;await saveConciergeSession(env,userID,session);return askPlan(env,chatID,next,locale);
+    }
+    const intent=conciergeIntent(v);
+    if(intent==='trip'&&/^\/trip(?:@\w+)?$/i.test(v))delete session.bookingID;
+    if(intent==='plan')return startPlan(env,chatID,userID,locale,session);
+    if(intent==='unknown')return sendMessage(env,chatID,escapeHtml(c.help),conciergeKeyboard(env,locale,runtimeBaseURL,session.bookingID));
+    return conciergeBooking(env,chatID,userID,locale,runtimeBaseURL,session,intent,message.message_id);
+}
+async function handleConciergeCallback(env,callback,runtimeBaseURL){
+    const userID=callback.from.id,chatID=callback.message.chat.id,pref=await getUserPreference(env,userID),locale=normalizeLocale(pref?.language||callback.from.language_code),c=conciergeCopy(locale),session=await conciergeSession(env,userID),data=callback.data;
+    await answerCallback(env,callback.id);
+    if(data==='concierge:plan')return startPlan(env,chatID,userID,locale,session);
+    if(data==='concierge:cancel'){delete session.draft;delete session.managerBookingID;await saveConciergeSession(env,userID,session);return sendMessage(env,chatID,escapeHtml(c.cancelled),conciergeKeyboard(env,locale,runtimeBaseURL));}
+    if(data.startsWith('concierge:airport:')&&session.draft?.step==='city'){
+        const next=advancePlan(session.draft,data.split(':').at(-1));if(!next)return sendMessage(env,chatID,escapeHtml(c.bad));session.draft=next;await saveConciergeSession(env,userID,session);return askPlan(env,chatID,next,locale);}
+    if(data.startsWith('concierge:submit:'))return submitPlan(env,chatID,userID,locale,session,data.split(':').at(-1),callback.from.username,runtimeBaseURL);
+    const [,action,intent,selected]=data.split(':');if(action==='select'&&['trip','visa','ticket','insurance','documents','payment','hotel','guide','schedule','manager'].includes(intent)&&validBookingID(selected))return conciergeBooking(env,chatID,userID,locale,runtimeBaseURL,session,intent,undefined,undefined,selected);
+    if(action==='trip'){delete session.bookingID;delete session.managerBookingID;await saveConciergeSession(env,userID,session);}
+    if(['trip','manager'].includes(action))return conciergeBooking(env,chatID,userID,locale,runtimeBaseURL,session,action);
+}
+
 async function handleMessage(env, message, runtimeBaseURL) {
     const text = message.text?.trim();
     if (!text || !message.from)
@@ -1005,9 +1113,13 @@ async function handleMessage(env, message, runtimeBaseURL) {
         await sendMessage(env, message.chat.id, `<b>${escapeHtml(strings.generic.helpTitle)}</b>\n\n${escapeHtml(strings.generic.helpBody)}\n/language — Language`, persistentReplyKeyboard(env, savedLocale, runtimeBaseURL));
         return;
     }
-    await sendBotHome(env, message.chat.id, message.from.id, savedLocale, runtimeBaseURL, false);
+    return handleConciergeMessage(env,message,savedLocale,runtimeBaseURL);
 }
 export async function handleUpdate(env, update, runtimeBaseURL) {
+    const event = update.callback_query || update.message;
+    const chat = update.callback_query ? event?.message?.chat : event?.chat;
+    // Defence in depth: private identity only, even when called outside the webhook router.
+    if (chat?.type !== "private" || !Number.isSafeInteger(event?.from?.id) || event.from.id <= 0 || chat.id !== event.from.id || event.from.is_bot) return;
     if (update.callback_query)
         return handleCallback(env, update.callback_query, runtimeBaseURL);
     if (update.message)
@@ -1074,7 +1186,7 @@ async function fetchServerJSON(env, path, bookingToken, init) {
         return { status: response.status, body };
     }
     catch (error) {
-        console.error("iumrah direct server request failed", path, "REQUEST_FAILED");
+        console.error("iumrah direct server request failed", path.startsWith("/api/bookings/offers/") ? "/api/bookings/offers/[redacted]" : path, "REQUEST_FAILED");
         return { status: 502, body: { error: "IUMRAH_SERVER_UNREACHABLE" } };
     }
 }
@@ -1084,7 +1196,8 @@ async function miniBookingBundle(env, row) {
         const primary = await fetchServerJSON(env, `/api/catalog/hotels/client/trips/${encodeURIComponent(row.booking_id)}`, token);
         if (primary.status !== 200 || !primary.body?.booking)
             return null;
-        const payload = await fetchTrip(env, row.booking_id, token);
+        const payload = parseTripPayload(primary.body);
+        if (!payload?.ok || payload.trip.bookingID !== row.booking_id) return null;
         const optional = async (path) => {
             try {
                 const result = await fetchServerJSON(env, path, token);

@@ -8,6 +8,7 @@ struct BusinessOffersView: View {
     @State private var filter = "all"
     @State private var selected: BusinessOffer?
     @State private var hasLoaded = false
+    @State private var showConcierge = false
     @State private var generation = UUID()
     let search: String
     private var filtered: [BusinessOffer] {
@@ -20,6 +21,13 @@ struct BusinessOffersView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 BusinessPageHeading(title: "Предложения", subtitle: "Персональные пакеты и продажи")
+                Button { showConcierge = true } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "bubble.left.and.bubble.right.fill").foregroundStyle(.blue).font(.title2)
+                        VStack(alignment: .leading, spacing: 4) { Text("iumrah Concierge").font(.headline); Text("Входящие заявки на индивидуальный расчёт").font(.caption).foregroundStyle(.secondary) }
+                        Spacer(); Image(systemName: "chevron.right").foregroundStyle(.secondary)
+                    }.padding(16).frame(maxWidth: .infinity, alignment: .leading).businessCard(radius: 20)
+                }.buttonStyle(.plain)
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                     metric("Активные", String(offers.filter(\.active).count))
                     metric("Просмотренные", String(offers.filter { $0.firstViewedAt != nil }.count))
@@ -50,6 +58,7 @@ struct BusinessOffersView: View {
         .onChange(of: scenePhase) { _, phase in if phase == .active { Task { await load(); openPending() } } }
         .onReceive(NotificationCenter.default.publisher(for: .iumrahBusinessOfferChanged)) { _ in Task { await load(); openPending() } }
         .onReceive(NotificationCenter.default.publisher(for: .iumrahBusinessOfferOpen)) { _ in Task { await load(); openPending() } }
+        .sheet(isPresented: $showConcierge) { NavigationStack { ConciergeRequestsView() } }
         .sheet(item: $selected, onDismiss: { Task { await load() } }) { offer in
             NavigationStack { BusinessOfferDetailView(id: offer.id, modal: true) }
         }
@@ -169,4 +178,54 @@ struct BusinessOfferDetailView: View {
     @MainActor private func load() async { loading = true; defer { loading = false }; do { detail = try await APIClient.shared.offerDetail(id: id); error = nil } catch { self.error = error.localizedDescription } }
     @MainActor private func action(_ offer: BusinessOffer, _ action: String) async { guard !working else { return }; working = true; defer { working = false }; do { _ = try await APIClient.shared.changeOffer(offer, action: action); await load(); NotificationCenter.default.post(name: .iumrahBusinessOfferChanged, object: id) } catch { self.error = error.localizedDescription } }
     @MainActor private func convert(_ offer: BusinessOffer) async { guard !working else { return }; working = true; defer { working = false }; do { let result = try await APIClient.shared.acceptOffer(offer, firstName: firstName, lastName: lastName, phone: phone, email: email, sendEmail: sendEmail); receipt = result; accept = false; await load(); NotificationCenter.default.post(name: .iumrahBusinessOfferChanged, object: id); NotificationCenter.default.post(name: .iumrahBusinessBookingChanged, object: result.bookingID) } catch { self.error = error.localizedDescription } }
+}
+
+
+private struct ConciergeRequestsView: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var requests: [ConciergeCareRequest] = []
+    @State private var loading = true
+    @State private var error: String?
+    @State private var working: String?
+    @State private var showClosed = false
+    private let states = [("IN_REVIEW", "В работу"), ("QUOTING", "Расчёт"), ("READY", "Предложение готово"), ("CONTACTED", "Связались"), ("COMPLETED", "Закрыть"), ("CANCELLED", "Отменить")]
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                BusinessPageHeading(title: "Concierge", subtitle: "Заявки на индивидуальный расчёт — не бронирования")
+                Toggle("Показать закрытые заявки", isOn: $showClosed)
+                if let error { Text(error).foregroundStyle(.red); Button("Повторить") { Task { await load() } } }
+                if loading && requests.isEmpty { ProgressView().frame(maxWidth: .infinity).padding() }
+                else if !loading && requests.isEmpty { ContentUnavailableView("Нет заявок", systemImage: "bubble.left.and.bubble.right") }
+                ForEach(requests.filter { showClosed || !["COMPLETED", "CANCELLED"].contains($0.status) }) { item in
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack { Text(item.source == "telegram" ? "TELEGRAM" : "CARE").font(.caption.weight(.semibold)).foregroundStyle(.blue); Spacer(); Text(item.statusTitle).font(.caption.weight(.medium)) }
+                        Text(item.contact_name).font(.headline)
+                        Text(item.id).font(.caption.monospaced()).textSelection(.enabled)
+                        Text("\(item.origin_code) · \(item.exact_start_date ?? item.preferred_month ?? "—") — \(item.exact_end_date ?? "—")").font(.subheadline)
+                        Text("Взрослые: \(item.adults) · Дети: \(item.children) · Младенцы: \(item.infants) · Комнаты: \(item.rooms)").font(.caption).foregroundStyle(.secondary)
+                        Text(item.contact_phone).textSelection(.enabled)
+                        if let name = item.contact_telegram, !name.isEmpty { Text(name).textSelection(.enabled) }
+                        if let notes = item.notes, !notes.isEmpty { Text(notes).font(.caption).foregroundStyle(.secondary) }
+                        Text(item.created_at).font(.caption2).foregroundStyle(.secondary)
+                        if !["COMPLETED", "CANCELLED"].contains(item.status) {
+                            Menu { ForEach(states.indices, id: \.self) { index in Button(states[index].1) { Task { await update(item, states[index].0) } } } } label: { Label("Изменить состояние", systemImage: "arrow.triangle.2.circlepath") }.disabled(working != nil)
+                        }
+                    }.padding(16).frame(maxWidth: .infinity, alignment: .leading).businessCard(radius: 20)
+                }
+            }.businessAdaptiveReadableWidth().padding(20)
+        }.navigationTitle("Заявки Concierge").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Готово") { dismiss() } } }
+            .task { await load() }.refreshable { await load() }
+    }
+    @MainActor private func load() async {
+        loading = true; defer { loading = false }
+        do { requests = try await APIClient.shared.conciergeRequests(); error = nil }
+        catch { self.error = error.localizedDescription }
+    }
+    @MainActor private func update(_ item: ConciergeCareRequest, _ state: String) async {
+        guard working == nil else { return }; working = item.id; defer { working = nil }
+        do { try await APIClient.shared.changeConciergeRequest(id: item.id, status: state); await load() }
+        catch { self.error = error.localizedDescription }
+    }
 }

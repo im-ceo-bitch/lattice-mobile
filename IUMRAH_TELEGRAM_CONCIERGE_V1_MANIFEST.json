@@ -1,0 +1,21 @@
+{
+  "base": "iumrah-business-z-release-qa-fcm-merged-20261117.zip",
+  "base_sha256": "68a9ce66f32838e7004a0134e8037550b6212fc1de37e7d82a4a2512bb89d951",
+  "changed_files": [
+    "Backend/IumrahBackend/core/telegram/concierge.js",
+    "Backend/IumrahBackend/core/telegram/mini-bot.js",
+    "Backend/IumrahBackend/package-engine/src/care-requests.ts",
+    "Backend/IumrahBackend/tests/concierge.test.mjs",
+    "Backend/IumrahBackend/tests/telegram-native.test.mjs",
+    "Sources/Networking/APIClient+Offers.swift",
+    "Sources/Views/BusinessOffersView.swift"
+  ],
+  "tests": {
+    "unified_backend": 177,
+    "flight_hub": 40,
+    "package_engine": 119,
+    "core_migration": 20
+  },
+  "scope": "first conversational release, deterministic intents; no LLM",
+  "workflows_changed": false
+}

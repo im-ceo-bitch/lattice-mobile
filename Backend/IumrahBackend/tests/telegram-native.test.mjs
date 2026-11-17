@@ -68,4 +68,11 @@ test('Cloudflare-compatible setup rejects redirects without following or retryin
   assert.equal(response.status,502);const result=await response.json();assert.equal(result.detail,'TELEGRAM_getMe_HTTP_302');assert.equal(requests,1);
  }finally{globalThis.fetch=mock;}
 });
+test('Concierge webhook answers from the linked booking and relays an explicit manager message',async()=>{
+ const h={'x-telegram-bot-api-secret-token':await purposeSecret(env,'webhook')};
+ const msg=(who,text,message_id=100)=>({message:{message_id,from:{id:who,username:'tester',is_bot:false},chat:{id:who,type:'private'},text}});
+ const r=await go('/api/telegram/webhook','POST',msg(456,'Моя поездка'),h);assert.equal(r.status,200,await r.clone().text());assert.match(calls.filter(x=>x.method==='sendMessage').at(-1).body.text,/#0001/);
+ const before=dispatched.length;const unauthorized=await go('/api/telegram/webhook','POST',msg(999,'Моя виза'),h);assert.equal(unauthorized.status,200);assert.equal(dispatched.length,before);
+ const forward=await go('/api/telegram/webhook','POST',msg(456,'Менеджер: Нужна помощь',101),h);assert.equal(forward.status,200,await forward.clone().text());assert.ok(dispatched.some(x=>x.path===`/api/catalog/hotels/client/chats/${id}/messages`&&x.method==='POST'));assert.match(calls.filter(x=>x.method==='sendMessage').at(-1).body.text,/передано менеджеру/);
+});
 test.after(()=>{globalThis.fetch=oldFetch;bookSQL.close();hotelSQL.close();flightSQL.close();});
