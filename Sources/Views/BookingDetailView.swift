@@ -26,6 +26,22 @@ struct BookingDetailView: View {
     @State private var shareError: String?
     @State private var rotateShare = false
     @State private var sharing = false
+    @State private var sendingAvailabilityDelay = false
+    @State private var availabilityDelayResult: String?
+    @State private var cancellationReason = ""
+    @State private var cancellationDialog = false
+    @State private var dismissCancellationDialog = false
+    @State private var dismissCancellationReason = ""
+    @State private var transitionDialog = false
+    @State private var editingService: BookingServiceOperation?
+    @State private var managerPicker = false
+    @State private var refundSheet = false
+    @State private var financeCloseSheet = false
+    @State private var historicalPaymentSheet = false
+    @State private var correctingCertificate: BusinessUmrahCertificate?
+    @State private var certificatePosition: Int?
+    @State private var certificateError: String?
+    @State private var certificateSaving = false
 
     private var shareCard: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -66,11 +82,11 @@ struct BookingDetailView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     hero(detail)
                     Picker("Раздел", selection: $workspace) {
-                        Text("Обзор").tag(0); Text("Поездка").tag(1); Text("Документы").tag(2); Text("Цена").tag(3)
+                        Text("Обзор").tag(0); Text("Поездка").tag(1); Text("Документы").tag(2); Text("Финансы").tag(3)
                     }.pickerStyle(.segmented)
                     switch workspace {
                     case 1:
-                        BusinessBookingItineraryEditor(bookingID: bookingID, startDate: detail.booking.startDate, endDate: detail.booking.endDate)
+                        BusinessBookingItineraryEditor(bookingID: bookingID, startDate: detail.booking.startDate, endDate: detail.booking.endDate, executionEnabled: detail.operation?.tripStatus == .inTrip)
                         sectionTitle("Перелёты", subtitle: "Рейс можно заменить только после проверки AeroDataBox.")
                         flightCard(.outbound, detail: detail)
                         flightCard(.return, detail: detail)
@@ -81,12 +97,19 @@ struct BookingDetailView: View {
                         BookingESIMAdminCard(bookingID: bookingID, esims: detail.esims ?? []) { Task { await load() } }
                     case 2:
                         BookingSecurityAdminCard(bookingID: bookingID, security: detail.security) { Task { await load() } }
-                        BookingCheckoutAdminCard(bookingID: bookingID, status: status, checkout: detail.checkout) { Task { await load() } }
+                        BookingCheckoutAdminCard(bookingID: bookingID, status: detail.operation?.tripStatus ?? .availabilityCheck, checkout: detail.checkout) { Task { await load() } }
                     case 3:
+                        BookingCheckoutAdminCard(bookingID: bookingID, status: detail.operation?.tripStatus ?? .availabilityCheck, checkout: detail.checkout, financesOnly: true) { Task { await load() } }
+                        if let center = detail.operationsCenter, let review = detail.checkout?.paymentReview { historicalPaymentCard(center, review: review) }
+                        if let cancellation = detail.operationsCenter?.cancellation { cancellationCard(cancellation) }
+                        if let center = detail.operationsCenter, let state = detail.operation?.tripStatus, state == .completed || state == .cancelled { financialCloseCard(center, detail: detail) }
                         pricingCard(detail)
                         if let cost = manualInfo?.cost { manualCostCard(cost) }
                     default:
+                        if let center = detail.operationsCenter { operationsCenterCard(center, detail: detail) }
                         operationsCard(detail)
+                        if let feedback = detail.operationsCenter?.feedback { travelFeedbackCard(feedback) }
+                        if detail.operation?.tripStatus == .completed, let center = detail.operationsCenter { certificatesCard(center, detail: detail) }
                         NavigationLink { ChatConversationView(booking: detail.booking) } label: {
                             Label("Чат с паломником", systemImage: "message").font(.headline).frame(maxWidth: .infinity, alignment: .leading).padding(18).businessCard(radius: 22)
                         }.buttonStyle(.plain)
@@ -162,6 +185,41 @@ struct BookingDetailView: View {
                 }
             }
         }
+        .sheet(item: $editingService) { service in
+            NavigationStack { ServiceOperationEditor(bookingID: bookingID, service: service, inTrip: detail?.operation?.tripStatus == .inTrip) { Task { await load(); notifyOperationsChanged() } } }
+        }
+        .sheet(isPresented: $managerPicker) {
+            NavigationStack { OperationsManagerPicker(bookingID: bookingID) { Task { await load(); notifyOperationsChanged() } } }
+        }
+        .sheet(isPresented: $historicalPaymentSheet) {
+            if let review = detail?.checkout?.paymentReview {
+                NavigationStack { HistoricalPaymentEditor(bookingID: bookingID, dueCents: review.dueCents ?? 0, paidCents: review.paidCents, cancelled: detail?.operation?.tripStatus == .cancelled) { Task { await load(); notifyOperationsChanged() } } }
+            }
+        }
+        .sheet(item: $correctingCertificate) { certificate in
+            NavigationStack { CertificateCorrectionEditor(bookingID: bookingID, certificate: certificate) { Task { await load(); notifyOperationsChanged() } } }
+        }
+        .sheet(isPresented: $financeCloseSheet) {
+            if let detail, let center = detail.operationsCenter, let review = detail.checkout?.paymentReview {
+                NavigationStack { TravelFinanceCloseEditor(bookingID: bookingID, paidCents: review.paidCents, refundedCents: center.cancellation?.refundedCents ?? 0) { Task { await load(); notifyOperationsChanged() } } }
+            }
+        }
+        .sheet(isPresented: $refundSheet) {
+            if let cancellation = detail?.operationsCenter?.cancellation { NavigationStack { OperationsRefundEditor(bookingID: bookingID, availableCents: max(0, cancellation.paidCents - cancellation.refundedCents)) { Task { await load(); notifyOperationsChanged() } } } }
+        }
+        .alert("Отменить бронирование?", isPresented: $cancellationDialog) {
+            TextField("Причина отмены", text: $cancellationReason)
+            Button("Назад", role: .cancel) {}
+            Button("Подтвердить отмену", role: .destructive) { status = .cancelled; Task { await save() } }.disabled(cancellationReason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        } message: { Text("История и документы сохранятся. Возврат денег оформляется отдельно.") }
+        .alert("Закрыть запрос без отмены?", isPresented: $dismissCancellationDialog) {
+            TextField("Причина", text: $dismissCancellationReason)
+            Button("Назад", role: .cancel) {}
+            Button("Закрыть запрос") { Task { await dismissCancellationRequest() } }.disabled(dismissCancellationReason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        } message: { Text("Сначала согласуйте решение с клиентом в чате.") }
+        .confirmationDialog("Подтвердить следующий этап?", isPresented: $transitionDialog, titleVisibility: .visible) {
+            Button("Подтвердить") { if let next = suggestedNextStatus { status = next; Task { await save() } } }
+        } message: { Text("Сервер проверит обязательные условия и отправит уведомление клиенту.") }
         .alert("Не удалось выполнить действие", isPresented: Binding(get: { errorMessage != nil && detail != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("OK") { errorMessage = nil }
         } message: { Text(errorMessage ?? "") }
@@ -214,12 +272,189 @@ struct BookingDetailView: View {
 
     private var currentStatusTargets: [TripStatus] {
         let base = detail?.operation?.tripStatus ?? status
-        return base.allowedTargets
+        return base.allowedTargets.filter { $0 != .cancelled }
+    }
+
+    private func notifyOperationsChanged() { NotificationCenter.default.post(name: Notification.Name("iumrah.business.bookingOperationsChanged"), object: bookingID) }
+
+    private func certificatesCard(_ center: BookingOperationsCenter, detail: BookingDetailResponse) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("Памятные сертификаты", systemImage: "rosette").font(.headline)
+            Text("Выдавайте только после подтверждения фактического совершения умры конкретным паломником.").font(.caption).foregroundStyle(.secondary)
+            ForEach(detail.checkout?.travelers ?? []) { traveler in
+                HStack {
+                    Text([traveler.firstName, traveler.lastName].filter { !$0.isEmpty }.joined(separator: " ")).font(.subheadline)
+                    Spacer()
+                    if let certificate = (center.certificates ?? []).first(where: { $0.position == traveler.position }) {
+                        Button { correctingCertificate = certificate } label: { Label("Выдан", systemImage: "checkmark.circle").font(.caption) }
+                    }
+                    else { Button("Выдать") { certificatePosition = traveler.position }.disabled(!traveler.completed || certificateSaving) }
+                }
+            }
+            if let history = center.certificateHistory, !history.isEmpty {
+                DisclosureGroup("История исправлений и отзывов") {
+                    ForEach(history) { entry in
+                        VStack(alignment: .leading, spacing: 3) { Text(entry.name).font(.subheadline); Text(entry.action == "correct" ? "Заменён" : "Отозван").font(.caption.bold()); Text(entry.reason).font(.caption); Text(entry.changedAt).font(.caption2).foregroundStyle(.secondary) }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 5)
+                    }
+                }
+            }
+            if let certificateError { Text(certificateError).font(.caption).foregroundStyle(.red) }
+        }.padding(18).frame(maxWidth: .infinity, alignment: .leading).businessCard(radius: 22)
+        .confirmationDialog("Подтверждаете, что этот паломник совершил умру?", isPresented: Binding(get: { certificatePosition != nil }, set: { if !$0 { certificatePosition = nil } }), titleVisibility: .visible) {
+            Button("Подтвердить и выдать") { if let position = certificatePosition { certificatePosition = nil; Task { await issueCertificate(position) } } }
+            Button("Отмена", role: .cancel) { certificatePosition = nil }
+        }
+    }
+    @MainActor private func issueCertificate(_ position: Int) async {
+        guard !certificateSaving else { return }; certificateSaving = true; certificateError = nil; defer { certificateSaving = false }
+        do { _ = try await APIClient.shared.issueTravelCertificate(bookingID: bookingID, position: position); await load() }
+        catch { certificateError = error.localizedDescription }
+    }
+    private func travelFeedbackCard(_ feedback: BusinessTravelFeedback) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("Отзыв паломника", systemImage: "star").font(.headline)
+            HStack { ForEach(1...5, id: \.self) { value in Image(systemName: value <= feedback.rating ? "star.fill" : "star").foregroundStyle(.blue) }; Spacer(); Text("\(feedback.rating)/5").font(.title2.bold()) }
+            if !feedback.comment.isEmpty { Text(feedback.comment).font(.subheadline).textSelection(.enabled) }
+            Text(feedback.createdAt).font(.caption).foregroundStyle(.secondary)
+        }.frame(maxWidth: .infinity, alignment: .leading).padding(18).businessCard(radius: 22)
+    }
+    @ViewBuilder private func historicalPaymentCard(_ center: BookingOperationsCenter, review: BusinessPaymentReview) -> some View {
+        if let entry = center.historicalPayment {
+            VStack(alignment: .leading, spacing: 8) {
+                Label("Исторические платежи сверены", systemImage: "checkmark.seal").font(.headline)
+                LabeledContent("Дополнительно учтено", value: (Double(entry.addedCents)/100).formatted(.currency(code: "USD")))
+                Text(entry.reference).font(.caption); Text(entry.reason).font(.caption).foregroundStyle(.secondary); Text(entry.createdAt).font(.caption2)
+            }.padding(18).frame(maxWidth: .infinity, alignment: .leading).businessCard(radius: 22)
+        } else if review.reconciliationRequired == true || review.historicalConfirmed == true || center.cancellation?.historicalUnverified == true {
+            VStack(alignment: .leading, spacing: 10) {
+                Label("Требуется финансовая сверка", systemImage: "exclamationmark.triangle").font(.headline)
+                Text("Старые подтверждения не содержат проверенных сумм. Суперадминистратор должен сверить выписки и указать только ещё не учтённые поступления.").font(.caption).foregroundStyle(.secondary)
+                Button("Сверить исторические платежи") { historicalPaymentSheet = true }.buttonStyle(BusinessActionStyle(primary: true)).disabled(review.dueCents == nil || center.financialClose != nil)
+            }.padding(18).frame(maxWidth: .infinity, alignment: .leading).businessCard(radius: 22)
+        }
+    }
+    private func financialCloseCard(_ center: BookingOperationsCenter, detail: BookingDetailResponse) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Финансовое закрытие", systemImage: "checkmark.seal").font(.headline)
+            if let record = center.financialClose {
+                LabeledContent("Получено", value: (Double(record.paidCents)/100).formatted(.currency(code: "USD")))
+                LabeledContent("Возвращено", value: (Double(record.refundedCents)/100).formatted(.currency(code: "USD")))
+                LabeledContent("Фактические расходы", value: (Double(record.expenseCents)/100).formatted(.currency(code: "USD")))
+                LabeledContent("Осталось у компании", value: (Double(record.retainedCents)/100).formatted(.currency(code: "USD")))
+                LabeledContent("Финансовый результат", value: (Double(record.netCents)/100).formatted(.currency(code: "USD")))
+                Text(record.reason).font(.caption); Text(record.createdAt).font(.caption2).foregroundStyle(.secondary)
+            } else if let review = detail.checkout?.paymentReview {
+                if review.historicalConfirmed == true || review.reconciliationRequired == true || center.cancellation?.historicalUnverified == true || review.dueCents == nil {
+                    Text("Сначала требуется сверка исторических платежей. Не закрывайте финансы без подтверждения поступлений.").font(.subheadline).foregroundStyle(.secondary)
+                } else {
+                    LabeledContent("Подтверждённые поступления", value: (Double(review.paidCents)/100).formatted(.currency(code: "USD")))
+                    Text("Зафиксируйте фактические расходы и остаток после возвратов. Запись не переводит деньги и не заменяет бухгалтерские документы.").font(.caption).foregroundStyle(.secondary)
+                    Button("Закрыть финансы") { financeCloseSheet = true }.buttonStyle(BusinessActionStyle(primary: true))
+                }
+            } else { Text("Платёжные данные пока недоступны.").font(.caption).foregroundStyle(.secondary) }
+        }.padding(18).frame(maxWidth: .infinity, alignment: .leading).businessCard(radius: 22)
+    }
+    private func operationsCenterCard(_ center: BookingOperationsCenter, detail: BookingDetailResponse) -> some View {
+        let actual = detail.operation?.tripStatus ?? .availabilityCheck
+        let confirmed = center.services.filter { $0.availability == "confirmed" }.count
+        let missing = center.services.count - confirmed
+        let documents = detail.checkout?.documentRequirements ?? []
+        let docsReady = detail.checkout != nil && documents.allSatisfy { $0.ready }
+        let paid = detail.checkout?.paymentReview?.satisfied == true
+        let travelers = detail.checkout?.allTravelersComplete == true
+        let instructions = detail.checkout.map { !$0.payment.visaCardNumber.isEmpty || !$0.payment.humoCardNumber.isEmpty || $0.payment.hasPaymeQR } ?? false
+        let executable = center.services.allSatisfy { $0.execution == "completed" }
+        let guideRequired = center.services.contains { $0.key == "accompaniment" }
+        let guideAssigned = detail.assignment.map { $0.guideID != nil && !$0.guideIsPrimary } ?? false
+        return VStack(alignment: .leading, spacing: 14) {
+            Label("Операционный центр", systemImage: "checklist").font(.title2.bold())
+            if center.cancellationRequestedAt != nil && !actual.isCompleted {
+                Label("Клиент запросил отмену", systemImage: "exclamationmark.circle.fill").foregroundStyle(.orange).font(.subheadline.bold())
+                Button("Рассмотреть отмену", role: .destructive) { cancellationReason = ""; cancellationDialog = true }
+                Button("Закрыть запрос без отмены") { dismissCancellationReason = ""; dismissCancellationDialog = true }.font(.caption)
+            }
+            HStack {
+                VStack(alignment: .leading) { Text("Ответственный менеджер").font(.caption).foregroundStyle(.secondary); Text(center.manager?.active == true ? (center.manager?.name ?? "Не назначен") : "Не назначен").font(.subheadline.bold()) }
+                Spacer()
+                if !actual.isCompleted { Button("Назначить") { managerPicker = true }.font(.subheadline.bold()) }
+            }
+            if !actual.isCompleted {
+                Text(actual == .inTrip ? "Исполнение услуг" : "Проверка компонентов").font(.headline)
+                ProgressView(value: Double(actual == .inTrip ? center.services.filter { $0.execution == "completed" }.count : confirmed), total: Double(max(1,center.services.count))).tint(.blue)
+                ForEach(center.services) { service in
+                    Button { editingService = service } label: {
+                        HStack(alignment: .center) {
+                            Image(systemName: (actual == .inTrip ? service.execution == "completed" : service.availability == "confirmed") ? "checkmark.circle.fill" : "circle.dashed").foregroundStyle(.blue)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(service.label).font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
+                                Text(actual == .inTrip ? service.executionTitle : service.availabilityTitle).font(.caption).foregroundStyle(.secondary)
+                                if !service.reference.isEmpty { Text(service.reference).font(.caption.monospaced()).foregroundStyle(.secondary) }
+                                if !service.note.isEmpty { Text(service.note).font(.caption).foregroundStyle(.secondary) }
+                            }
+                            Spacer(); Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
+                        }.padding(.vertical, 5)
+                    }.buttonStyle(.plain)
+                }
+                let title: String = { switch actual {
+                    case .availabilityCheck: return missing > 0 ? "Проверить все компоненты" : !instructions ? "Настроить реквизиты" : "Подтвердить наличие"
+                    case .paymentPending: return !paid ? "Проверить оплату" : !travelers ? "Проверить анкеты" : "Подтвердить оплату и бронь"
+                    case .bookingConfirmed: return !docsReady ? "Подготовить документы" : guideRequired && !guideAssigned ? "Назначить гида" : missing > 0 ? "Проверить компоненты" : "Подтвердить готовность"
+                    case .readyToTravel: return !docsReady ? "Проверить документы" : guideRequired && !guideAssigned ? "Назначить гида" : missing > 0 ? "Проверить компоненты" : "Подтвердить начало поездки"
+                    case .inTrip: return executable ? "Завершить поездку" : "Подтвердить исполнение услуг"
+                    default: return ""
+                } }()
+                Button {
+                    if actual == .availabilityCheck && missing > 0 { return }
+                    if actual == .availabilityCheck && !instructions { workspace = 3; return }
+                    if actual == .paymentPending && !paid { workspace = 3; return }
+                    if actual == .paymentPending && !travelers { workspace = 2; return }
+                    if (actual == .bookingConfirmed || actual == .readyToTravel) && !docsReady { workspace = 2; return }
+                    if (actual == .bookingConfirmed || actual == .readyToTravel) && guideRequired && !guideAssigned { showGuidePicker = true; return }
+                    if ((actual == .bookingConfirmed || actual == .readyToTravel) && missing > 0) || (actual == .inTrip && !executable) { return }
+                    transitionDialog = true
+                } label: { Label(title, systemImage: "arrow.right.circle.fill") }.buttonStyle(BusinessActionStyle(primary: true))
+                    .disabled(saving || hasUnsavedOperations || (actual == .availabilityCheck && missing > 0) || ((actual == .bookingConfirmed || actual == .readyToTravel) && docsReady && missing > 0 && (!guideRequired || guideAssigned)) || (actual == .inTrip && !executable))
+            }
+            if let cancellation = center.cancellation { cancellationCard(cancellation) }
+            if !center.audit.isEmpty {
+                DisclosureGroup("Журнал операций") {
+                    ForEach(center.audit) { event in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(auditLabel(event.action)).font(.caption.weight(.semibold))
+                            Text("\(event.target) · \(event.actor) · \(shortDate(event.createdAt))").font(.caption2).foregroundStyle(.secondary)
+                        }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 4)
+                    }
+                }
+            }
+        }.padding(18).businessCard(radius: 28)
+    }
+
+    @MainActor private func dismissCancellationRequest() async {
+        do { _ = try await APIClient.shared.dismissCancellationRequest(bookingID: bookingID, reason: dismissCancellationReason); await load(); notifyOperationsChanged() }
+        catch { errorMessage = error.localizedDescription }
+    }
+    private func cancellationCard(_ cancellation: BookingCancellationRecord) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Отмена и возвраты").font(.headline)
+            Text(cancellation.reason).font(.subheadline)
+            LabeledContent("Подтверждённые платежи", value: (Double(cancellation.paidCents)/100).formatted(.currency(code: "USD")))
+            LabeledContent("Возвращено", value: (Double(cancellation.refundedCents)/100).formatted(.currency(code: "USD")))
+            LabeledContent("Не распределено", value: (Double(max(0,cancellation.paidCents-cancellation.refundedCents))/100).formatted(.currency(code: "USD")))
+            if cancellation.historicalUnverified { Text("Есть исторические платежи без подтверждённой суммы. Требуется финансовая сверка.").font(.caption).foregroundStyle(.orange) }
+            ForEach(cancellation.refunds) { refund in
+                LabeledContent(refund.reference, value: (Double(refund.amountCents)/100).formatted(.currency(code: "USD"))).font(.caption)
+            }
+            if detail?.operationsCenter?.financialClose == nil && !cancellation.historicalUnverified && cancellation.paidCents > cancellation.refundedCents { Button("Зафиксировать выполненный возврат") { refundSheet = true }.buttonStyle(BusinessActionStyle(primary: false)) }
+            Text("Запись не отправляет деньги автоматически. Условия возврата определяются отдельно.").font(.caption).foregroundStyle(.secondary)
+        }.padding(14).businessCard(radius: 18)
+    }
+    private func auditLabel(_ action: String) -> String {
+        ["service_updated":"Обновлена услуга","manager_assigned":"Назначен менеджер","booking_cancelled":"Отмена поездки","refund_recorded":"Зафиксирован возврат","itinerary_saved":"Изменено расписание","finance_closed":"Финансы закрыты","certificate_issued":"Выдан сертификат","certificate_corrected":"Исправлен сертификат","certificate_revoked":"Отозван сертификат","historical_payment_reconciled":"Сверены исторические платежи","document_replaced":"Заменён документ","document_published":"Опубликован документ","document_revoked":"Отозван документ"][action] ?? action
     }
 
     private func operationsCard(_ detail: BookingDetailResponse) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            Label("Управление поездкой", systemImage: "slider.horizontal.3").font(.title2.bold())
+            Label("Дополнительное управление", systemImage: "slider.horizontal.3").font(.headline)
             VStack(alignment: .leading, spacing: 7) {
                 Text("Статус поездки")
                     .font(.caption.weight(.semibold))
@@ -252,6 +487,9 @@ struct BookingDetailView: View {
             }
 
             lifecycleTimerCard(detail.operation)
+            if let operation = detail.operation, operation.tripStatus == .availabilityCheck {
+                availabilityExpectation(operation)
+            }
 
             Label(statusGuidance, systemImage: "lightbulb.fill")
                 .font(.subheadline)
@@ -261,11 +499,7 @@ struct BookingDetailView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Color.yellow.opacity(0.13), in: RoundedRectangle(cornerRadius: 17, style: .continuous))
 
-            Button {
-                if let next = suggestedNextStatus, currentStatusTargets.contains(next) { status = next }
-            } label: { Label(suggestedNextStatus.map { "Следующий этап: \($0.title)" } ?? "Следующий этап", systemImage: "arrow.right.circle") }
-                .buttonStyle(BusinessActionStyle(primary: false)).disabled(suggestedNextStatus == nil || saving)
-            labeledField("Статус оплаты", text: $paymentStatus, placeholder: "Например: оплачено полностью")
+            LabeledContent("Статус оплаты", value: (detail.checkout?.paymentReview?.satisfied == true || detail.checkout?.paymentReview?.historicalConfirmed == true) ? "Подтверждена" : "Проверяется в разделе финансов")
             labeledField("Номер бронирования / подтверждения", text: $confirmationNumber, placeholder: "Confirmation number")
 
             VStack(alignment: .leading, spacing: 7) {
@@ -311,6 +545,10 @@ struct BookingDetailView: View {
             }
             .buttonStyle(.plain)
             .disabled(saving || detail.operation == nil || !hasUnsavedOperations)
+            if detail.operation?.tripStatus.isCompleted == false {
+                Button("Отменить бронирование", role: .destructive) { cancellationReason = ""; cancellationDialog = true }
+                    .disabled(saving || hasUnsavedOperations)
+            }
         }
         .padding(18).businessCard(radius: 28)
     }
@@ -345,6 +583,35 @@ struct BookingDetailView: View {
         case .cancelled:
             return "Бронь отменена. Укажите итоговый статус оплаты и внутреннюю причину для команды."
         }
+    }
+
+    private func availabilityExpectation(_ operation: BookingOperation) -> some View {
+        TimelineView(.periodic(from: .now, by: 15)) { context in
+            if let started = lifecycleDate(operation.availabilityStartedAt ?? operation.createdAt) {
+                let elapsed = max(0, context.date.timeIntervalSince(started))
+                VStack(alignment: .leading, spacing: 8) {
+                    Label(elapsed >= 1800 ? "Клиент ожидает дольше 30 минут" : "Ориентир клиента · 30 минут", systemImage: elapsed >= 1500 ? "exclamationmark.clock" : "clock")
+                        .font(.subheadline.weight(.semibold)).foregroundStyle(elapsed >= 1500 ? Color.orange : Color.primary)
+                    Text(elapsed >= 1800 ? "Проверка продолжается. Сообщите клиенту о задержке." : "Осталось до ориентира: " + lifecycleCountdown(max(0, 1800 - elapsed)))
+                        .font(.caption).foregroundStyle(.secondary)
+                    if elapsed >= 1800 {
+                        Button { Task { await sendAvailabilityDelay() } } label: {
+                            Label(sendingAvailabilityDelay ? "Отправляем…" : "Сообщить о задержке (push)", systemImage: "bell.badge")
+                        }.buttonStyle(BusinessActionStyle(primary: false)).disabled(sendingAvailabilityDelay)
+                    }
+                    if let availabilityDelayResult { Text(availabilityDelayResult).font(.caption).foregroundStyle(.secondary) }
+                }.frame(maxWidth: .infinity, alignment: .leading).padding(12).background(BusinessDesign.secondarySurface, in: RoundedRectangle(cornerRadius: 16))
+            }
+        }
+    }
+
+    @MainActor private func sendAvailabilityDelay() async {
+        guard !sendingAvailabilityDelay else { return }
+        sendingAvailabilityDelay = true; defer { sendingAvailabilityDelay = false }
+        do {
+            let sent = try await APIClient.shared.notifyAvailabilityDelay(bookingID: bookingID)
+            availabilityDelayResult = sent > 0 ? "APNs принял уведомление для устройств: \(sent)." : "Push не отправлен. Свяжитесь с клиентом через чат или по телефону."
+        } catch { availabilityDelayResult = error.localizedDescription }
     }
 
     @ViewBuilder
@@ -409,12 +676,14 @@ struct BookingDetailView: View {
 
     private func lifecycleTimerInfo(_ operation: BookingOperation) -> (status: TripStatus, paymentReceived: Bool, title: String, subtitle: String, deadlineRaw: String?, icon: String, isPriceLock: Bool)? {
         let status = operation.tripStatus
-        let paymentReceived = operation.paymentReceivedAt != nil
+        let paymentReceived = operation.paymentStatus == "receipt_submitted" || (operation.paymentStatus.isEmpty && operation.paymentReceivedAt != nil)
         switch status {
         case .availabilityCheck:
-            return (status, paymentReceived, "Проверка наличия", "Обычно 1–2 часа · максимальный срок проверки — до 6 часов.", operation.availabilityDeadlineAt, "clock.badge.checkmark", false)
+            return (status, paymentReceived, "Проверка наличия", "Операционный срок — до 6 часов. Клиенту показывается ориентир 30 минут.", operation.availabilityDeadlineAt, "clock.badge.checkmark", false)
+        case .paymentPending where operation.paymentStatus == "paid":
+            return nil
         case .paymentPending where paymentReceived:
-            return (status, paymentReceived, "Подтверждение оплаты", "Оплата получена. Обычно подтверждаем платёж и окончательно фиксируем бронирование в течение 10 минут.", operation.paymentConfirmationDeadlineAt, "creditcard.and.123", false)
+            return (status, paymentReceived, "Подтверждение оплаты", "Чек отправлен. Проверьте фактическое поступление средств. Ориентир проверки — 10 минут.", operation.paymentConfirmationDeadlineAt, "creditcard.and.123", false)
         case .paymentPending:
             return (status, paymentReceived, "Фиксация цены", "Цена удерживается 30 минут. После окончания периода авиабилеты и другие динамические компоненты могут потребовать повторной проверки.", operation.priceLockExpiresAt, "lock.clock", true)
         case .bookingConfirmed:
@@ -1021,7 +1290,7 @@ struct BookingDetailView: View {
         loading = false
         saving = true
         do {
-            let updated = try await APIClient.shared.updateBookingOperation(id: bookingID, status: status, paymentStatus: paymentStatus, confirmationNumber: confirmationNumber, internalNotes: internalNotes)
+            let updated = try await APIClient.shared.updateBookingOperation(id: bookingID, status: status, paymentStatus: paymentStatus, confirmationNumber: confirmationNumber, internalNotes: internalNotes, cancellationReason: status == .cancelled ? cancellationReason : nil)
             detail = updated
             if let operation = updated.operation {
                 status = operation.tripStatus
@@ -1031,7 +1300,10 @@ struct BookingDetailView: View {
             }
             NotificationCenter.default.post(name: Notification.Name("iumrah.business.bookingOperationsChanged"), object: bookingID)
             errorMessage = nil
-        } catch { errorMessage = error.localizedDescription }
+        } catch {
+            errorMessage = error.localizedDescription
+            status = detail?.operation?.tripStatus ?? .availabilityCheck
+        }
         saving = false
     }
 }
@@ -1311,4 +1583,162 @@ private struct GuideAssignmentPicker: View {
 
 private extension String {
     var nonEmpty: String? { isEmpty ? nil : self }
+}
+
+private struct ServiceOperationEditor: View {
+    @Environment(\.dismiss) private var dismiss
+    let bookingID: String; let service: BookingServiceOperation; let inTrip: Bool; let onSaved: () -> Void
+    @State private var availability = "pending"
+    @State private var execution = "planned"
+    @State private var reference = ""
+    @State private var note = ""
+    @State private var busy = false
+    @State private var error: String?
+    var body: some View {
+        Form {
+            Section("Наличие") { Picker("Состояние", selection: $availability) { Text("Ожидается").tag("pending"); Text("Подтверждено").tag("confirmed"); Text("Недоступно").tag("unavailable") } }
+            if inTrip { Section("Исполнение") { Picker("Состояние", selection: $execution) { ForEach(["planned","in_progress","completed","delayed","rescheduled"], id: \.self) { Text(BookingServiceOperation.executionTitle($0)).tag($0) } } } }
+            Section("Подтверждение поставщика") { TextField("PNR / номер ваучера / контакт", text: $reference); TextField("Причина / внутренняя заметка", text: $note, axis: .vertical) }
+            if let error { Text(error).foregroundStyle(.red) }
+            Button(busy ? "Сохраняем…" : "Сохранить") { Task { await save() } }.disabled(busy)
+        }.navigationTitle(service.label).onAppear { availability = service.availability; execution = service.execution; reference = service.reference; note = service.note }
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Закрыть") { dismiss() }.disabled(busy) } }
+    }
+    @MainActor private func save() async {
+        busy = true; defer { busy = false }
+        do { _ = try await APIClient.shared.saveServiceOperation(bookingID: bookingID, key: service.key, availability: availability, execution: execution, reference: reference, note: note); onSaved(); dismiss() }
+        catch { self.error = error.localizedDescription }
+    }
+}
+private struct OperationsManagerPicker: View {
+    @Environment(\.dismiss) private var dismiss
+    let bookingID: String; let onSaved: () -> Void
+    @State private var members: [BusinessTeamMember] = []
+    @State private var error: String?
+    @State private var busy = false
+    var body: some View {
+        List {
+            if let error { Text(error).foregroundStyle(.red) }
+            ForEach(members.filter { $0.active && ["owner","manager","operations"].contains($0.roleKind) }) { member in
+                Button(member.displayName) { Task { await select(member.id) } }.disabled(busy)
+            }
+        }.navigationTitle("Ответственный менеджер").task {
+            do { members = try await APIClient.shared.businessTeam() } catch { self.error = error.localizedDescription }
+        }.toolbar { ToolbarItem(placement: .cancellationAction) { Button("Закрыть") { dismiss() }.disabled(busy) } }
+    }
+    @MainActor private func select(_ id: String) async {
+        busy = true; defer { busy = false }
+        do { _ = try await APIClient.shared.assignBookingManager(bookingID: bookingID, memberID: id); onSaved(); dismiss() }
+        catch { self.error = error.localizedDescription }
+    }
+}
+private struct OperationsRefundEditor: View {
+    @Environment(\.dismiss) private var dismiss
+    let bookingID: String; let availableCents: Int; let onSaved: () -> Void
+    @State private var amount = ""
+    @State private var reference = ""
+    @State private var confirmed = false
+    @State private var busy = false
+    @State private var error: String?
+    private var value: Double? { Double(amount.replacingOccurrences(of: ",", with: ".")) }
+    var body: some View {
+        Form {
+            Text("Доступно к учёту: \((Double(availableCents)/100).formatted(.currency(code: "USD")))")
+            TextField("Сумма USD", text: $amount).keyboardType(.decimalPad)
+            TextField("Номер операции банка", text: $reference)
+            Toggle("Подтверждаю фактическое перечисление средств", isOn: $confirmed)
+            if let error { Text(error).foregroundStyle(.red) }
+            Button("Зафиксировать возврат") { Task { await save() } }.disabled(busy || !confirmed || reference.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (value ?? 0) <= 0 || (value ?? 0) > Double(availableCents)/100)
+        }.navigationTitle("Возврат").toolbar { ToolbarItem(placement: .cancellationAction) { Button("Закрыть") { dismiss() }.disabled(busy) } }
+    }
+    @MainActor private func save() async {
+        guard let value else { return }; busy = true; defer { busy = false }
+        do { _ = try await APIClient.shared.recordBookingRefund(bookingID: bookingID, amountUsd: value, reference: reference); onSaved(); dismiss() }
+        catch { self.error = error.localizedDescription }
+    }
+}
+
+private struct TravelFinanceCloseEditor: View {
+    @Environment(\.dismiss) private var dismiss
+    let bookingID: String; let paidCents: Int; let refundedCents: Int; let onSaved: () -> Void
+    @State private var expense = ""
+    @State private var reason = ""
+    @State private var confirmed = false
+    @State private var saving = false
+    @State private var failure: String?
+    private var retained: Int { max(0, paidCents - refundedCents) }
+    private var expenseValue: Double? { Double(expense.replacingOccurrences(of: ",", with: ".")) }
+    var body: some View {
+        Form {
+            Section("Итог (USD)") {
+                LabeledContent("Поступления", value: (Double(paidCents)/100).formatted(.currency(code: "USD")))
+                LabeledContent("Возвраты", value: (Double(refundedCents)/100).formatted(.currency(code: "USD")))
+                LabeledContent("Остаток у компании", value: (Double(retained)/100).formatted(.currency(code: "USD")))
+                TextField("Фактические расходы, USD", text: $expense).keyboardType(.decimalPad)
+                TextField("Основание закрытия / удержания", text: $reason, axis: .vertical)
+                Toggle("Поступления, расходы и возвраты сверены", isOn: $confirmed)
+                Text("Убедитесь, что удержание соответствует договору и возвраты выполнены. Запись нельзя изменить обычным способом.").font(.caption).foregroundStyle(.secondary)
+            }
+            if let failure { Text(failure).foregroundStyle(.red) }
+            Button(saving ? "Сохранение…" : "Подтвердить закрытие") { Task { await save() } }.disabled(saving || !confirmed || reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || expenseValue == nil || (expenseValue ?? -1) < 0)
+        }.navigationTitle("Закрытие финансов").navigationBarTitleDisplayMode(.inline).toolbar { ToolbarItem(placement: .cancellationAction) { Button("Закрыть") { dismiss() }.disabled(saving) } }
+    }
+    @MainActor private func save() async {
+        guard let expenseValue, !saving, confirmed else { return }; saving = true; failure = nil; defer { saving = false }
+        do { _ = try await APIClient.shared.closeTravelFinance(bookingID: bookingID, expenseUsd: expenseValue, retainedUsd: Double(retained)/100, reason: reason); onSaved(); dismiss() }
+        catch { failure = error.localizedDescription }
+    }
+}
+
+
+private struct HistoricalPaymentEditor: View {
+    @Environment(\.dismiss) private var dismiss
+    let bookingID: String; let dueCents: Int; let paidCents: Int; let cancelled: Bool; let onSaved: () -> Void
+    @State private var amount = ""; @State private var reference = ""; @State private var reason = ""
+    @State private var confirmed = false; @State private var busy = false; @State private var failure: String?
+    private var value: Double? { Double(amount.replacingOccurrences(of: ",", with: ".")) }
+    private var maximum: Double { Double(max(0, dueCents-paidCents))/100 }
+    var body: some View {
+        Form {
+            Section("Финансовая сверка · USD") {
+                LabeledContent("Уже подтверждено", value: (Double(paidCents)/100).formatted(.currency(code: "USD")))
+                LabeledContent("Не учтено по стоимости", value: maximum.formatted(.currency(code: "USD")))
+                TextField("Фактически получено дополнительно, USD", text: $amount).keyboardType(.decimalPad)
+                TextField("Номер выписки / операции", text: $reference)
+                TextField("Основание сверки", text: $reason, axis: .vertical)
+                Toggle("Проверил фактические поступления; двойного учёта нет", isOn: $confirmed)
+                Text("Это одноразовая запись сверки, а не новый платёж. Для завершённой поездки поступления должны соответствовать стоимости. Для отменённой поездки укажите фактически полученную сумму. Не вводите предположительные данные.").font(.caption).foregroundStyle(.secondary)
+            }
+            if let failure { Text(failure).foregroundStyle(.red) }
+            Button("Зафиксировать сверку") { Task { await save() } }.disabled(busy || !confirmed || reference.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || value == nil || (value ?? -1) < 0 || (value ?? 0) > maximum || (!cancelled && abs((value ?? -1)-maximum) > 0.001))
+        }.navigationTitle("Сверка платежей").toolbar { ToolbarItem(placement: .cancellationAction) { Button("Закрыть") { dismiss() }.disabled(busy) } }
+    }
+    @MainActor private func save() async {
+        guard let value else { return }; busy = true; defer { busy = false }
+        do { _ = try await APIClient.shared.reconcileHistoricalPayment(bookingID: bookingID, addedUsd: value, reference: reference, reason: reason); onSaved(); dismiss() } catch { failure = error.localizedDescription }
+    }
+}
+private struct CertificateCorrectionEditor: View {
+    @Environment(\.dismiss) private var dismiss
+    let bookingID: String; let certificate: BusinessUmrahCertificate; let onSaved: () -> Void
+    @State private var action = "correct"; @State private var name = ""; @State private var reason = ""
+    @State private var confirmed = false; @State private var busy = false; @State private var failure: String?
+    var body: some View {
+        Form {
+            Section("Действующий сертификат") { Text(certificate.name); Text(certificate.id).font(.caption.monospaced()).textSelection(.enabled) }
+            Section {
+                Picker("Действие", selection: $action) { Text("Исправить имя").tag("correct"); Text("Отозвать").tag("revoke") }.pickerStyle(.segmented)
+                if action == "correct" { TextField("Исправленные имя и фамилия", text: $name) }
+                TextField("Причина", text: $reason, axis: .vertical)
+                Toggle("Проверил данные и подтверждаю действие", isOn: $confirmed)
+                Text("Старая версия исчезнет из приложения. Уже сохранённые или отправленные PDF удалённо отозвать невозможно. История сохранится.").font(.caption).foregroundStyle(.secondary)
+            }
+            if let failure { Text(failure).foregroundStyle(.red) }
+            Button(action == "revoke" ? "Отозвать сертификат" : "Заменить сертификат", role: action == "revoke" ? .destructive : nil) { Task { await save() } }.disabled(busy || !confirmed || reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (action == "correct" && name.split(whereSeparator: { $0.isWhitespace }).count < 2))
+        }.navigationTitle("Управление сертификатом").onAppear { name = certificate.name }.toolbar { ToolbarItem(placement: .cancellationAction) { Button("Закрыть") { dismiss() }.disabled(busy) } }
+    }
+    @MainActor private func save() async {
+        busy = true; defer { busy = false }
+        do { _ = try await APIClient.shared.correctTravelCertificate(bookingID: bookingID, certificateID: certificate.id, action: action, correctedName: name, reason: reason); onSaved(); dismiss() } catch { failure = error.localizedDescription }
+    }
 }

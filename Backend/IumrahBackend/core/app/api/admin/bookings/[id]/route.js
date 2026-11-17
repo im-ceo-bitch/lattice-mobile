@@ -65,38 +65,12 @@ export async function PATCH(request, { params }) {
     const requested = body && typeof body === "object" ? body.status : undefined;
     if (!isBookingStatus(requested))
         return NextResponse.json({ error: "INVALID_STATUS" }, { status: 400 });
-    const db = getBookingDb();
-    if (!db)
-        return NextResponse.json({ error: "BOOKING_DB_NOT_CONFIGURED" }, { status: 503, headers: { "Cache-Control": "no-store" } });
-    try {
-        await ensureBookingSchema(db);
-        const current = await db.prepare("SELECT status FROM bookings WHERE id = ? LIMIT 1").bind(id).first();
-        if (!current || !isBookingStatus(current.status))
-            return NextResponse.json({ error: "BOOKING_NOT_FOUND" }, { status: 404 });
-        const currentIndex = bookingStatuses.indexOf(current.status);
-        const nextIndex = bookingStatuses.indexOf(requested);
-        if (nextIndex !== currentIndex + 1)
-            return NextResponse.json({ error: "INVALID_TRANSITION", current: current.status }, { status: 409 });
-        const now = new Date().toISOString();
-        const confirmedAt = requested === "PAYMENT_PENDING" ? now : null;
-        await db.batch([
-            db.prepare("UPDATE bookings SET status = ?, updated_at = ?, confirmed_at = COALESCE(?, confirmed_at) WHERE id = ?")
-                .bind(requested, now, confirmedAt, id),
-            db.prepare("INSERT INTO booking_events (booking_id, status, actor_type, actor_id, note, created_at) VALUES (?, ?, 'staff', ?, ?, ?)")
-                .bind(id, requested, session.sub, `Status moved to ${requested}`, now),
-        ]);
-        // A notification is attached to the committed status change, not to a UI action.
-        try {
-            await queueTelegramNotice(db, id, requested);
-            await deliverTelegramNotice(db, id, requested);
-        }
-        catch (noticeError) {
-            console.error("telegram-booking-status-notice-failed", noticeError);
-        }
-        return NextResponse.json({ ok: true, status: requested, updatedAt: now }, { headers: { "Cache-Control": "no-store" } });
-    }
-    catch (error) {
-        console.error("admin-booking-status-failed", error);
-        return NextResponse.json({ error: "STATUS_UPDATE_FAILED" }, { status: 500, headers: { "Cache-Control": "no-store" } });
-    }
+    // The staff session cookie is revalidated by the canonical operations API.
+    // No direct write to the source booking: all status gates and notices are shared.
+    const upstream = await backendFetch(`/api/admin/hotels/operations/bookings/${encodeURIComponent(id)}`, {
+        method: 'PATCH', headers: {'content-type':'application/json','cookie':request.headers.get('cookie') || ''},
+        body: JSON.stringify({status:requested.toLowerCase(),cancellationReason:body?.cancellationReason})
+    });
+    if (!upstream.ok) return upstream;
+    return NextResponse.json({ok:true,status:requested,updatedAt:new Date().toISOString()},{headers:{'Cache-Control':'no-store'}});
 }

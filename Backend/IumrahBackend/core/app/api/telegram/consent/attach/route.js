@@ -1,3 +1,4 @@
+import { bookingGrantRead } from "../../../../../lib/booking-grants.js";
 // Ported from iumrah-web-main 5.zip: app/api/telegram/consent/attach/route.ts
 import { requestEnv, backendFetch } from "../../../../../runtime.js";
 import { NextResponse } from "../../../../../runtime.js";
@@ -16,10 +17,9 @@ export async function GET(request) {
     try {
         await ensureBookingSchema(db);
         await ensureTelegramBookingSchema(db);
-        const row = await db.prepare(`SELECT s.telegram_name, s.disabled_at FROM bookings b
+        const row = await bookingGrantRead(db,`SELECT s.telegram_name, s.disabled_at FROM bookings b
       LEFT JOIN booking_telegram_subscriptions s ON s.booking_id = b.id
-      WHERE b.id = ? AND b.access_token_hash = ? LIMIT 1`)
-            .bind(bookingId, await hashBookingToken(token)).first();
+      WHERE b.id = ? AND b.access_token_hash = ? LIMIT 1`,bookingId,await hashBookingToken(token));
         if (!row)
             return NextResponse.json({ error: "BOOKING_NOT_FOUND" }, { status: 404 });
         return NextResponse.json({ connected: row.telegram_name !== null && row.disabled_at === null, username: row.telegram_name || "" }, { headers: { "Cache-Control": "no-store" } });
@@ -42,8 +42,7 @@ export async function POST(request) {
     try {
         await ensureBookingSchema(db);
         await ensureTelegramBookingSchema(db);
-        const row = await db.prepare("SELECT status FROM bookings WHERE id = ? AND access_token_hash = ? LIMIT 1")
-            .bind(bookingId, await hashBookingToken(token)).first();
+        const row = await bookingGrantRead(db,"SELECT status FROM bookings WHERE id = ? AND access_token_hash = ? LIMIT 1",bookingId,await hashBookingToken(token));
         if (!row)
             return NextResponse.json({ error: "BOOKING_NOT_FOUND" }, { status: 404 });
         const consent = await findValidConsent(db, ticket);
@@ -76,8 +75,7 @@ export async function DELETE(request) {
     try {
         await ensureBookingSchema(db);
         await ensureTelegramBookingSchema(db);
-        const row = await db.prepare("SELECT id FROM bookings WHERE id = ? AND access_token_hash = ? LIMIT 1")
-            .bind(bookingId, await hashBookingToken(token)).first();
+        const row = await bookingGrantRead(db,"SELECT id FROM bookings WHERE id = ? AND access_token_hash = ? LIMIT 1",bookingId,await hashBookingToken(token));
         if (!row)
             return NextResponse.json({ error: "BOOKING_NOT_FOUND" }, { status: 404 });
         await db.batch([

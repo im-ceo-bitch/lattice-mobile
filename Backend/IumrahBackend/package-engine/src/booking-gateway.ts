@@ -1,3 +1,4 @@
+import { bookingGrantRead } from "./booking-grants";
 import type { D1Like } from "./d1";
 import type { Env } from "./env";
 import type { GeneratorPricingSnapshot } from "./pricing";
@@ -29,9 +30,7 @@ async function authorizedBooking(request: Request, id: string, db: BookingDB): P
   const token = String(request.headers.get("x-booking-token") ?? "").trim();
   if (token.length < 24 || token.length > 128) return null;
   const hash = await sha256Hex(token);
-  return db.prepare(
-    "SELECT id,payload_json FROM bookings WHERE id=?1 AND access_token_hash=?2 LIMIT 1",
-  ).bind(id, hash).first<BookingRow>();
+  return bookingGrantRead<BookingRow>(db,"SELECT id,payload_json FROM bookings WHERE id=?1 AND access_token_hash=?2 LIMIT 1",id, hash);
 }
 
 function bookingObject(rawJSON: string): Record<string, any> {

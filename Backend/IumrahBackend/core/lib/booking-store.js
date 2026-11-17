@@ -6,7 +6,9 @@ export const bookingStatuses = [
     "PAYMENT_PENDING",
     "BOOKING_CONFIRMED",
     "READY_TO_TRAVEL",
+    "IN_TRIP",
     "COMPLETED",
+    "CANCELLED",
 ];
 let schemaReady = null;
 export function getPassportBucket() {

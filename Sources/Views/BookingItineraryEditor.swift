@@ -5,6 +5,7 @@ struct BusinessBookingItineraryEditor: View {
     let bookingID: String
     let startDate: String
     let endDate: String
+    var executionEnabled = false
 
     @State private var items: [BookingItineraryItem] = []
     @State private var selectedDay: String?
@@ -150,6 +151,8 @@ struct BusinessBookingItineraryEditor: View {
                         .font(.subheadline.bold())
                         .foregroundStyle(.primary)
                         .multilineTextAlignment(.leading)
+                    if let time = item.timeLocal, !time.isEmpty { Text([time, item.endTimeLocal ?? ""].filter { !$0.isEmpty }.joined(separator: " – ")).font(.caption.monospacedDigit()).foregroundStyle(.secondary) }
+                    if executionEnabled { Text(BookingServiceOperation.executionTitle(item.executionState ?? "planned")).font(.caption.weight(.medium)).foregroundStyle(.blue) }
                     if !item.subtitle.isEmpty {
                         Text(item.subtitle)
                             .font(.caption)
@@ -167,6 +170,13 @@ struct BusinessBookingItineraryEditor: View {
             .buttonStyle(.plain)
 
             VStack(spacing: 5) {
+                if executionEnabled {
+                    Menu {
+                        ForEach(["planned","in_progress","completed","delayed","rescheduled"], id: \.self) { state in
+                            Button(BookingServiceOperation.executionTitle(state)) { Task { await changeExecution(item, state: state) } }
+                        }
+                    } label: { Image(systemName: "checklist").frame(width: 30, height: 28) }.disabled(saving)
+                }
                 Button { move(item, offset: -1) } label: {
                     Image(systemName: "chevron.up")
                         .frame(width: 30, height: 28)
@@ -211,6 +221,8 @@ struct BusinessBookingItineraryEditor: View {
             items[index].location = value.location
             items[index].icon = value.icon
             items[index].notes = value.notes
+            items[index].timeLocal = value.timeLocal
+            items[index].endTimeLocal = value.endTimeLocal
         } else {
             let now = ISO8601DateFormatter().string(from: Date())
             items.append(BookingItineraryItem(
@@ -224,7 +236,8 @@ struct BusinessBookingItineraryEditor: View {
                 location: value.location,
                 notes: value.notes,
                 createdAt: now,
-                updatedAt: now
+                updatedAt: now,
+                timeLocal: value.timeLocal, endTimeLocal: value.endTimeLocal
             ))
         }
         selectedDay = value.dateLocal
@@ -277,6 +290,12 @@ struct BusinessBookingItineraryEditor: View {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    @MainActor private func changeExecution(_ item: BookingItineraryItem, state: String) async {
+        guard !saving else { return }; saving = true; defer { saving = false }
+        do { items = try await APIClient.shared.setItineraryExecution(bookingID: bookingID, itemID: item.id, state: state); errorMessage = nil; NotificationCenter.default.post(name: Notification.Name("iumrah.business.bookingOperationsChanged"), object: bookingID) }
+        catch { errorMessage = error.localizedDescription }
     }
 
     @MainActor
@@ -341,6 +360,8 @@ private struct ItineraryDraft: Identifiable {
     var icon: String
     var location: String
     var notes: String
+    var timeLocal: String
+    var endTimeLocal: String
 
     init(item: BookingItineraryItem) {
         originalID = item.id
@@ -350,6 +371,8 @@ private struct ItineraryDraft: Identifiable {
         icon = item.icon
         location = item.location
         notes = item.notes
+        timeLocal = item.timeLocal ?? ""
+        endTimeLocal = item.endTimeLocal ?? ""
     }
 
     init(newOn day: String) {
@@ -360,6 +383,7 @@ private struct ItineraryDraft: Identifiable {
         icon = "calendar"
         location = ""
         notes = ""
+        timeLocal = ""; endTimeLocal = ""
     }
 }
 
@@ -380,6 +404,10 @@ private struct ItineraryEventEditorSheet: View {
         self.onCancel = onCancel
     }
 
+    private var validTimes: Bool {
+        func valid(_ time: String) -> Bool { time.isEmpty || time.range(of: "^([01][0-9]|2[0-3]):[0-5][0-9]$", options: .regularExpression) != nil }
+        return valid(value.timeLocal) && valid(value.endTimeLocal) && (value.endTimeLocal.isEmpty || (!value.timeLocal.isEmpty && value.endTimeLocal >= value.timeLocal))
+    }
     private var dateBinding: Binding<Date> {
         Binding(
             get: { Self.parser.date(from: value.dateLocal) ?? Self.parser.date(from: startDate) ?? Date() },
@@ -402,6 +430,8 @@ private struct ItineraryEventEditorSheet: View {
                         .padding(14)
                         .background(BusinessDesign.secondarySurface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
 
+                    labeledField("Начало · местное время (ЧЧ:ММ)", text: $value.timeLocal, placeholder: "10:00")
+                    labeledField("Окончание · местное время (необязательно)", text: $value.endTimeLocal, placeholder: "12:00")
                     labeledField("Название", text: $value.title, placeholder: "Например: Зиярат в мечети Пророка")
                     labeledField("Подзаголовок", text: $value.subtitle, placeholder: "Короткое пояснение")
                     labeledField("Место", text: $value.location, placeholder: "Madinah / Masjid an-Nabawi")
@@ -443,7 +473,7 @@ private struct ItineraryEventEditorSheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Готово") { onSave(value); dismiss() }
                         .fontWeight(.semibold)
-                        .disabled(value.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .disabled(value.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !validTimes)
                 }
             }
         }

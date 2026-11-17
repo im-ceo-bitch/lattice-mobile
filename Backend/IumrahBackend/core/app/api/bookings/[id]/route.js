@@ -1,3 +1,4 @@
+import { bookingGrantHash } from "../../../../lib/booking-grants.js";
 // Ported from iumrah-web-main 5.zip: app/api/bookings/[id]/route.ts
 import { requestEnv, backendFetch } from "../../../../runtime.js";
 import { NextResponse } from "../../../../runtime.js";
@@ -26,10 +27,10 @@ async function readBooking(id, token) {
     if (!db)
         return { error: "BOOKING_DB_NOT_CONFIGURED" };
     await ensureBookingSchema(db);
-    const tokenHash = await hashBookingToken(token);
-    const row = await db.prepare("SELECT status, created_at, updated_at, payload_json FROM bookings WHERE id = ? AND access_token_hash = ? LIMIT 1")
-        .bind(id, tokenHash)
-        .first();
+    let tokenHash = await hashBookingToken(token);
+    const sql = "SELECT status, created_at, updated_at, payload_json FROM bookings WHERE id = ? AND access_token_hash = ? LIMIT 1";
+    let row=await db.prepare(sql).bind(id,tokenHash).first();
+    if(!row){const primary=await bookingGrantHash(db,id,tokenHash);if(primary){tokenHash=primary;row=await db.prepare(sql).bind(id,tokenHash).first();}}
     if (!row)
         return { error: "BOOKING_NOT_FOUND" };
     return { db, row, tokenHash };

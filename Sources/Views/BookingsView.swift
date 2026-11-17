@@ -41,21 +41,30 @@ struct BookingsView: View {
     @State private var showOffers = false
     @State private var bookings: [BookingSummary] = []
     @State private var loading = true
-    @State private var deleting = false
     @State private var error: String?
     @State private var filter: BookingListFilter = .all
+    @State private var taskFilter: String?
+    @State private var mineOnly = false
+    @State private var myMemberID: String?
     @State private var search = ""
     @State private var pendingBookingID: String?
-    @State private var bookingPendingDelete: BookingSummary?
     @State private var selectedBooking: BookingSummary?
     @State private var loadGeneration = UUID()
     @Environment(\.scenePhase) private var scenePhase
 
     private var filteredBookings: [BookingSummary] {
         bookings.filter { booking in
+            if let taskFilter, !(booking.operationTasks ?? []).contains(where: { $0.key == taskFilter }) { return false }
+            if mineOnly && (myMemberID == nil || booking.managerID != myMemberID) { return false }
             guard filter.matches(operationalStatus(booking)) else { return false }
             let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
             return query.isEmpty || [booking.id, booking.clientName ?? "", booking.pilgrimID ?? "", booking.bookingDisplayNumber ?? "", booking.bookingNumber.map { String($0) } ?? ""].contains { $0.localizedCaseInsensitiveContains(query) }
+        }.sorted { a,b in
+            let at = a.operationTasks ?? [], bt = b.operationTasks ?? []
+            let ap = at.map(\.priority).min() ?? 99, bp = bt.map(\.priority).min() ?? 99
+            if ap != bp { return ap < bp }
+            let ad = at.compactMap(\.dueAt).min() ?? "9999", bd = bt.compactMap(\.dueAt).min() ?? "9999"
+            return ad == bd ? a.createdAt > b.createdAt : ad < bd
         }
     }
 
@@ -84,10 +93,10 @@ struct BookingsView: View {
             }
         }
         .overlay {
-            if !showOffers && ((loading && bookings.isEmpty) || deleting) {
+            if !showOffers && (loading && bookings.isEmpty) {
                 ZStack {
-                    BusinessDesign.background.opacity(deleting ? 0.88 : 0.72).ignoresSafeArea()
-                    ProgressView(deleting ? "Удаляю…" : "")
+                    BusinessDesign.background.opacity(0.72).ignoresSafeArea()
+                    ProgressView()
                 }
             }
         }
@@ -95,7 +104,7 @@ struct BookingsView: View {
         .sheet(isPresented: $create, onDismiss: { Task { await load() } }) { NavigationStack { UmrahBuilderView(owner: auth.user?.login ?? "", preferOffer: showOffers) } }
         .onAppear { applyFilterRequest() }
         .onChange(of: navigation.bookingFilterRequest) { _, _ in applyFilterRequest() }
-        .task { if BusinessNotificationRoute.pendingOffer != nil { showOffers = true }; await load(); openPendingBooking() }
+        .task { if BusinessNotificationRoute.pendingOffer != nil { showOffers = true }; myMemberID = (try? await APIClient.shared.businessProfile())?.id; await load(); openPendingBooking() }
         .onReceive(NotificationCenter.default.publisher(for: .iumrahBusinessBookingOpen)) { notification in
             showOffers = false
             pendingBookingID = notification.object as? String
@@ -110,6 +119,8 @@ struct BookingsView: View {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await load() } }
         }
+        .onChange(of: taskFilter) { _, _ in if layout.supportsTwoPaneWorkspace { selectedBooking = filteredBookings.first } }
+        .onChange(of: mineOnly) { _, _ in if layout.supportsTwoPaneWorkspace { selectedBooking = filteredBookings.first } }
         .onChange(of: filter) { _, _ in
             guard layout.supportsTwoPaneWorkspace else { return }
             if let selectedBooking,
@@ -117,30 +128,18 @@ struct BookingsView: View {
                 self.selectedBooking = filteredBookings.first
             }
         }
-        .alert("Удалить бронирование?", isPresented: Binding(
-            get: { bookingPendingDelete != nil },
-            set: { if !$0 { bookingPendingDelete = nil } }
-        )) {
-            Button("Отмена", role: .cancel) { bookingPendingDelete = nil }
-            Button("Удалить полностью", role: .destructive) {
-                guard let booking = bookingPendingDelete else { return }
-                bookingPendingDelete = nil
-                Task { await delete(booking) }
-            }
-        } message: {
-            Text("Бронирование будет полностью удалено из основной базы, iumrah Business, чата и связанных операционных данных. Действие нельзя отменить.")
-        }
+
     }
 
     private func applyFilterRequest() {
         guard let raw = navigation.bookingFilterRequest else { return }
         navigation.bookingFilterRequest = nil
-        search = ""; showOffers = false; filter = BookingListFilter(rawValue: raw) ?? .all
+        search = ""; showOffers = false; taskFilter = nil; mineOnly = false; filter = BookingListFilter(rawValue: raw) ?? .all
     }
     private func openPendingBooking() {
         guard let id = pendingBookingID ?? BusinessNotificationRoute.pendingBooking,
               let booking = bookings.first(where: { $0.id == id }) else { return }
-        showOffers = false; filter = .all; search = ""; selectedBooking = booking
+        showOffers = false; filter = .all; taskFilter = nil; mineOnly = false; search = ""; selectedBooking = booking
         pendingBookingID = nil; BusinessNotificationRoute.pendingBooking = nil
     }
 
@@ -192,6 +191,9 @@ struct BookingsView: View {
                     .listRowInsets(EdgeInsets(top: 12, leading: 18, bottom: 8, trailing: 18))
                     .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)
+                operationsQueue
+                    .listRowInsets(EdgeInsets(top: 4, leading: 18, bottom: 8, trailing: 18))
+                    .listRowSeparator(.hidden).listRowBackground(Color.clear)
                 filterBar
                     .listRowInsets(EdgeInsets(top: 2, leading: 0, bottom: 8, trailing: 0))
                     .listRowSeparator(.hidden)
@@ -214,7 +216,13 @@ struct BookingsView: View {
             }
 
             ForEach(filteredBookings) { booking in
-                BookingRow(booking: booking, showsChevron: showsChevron)
+                VStack(alignment: .leading, spacing: 4) {
+                    BookingRow(booking: booking, showsChevron: showsChevron)
+                    if let task = booking.operationTasks?.min(by: { $0.priority < $1.priority }) {
+                        Label(task.title, systemImage: task.priority == 0 ? "exclamationmark.circle" : "clock")
+                            .font(.caption.weight(.semibold)).foregroundStyle(task.priority == 0 ? Color.orange : Color.blue)
+                    }
+                }
                     .contentShape(Rectangle())
                     .onTapGesture { selectedBooking = booking }
                     .accessibilityAddTraits(.isButton)
@@ -225,20 +233,29 @@ struct BookingsView: View {
                             : Color.clear
                     )
                     .listRowSeparator(.hidden)
-                    .contextMenu {
-                        Button("Открыть") { selectedBooking = booking }
-                        Divider()
-                        Button("Удалить", role: .destructive) { bookingPendingDelete = booking }
-                    }
-                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                        Button(role: .destructive) {
-                            bookingPendingDelete = booking
-                        } label: {
-                            Label("Удалить", systemImage: "trash")
-                        }
-                    }
+                    .contextMenu { Button("Открыть") { selectedBooking = booking } }
             }
         }
+    }
+
+    private var operationsQueue: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack { Text("Требуют внимания").font(.headline); Spacer(); if taskFilter != nil { Button("Все задачи") { taskFilter = nil; filter = .all } } }
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                ForEach(["availability","receipt","payment","documents","departure","trip","cancellation","refund","finance_close","unassigned"], id: \.self) { key in
+                    let count = bookings.filter { (!mineOnly || (myMemberID != nil && $0.managerID == myMemberID)) && ($0.operationTasks ?? []).contains { $0.key == key } }.count
+                    Button { taskFilter = taskFilter == key ? nil : key; filter = .all; search = "" } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("\(count)").font(.title2.bold()).monospacedDigit()
+                            Text(BookingOperationTask(key: key, priority: 0, dueAt: nil).title).font(.caption).lineLimit(2)
+                        }.frame(maxWidth: .infinity, alignment: .leading).padding(10)
+                            .foregroundStyle(taskFilter == key ? Color.white : Color.primary)
+                            .background(taskFilter == key ? Color.blue : BusinessDesign.secondarySurface, in: RoundedRectangle(cornerRadius: 13))
+                    }.buttonStyle(.plain)
+                }
+            }
+            Toggle("Только мои бронирования", isOn: $mineOnly).font(.caption).disabled(myMemberID == nil)
+        }.padding(12).businessCard(radius: 18)
     }
 
     private var filterBar: some View {
@@ -246,7 +263,7 @@ struct BookingsView: View {
             HStack(spacing: 8) {
                 ForEach(BookingListFilter.allCases) { item in
                     Button {
-                        withAnimation(.snappy(duration: 0.24)) { filter = item }
+                        withAnimation(.snappy(duration: 0.24)) { filter = item; taskFilter = nil }
                     } label: {
                         HStack(spacing: 6) {
                             Text(item.title)
@@ -286,7 +303,6 @@ struct BookingsView: View {
     }
 
     @MainActor private func load() async {
-        guard !deleting else { return }
         let generation = UUID()
         loadGeneration = generation
         if bookings.isEmpty { loading = true }
@@ -294,7 +310,7 @@ struct BookingsView: View {
         error = nil
         do {
             let incoming = try await APIClient.shared.bookings()
-            guard !Task.isCancelled, loadGeneration == generation, !deleting else { return }
+            guard !Task.isCancelled, loadGeneration == generation else { return }
             bookings = incoming
             if layout.supportsTwoPaneWorkspace {
                 if let selectedBooking,
@@ -310,19 +326,4 @@ struct BookingsView: View {
         }
     }
 
-    @MainActor private func delete(_ booking: BookingSummary) async {
-        deleting = true
-        loadGeneration = UUID()
-        loading = false
-        error = nil
-        do {
-            try await APIClient.shared.deleteBooking(id: booking.id)
-            withAnimation(.snappy) { bookings.removeAll { $0.id == booking.id } }
-            if selectedBooking?.id == booking.id { selectedBooking = filteredBookings.first }
-            NotificationCenter.default.post(name: bookingOperationsChangedNotification, object: booking.id)
-        } catch {
-            self.error = error.localizedDescription
-        }
-        deleting = false
-    }
 }

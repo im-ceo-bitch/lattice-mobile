@@ -388,14 +388,58 @@ actor APIClient {
         _ = try? decoder.decode(BookingESIMDeleteResponse.self, from: data)
     }
 
-    func updateBookingOperation(id: String, status: TripStatus, paymentStatus: String, confirmationNumber: String, internalNotes: String) async throws -> BookingDetailResponse {
+    func updateBookingOperation(id: String, status: TripStatus, paymentStatus: String, confirmationNumber: String, internalNotes: String, cancellationReason: String? = nil) async throws -> BookingDetailResponse {
         var request = URLRequest(url: AppConfig.apiBaseURL.appending(path: "/api/admin/hotels/operations/bookings/\(id)"))
         request.httpMethod = "PATCH"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try encoder.encode(BookingOperationUpdatePayload(status: status.rawValue, paymentStatus: paymentStatus, confirmationNumber: confirmationNumber, internalNotes: internalNotes))
+        request.httpBody = try encoder.encode(BookingOperationUpdatePayload(status: status.rawValue, paymentStatus: paymentStatus, confirmationNumber: confirmationNumber, internalNotes: internalNotes, cancellationReason: cancellationReason))
         let (data, response) = try await perform(request)
         try validate(response, data: data)
         return try decoder.decode(BookingDetailResponse.self, from: data)
+    }
+
+    private func operationsMutation<T: Encodable>(bookingID: String, path: String, method: String, payload: T) async throws -> BookingOperationsCenter {
+        var request = URLRequest(url: AppConfig.apiBaseURL.appending(path: "/api/admin/hotels/operations/bookings/\(bookingID)/\(path)"))
+        request.httpMethod = method
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try encoder.encode(payload)
+        let (data, response) = try await perform(request)
+        try validate(response, data: data)
+        return try decoder.decode(BookingOperationsEnvelope.self, from: data).operationsCenter
+    }
+
+    func saveServiceOperation(bookingID: String, key: String, availability: String, execution: String, reference: String, note: String) async throws -> BookingOperationsCenter {
+        try await operationsMutation(bookingID: bookingID, path: "service-operation", method: "PUT", payload: ["key":key,"availability":availability,"execution":execution,"reference":reference,"note":note])
+    }
+    func assignBookingManager(bookingID: String, memberID: String) async throws -> BookingOperationsCenter {
+        try await operationsMutation(bookingID: bookingID, path: "manager", method: "PUT", payload: ["memberID":memberID])
+    }
+    func dismissCancellationRequest(bookingID: String, reason: String) async throws -> BookingOperationsCenter {
+        try await operationsMutation(bookingID: bookingID, path: "dismiss-cancellation", method: "POST", payload: ["reason":reason])
+    }
+    func issueTravelCertificate(bookingID: String, position: Int) async throws -> BookingOperationsCenter {
+        try await operationsMutation(bookingID: bookingID, path: "umrah-certificate", method: "POST", payload: TravelCertificatePayload(position: position, ritualConfirmed: true))
+    }
+    func reconcileHistoricalPayment(bookingID: String, addedUsd: Double, reference: String, reason: String) async throws -> BookingOperationsCenter {
+        try await operationsMutation(bookingID: bookingID, path: "historical-payment", method: "POST", payload: HistoricalPaymentPayload(addedUsd: addedUsd, reference: reference, reason: reason, confirmed: true))
+    }
+    func correctTravelCertificate(bookingID: String, certificateID: String, action: String, correctedName: String, reason: String) async throws -> BookingOperationsCenter {
+        try await operationsMutation(bookingID: bookingID, path: "certificate-correction", method: "POST", payload: CertificateCorrectionPayload(certificateID: certificateID, action: action, correctedName: correctedName, reason: reason, confirmed: true))
+    }
+    func closeTravelFinance(bookingID: String, expenseUsd: Double, retainedUsd: Double, reason: String) async throws -> BookingOperationsCenter {
+        try await operationsMutation(bookingID: bookingID, path: "financial-close", method: "POST", payload: TravelFinancialClosePayload(expenseUsd: expenseUsd, retainedUsd: retainedUsd, reason: reason, confirmed: true))
+    }
+    func recordBookingRefund(bookingID: String, amountUsd: Double, reference: String) async throws -> BookingOperationsCenter {
+        try await operationsMutation(bookingID: bookingID, path: "refund", method: "POST", payload: BookingRefundPayload(amountUsd: amountUsd, reference: reference))
+    }
+    func setItineraryExecution(bookingID: String, itemID: String, state: String) async throws -> [BookingItineraryItem] {
+        var request = URLRequest(url: AppConfig.apiBaseURL.appending(path: "/api/admin/hotels/operations/bookings/\(bookingID)/itinerary-execution/\(itemID)"))
+        request.httpMethod = "PUT"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try encoder.encode(["state": state])
+        let (data, response) = try await perform(request)
+        try validate(response, data: data)
+        return try decoder.decode(BookingItineraryResponse.self, from: data).items
     }
 
     func savePaymentInstructions(bookingID: String, payload: BusinessPaymentInstructionsPayload) async throws -> BusinessCheckout {
@@ -418,13 +462,53 @@ actor APIClient {
         try validate(response, data: body)
     }
 
-    func uploadTravelDocument(bookingID: String, kind: String, title: String, bookingReference: String, data: Data, contentType: String) async throws {
+    func notifyAvailabilityDelay(bookingID: String) async throws -> Int {
+        var request = URLRequest(url: AppConfig.apiBaseURL.appending(path: "/api/admin/hotels/operations/bookings/\(bookingID)/availability-delay"))
+        request.httpMethod = "POST"
+        let (data, response) = try await perform(request)
+        try validate(response, data: data)
+        struct Envelope: Decodable { let sent: Int }
+        return try decoder.decode(Envelope.self, from: data).sent
+    }
+
+    func reviewBookingReceipt(bookingID: String, receiptID: String, decision: String, amountUsd: Double?, reason: String) async throws {
+        struct Review: Encodable { let decision: String; let amountUsd: Double?; let reason: String }
+        var request = URLRequest(url: AppConfig.apiBaseURL.appending(path: "/api/admin/hotels/operations/bookings/\(bookingID)/receipt/\(receiptID)/review"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try encoder.encode(Review(decision: decision, amountUsd: amountUsd, reason: reason))
+        let (data, response) = try await perform(request)
+        try validate(response, data: data)
+    }
+
+    func updateDocumentRequirement(bookingID: String, key: String, state: String) async throws {
+        struct Progress: Encodable { let key: String; let state: String }
+        var request = URLRequest(url: AppConfig.apiBaseURL.appending(path: "/api/admin/hotels/operations/bookings/\(bookingID)/document-requirements"))
+        request.httpMethod = "PUT"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try encoder.encode(Progress(key: key, state: state))
+        let (data, response) = try await perform(request)
+        try validate(response, data: data)
+    }
+
+    func updateDocumentPublication(bookingID: String, documentID: String, publicationStatus: String, slots: [String]) async throws {
+        struct Publication: Encodable { let publicationStatus: String; let slots: [String] }
+        var request = URLRequest(url: AppConfig.apiBaseURL.appending(path: "/api/admin/hotels/operations/bookings/\(bookingID)/documents/\(documentID)"))
+        request.httpMethod = "PUT"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try encoder.encode(Publication(publicationStatus: publicationStatus, slots: slots))
+        let (data, response) = try await perform(request)
+        try validate(response, data: data)
+    }
+
+    func uploadTravelDocument(bookingID: String, kind: String, title: String, bookingReference: String, data: Data, contentType: String, slots: [String] = [], replacing documentID: String? = nil) async throws {
         var components = URLComponents(url: AppConfig.apiBaseURL.appending(path: "/api/admin/hotels/operations/bookings/\(bookingID)/documents"), resolvingAgainstBaseURL: false)!
         components.queryItems = [
             URLQueryItem(name: "kind", value: kind),
             URLQueryItem(name: "title", value: title),
             URLQueryItem(name: "reference", value: bookingReference)
-        ]
+        ] + slots.map { URLQueryItem(name: "slot", value: $0) }
+        if let documentID { components.queryItems?.append(URLQueryItem(name: "replace", value: documentID)) }
         var request = URLRequest(url: components.url!)
         request.httpMethod = "POST"
         request.setValue(contentType, forHTTPHeaderField: "Content-Type")
@@ -1015,7 +1099,25 @@ enum APIError: LocalizedError {
             case "IUMRAH_ACCOUNT_REQUIRED": return "Паломник ещё не активировал свой iumrah ID и пароль."
             case "TRAVELER_DATA_INCOMPLETE": return "Не все анкеты паломников заполнены полностью и с паспортом."
             case "PAYMENT_RECEIPT_REQUIRED": return "Паломник ещё не прикрепил чек оплаты."
-            case "TRAVEL_DOCUMENT_REQUIRED": return "Перед статусом «Готово к поездке» загрузите хотя бы один документ поездки."
+            case "PAYMENT_CONFIRMATION_REQUIRED": return "Проверьте чеки и подтвердите поступление полной суммы."
+            case "PAYMENT_ALREADY_REVIEWED": return "Этот чек уже проверен. Обновите бронирование."
+            case "PAYMENT_REVIEW_CLOSED": return "Проверка оплаты недоступна на текущем этапе."
+            case "INVALID_PAYMENT_REVIEW": return "Укажите точную сумму в USD или причину отклонения."
+            case "SERVICE_AVAILABILITY_REQUIRED": return "Подтвердите наличие всех услуг, включая изменённые компоненты."
+            case "EXPLICIT_GUIDE_REQUIRED": return "Назначьте конкретного активного гида в разделе поездки."
+            case "SERVICE_EXECUTION_REQUIRED": return "Подтвердите фактическое исполнение всех услуг."
+            case "SERVICE_EXECUTION_NOT_STARTED": return "Исполнение доступно только во время поездки."
+            case "CANCELLATION_REASON_REQUIRED": return "Укажите причину отмены."
+            case "REFUND_LIMIT_OR_DUPLICATE": return "Сумма превышает подтверждённый остаток или этот возврат уже зарегистрирован."
+            case "PENDING_RECEIPTS_REQUIRE_REVIEW": return "Сначала проверьте все отправленные чеки, затем отмените поездку."
+            case "PAYMENT_RECONCILIATION_REQUIRED": return "Необходимо сверить финансовые данные бронирования."
+            case "OPERATION_NOTE_REQUIRED": return "Укажите причину изменения или задержки."
+            case "OPERATIONS_CLOSED": return "Поездка уже завершена или отменена."
+            case "INVALID_MANAGER": return "Выберите активного менеджера."
+            case "USE_CANCELLATION": return "Используйте отмену бронирования с сохранением истории."
+            case "TRAVEL_DOCUMENT_REQUIRED": return "Подготовьте и привяжите все обязательные документы из чек-листа."
+            case "INVALID_DOCUMENT_SCOPE": return "Выбранная позиция не соответствует этому документу."
+            case "DOCUMENT_EDITING_CLOSED": return "Документы недоступны для изменения на текущем этапе."
             case "INVALID_STATUS_TRANSITION": return "Этот переход статуса недоступен из текущего состояния поездки."
             case "PRIMARY_SESSION_REQUIRED": return "Только основное устройство может завершать другие сеансы."
             case "PRIMARY_SESSION_PROTECTED": return "Основной сеанс защищён и не может быть завершён с другого устройства."
@@ -1045,3 +1147,11 @@ enum APIError: LocalizedError {
         }
     }
 }
+
+private struct BookingOperationsEnvelope: Decodable { let operationsCenter: BookingOperationsCenter }
+private struct TravelCertificatePayload: Encodable { let position: Int; let ritualConfirmed: Bool }
+private struct TravelFinancialClosePayload: Encodable { let expenseUsd: Double; let retainedUsd: Double; let reason: String; let confirmed: Bool }
+private struct BookingRefundPayload: Encodable { let amountUsd: Double; let reference: String }
+
+private struct HistoricalPaymentPayload: Encodable { let addedUsd: Double; let reference: String; let reason: String; let confirmed: Bool }
+private struct CertificateCorrectionPayload: Encodable { let certificateID: String; let action: String; let correctedName: String; let reason: String; let confirmed: Bool }

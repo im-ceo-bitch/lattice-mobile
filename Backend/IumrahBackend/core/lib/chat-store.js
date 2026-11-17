@@ -1,3 +1,4 @@
+import { bookingGrantRead } from "./booking-grants.js";
 // Ported from iumrah-web-main 5.zip: lib/chat-store.ts
 import { requestEnv, backendFetch } from "../runtime.js";
 import { ensureBookingSchema, getBookingDb, hashBookingToken, rowToSummary, } from "./booking-store.js";
@@ -45,12 +46,10 @@ export async function authorizePilgrimBooking(db, bookingId, token) {
     if (!validBookingId(bookingId) || token.length < 24 || token.length > 128)
         return null;
     const tokenHash = await hashBookingToken(token);
-    return db.prepare(`SELECT id, status, created_at, updated_at, lang, plan_id, total_cents,
+    return bookingGrantRead(db,`SELECT id, status, created_at, updated_at, lang, plan_id, total_cents,
     per_pilgrim_cents, traveler_count, rooms, origin_code, outbound_destination, return_origin,
     start_date, end_date, flight_name, makkah_hotel, madinah_hotel
-    FROM bookings WHERE id = ? AND access_token_hash = ? LIMIT 1`)
-        .bind(bookingId, tokenHash)
-        .first();
+    FROM bookings WHERE id = ? AND access_token_hash = ? LIMIT 1`,bookingId,tokenHash);
 }
 export async function ensureThread(db, bookingId, now = new Date().toISOString()) {
     await db.prepare(`INSERT INTO chat_threads (booking_id, created_at, updated_at)

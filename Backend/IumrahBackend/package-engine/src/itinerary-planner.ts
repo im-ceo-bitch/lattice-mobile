@@ -1,3 +1,4 @@
+import { bookingGrantRead } from "./booking-grants";
 import type { D1Like } from "./d1";
 import type { Env } from "./env";
 
@@ -610,9 +611,7 @@ async function authorizedBooking(request: Request, bookingID: string, env: Env):
   const bookingToken = String(request.headers.get("x-booking-token") ?? "").trim();
   if (bookingToken.length >= 24 && bookingToken.length <= 128) {
     const hash = await sha256Hex(bookingToken);
-    const row = await env.BOOKINGS_DB.prepare(
-      "SELECT payload_json FROM bookings WHERE id=?1 AND access_token_hash=?2 LIMIT 1",
-    ).bind(bookingID, hash).first<{ payload_json: string }>();
+    const row = await bookingGrantRead<{ payload_json: string }>(env.BOOKINGS_DB,"SELECT payload_json FROM bookings WHERE id=?1 AND access_token_hash=?2 LIMIT 1",bookingID, hash);
     if (row) return row;
   }
 

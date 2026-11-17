@@ -44,7 +44,7 @@ const text = {
   uz: { head:'Umra uchun arizangiz qabul qilindi', intro:'Tizim barcha xizmatlarning mavjudligini qayta tekshirguncha kuting. Aviabilet va mehmonxona narxlari hamda mavjudligi kun davomida bir necha marta o‘zgarishi mumkin.', noPay:'Hozir hech qanday to‘lov qilmaysiz. To‘lov barcha xizmatlar mavjudligi qayta tasdiqlangandan keyin ochiladi.', booking:'Bron', guest:'Ziyoratchi', package:'Paket', days:'Davomiyligi', people:'Yo‘lovchilar', total:'Umumiy narx', per:'Bir kishi uchun', priceNote:'Narx dastlabki, qayta tasdiqlanadi', hotelM:'Makkadagi mehmonxona', hotelD:'Madinadagi mehmonxona', flight:'Parvoz', next:'Keyingi qadam', nextBody:'Aviabiletlar, mehmonxonalar va xizmatlar qayta tekshiriladi. Holat avtomatik yangilanadi.', telegram:'Telegramni ulang', telegramBody:'Safar yangiliklari, bron holati, hujjatlar va chiptalar haqida xabarlar oling. Xabarlar ilova va emailingizga ham keladi.', connect:'Telegramni ulash', view:'Bronni ko‘rish', support:'Yordam kerakmi?', footer:'iumrah broningiz haqidagi xizmat xabari.', available:'Mavjudlik tasdiqlandi', availableBody:'Safar xizmatlari tekshirildi. Endi to‘lov va pasport ma’lumotlarini yuborishingiz mumkin.', paid:'To‘lov tasdiqlandi', paidBody:'To‘lov qabul qilindi va bron tasdiqlandi. Safaringiz tayyorlanmoqda.', ready:'Hujjatlar tayyor', readyBody:'Safar hujjatlari tayyor. Ularni xavfsiz ko‘rish uchun bronni oching.', traveling:'Siz safardasiz', travelingBody:'Umrangiz muborak bo‘lsin! Safar ma’lumotlari broningizda mavjud.', checking:'Mavjudlik tekshirilmoqda', payment:'To‘lov va pasport kutilmoqda', confirmed:'To‘langan va tasdiqlangan', docs:'Hujjatlar tayyor', trip:'Safarda', status:'Holat' },
   'uz-cyrl': { head:'Умра учун аризангиз қабул қилинди', intro:'Тизим барча хизматларнинг мавжудлигини қайта текширгунча кутинг. Авиабилет ва меҳмонхона нархлари ҳамда мавжудлиги кун давомида бир неча марта ўзгариши мумкин.', noPay:'Ҳозир ҳеч қандай тўлов қилмайсиз. Тўлов барча хизматлар мавжудлиги қайта тасдиқлангандан кейин очилади.', booking:'Брон', guest:'Зиёратчи', package:'Пакет', days:'Давомийлиги', people:'Йўловчилар', total:'Умумий нарх', per:'Бир киши учун', priceNote:'Нарх дастлабки, қайта тасдиқланади', hotelM:'Маккадаги меҳмонхона', hotelD:'Мадинадаги меҳмонхона', flight:'Парвоз', next:'Кейинги қадам', nextBody:'Авиабилетлар, меҳмонхоналар ва хизматлар қайта текширилади. Ҳолат автоматик янгиланади.', telegram:'Telegramни уланг', telegramBody:'Сафар янгиликлари, брон ҳолати, ҳужжатлар ва чипталар ҳақида хабарлар олинг. Хабарлар илова ва электрон почтангизга ҳам келади.', connect:'Telegramни улаш', view:'Бронни кўриш', support:'Ёрдам керакми?', footer:'iumrah брон ҳақидаги хизмат хабари.', available:'Мавжудлик тасдиқланди', availableBody:'Сафар хизматлари текширилди. Энди тўлов ва паспорт маълумотларини юборишингиз мумкин.', paid:'Тўлов тасдиқланди', paidBody:'Тўлов қабул қилинди ва брон тасдиқланди. Сафарингиз тайёрланмоқда.', ready:'Ҳужжатлар тайёр', readyBody:'Сафар ҳужжатлари тайёр. Уларни хавфсиз кўриш учун бронни очинг.', traveling:'Сиз сафардасиз', travelingBody:'Умрангиз муборак бўлсин! Сафар маълумотлари бронда мавжуд.', checking:'Мавжудлик текширилмоқда', payment:'Тўлов ва паспорт кутилмоқда', confirmed:'Тўланган ва тасдиқланган', docs:'Ҳужжатлар тайёр', trip:'Сафарда', status:'Ҳолат' },
 } as const;
-export type MailStage = 'checking'|'available'|'paid'|'ready'|'traveling';
+export type MailStage = 'checking'|'available'|'paid'|'ready'|'traveling'|'completed'|'cancelled';
 export function resolveMailStage(raw: unknown): MailStage | null {
   const s = String(raw ?? '').trim().toLowerCase().replace(/[-\s]/g,'_');
   if (['new','availability_check','pending','requested','request_received','new_request','awaiting_availability','availability_check','checking','checking_availability','pending_verification','pending_availability'].includes(s)) return 'checking';
@@ -52,6 +52,8 @@ export function resolveMailStage(raw: unknown): MailStage | null {
   if (['confirmed','paid','paid_confirmed','payment_confirmed','booking_confirmed','payment_completed'].includes(s)) return 'paid';
   if (['documents_ready','ready','ready_to_travel','travel_ready'].includes(s)) return 'ready';
   if (['in_trip','in_progress','traveling','travelling','on_trip'].includes(s)) return 'traveling';
+  if (['completed','finished'].includes(s)) return 'completed';
+  if (['cancelled','canceled'].includes(s)) return 'cancelled';
   return null; // Never send incorrect payment messages for unknown status values.
 }
 function obj(value: unknown): Record<string, unknown> { return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
@@ -195,9 +197,15 @@ export function renderBookingEmail(snapshot: BookingEmailSnapshot, locale: Booki
   const flightSummary=str(data.flight);
   const displayNumber=str(snapshot.bookingNumber||snapshot.bookingID,24).replace(/[\r\n]/g,'');
   const url='https://iumrah.app/booking';
-  const notice=stage==='checking'?c.noPay:stage==='available'?c.availableBody:stage==='paid'?c.paidBody:stage==='ready'?c.readyBody:c.travelingBody;
-  const heading=stage==='checking'?c.head:stage==='available'?c.available:stage==='paid'?c.paid:stage==='ready'?c.ready:c.traveling;
-  const stepStatus=stage==='checking'?c.checking:stage==='available'?c.payment:stage==='paid'?c.confirmed:stage==='ready'?c.docs:c.trip;
+  const terminal:Record<BookingMailLocale,{completed:string;completedBody:string;cancelled:string;cancelledBody:string}>={
+    ru:{completed:'Поездка завершена',completedBody:'Архив поездки доступен в iumrah.',cancelled:'Бронирование отменено',cancelledBody:'Откройте бронирование для проверки деталей отмены и связи с поддержкой.'},
+    en:{completed:'Trip completed',completedBody:'Your trip archive is available in iumrah.',cancelled:'Booking cancelled',cancelledBody:'Open your booking to review cancellation details and contact support.'},
+    uz:{completed:'Safar yakunlandi',completedBody:'Safar arxivi iumrah ilovasida mavjud.',cancelled:'Bron bekor qilindi',cancelledBody:'Bekor qilish tafsilotlari va yordam uchun bronni oching.'},
+    'uz-cyrl':{completed:'Сафар якунланди',completedBody:'Сафар архиви iumrah иловасида мавжуд.',cancelled:'Брон бекор қилинди',cancelledBody:'Бекор қилиш тафсилотлари ва ёрдам учун бронни очинг.'}};
+  const t=terminal[locale];
+  const notice=stage==='completed'?t.completedBody:stage==='cancelled'?t.cancelledBody:stage==='checking'?c.noPay:stage==='available'?c.availableBody:stage==='paid'?c.paidBody:stage==='ready'?c.readyBody:c.travelingBody;
+  const heading=stage==='completed'?t.completed:stage==='cancelled'?t.cancelled:stage==='checking'?c.head:stage==='available'?c.available:stage==='paid'?c.paid:stage==='ready'?c.ready:c.traveling;
+  const stepStatus=stage==='completed'||stage==='cancelled'?heading:stage==='checking'?c.checking:stage==='available'?c.payment:stage==='paid'?c.confirmed:stage==='ready'?c.docs:c.trip;
   const statusColor=stage==='checking'?'#b76b16':stage==='available'?'#1e6cba':stage==='paid'?'#238453':stage==='ready'?'#238453':'#6636D9';
   const subject=`iumrah · ${heading} · ${displayNumber}`;
   const dates=[dateOnly(input.startDate,locale),dateOnly(input.endDate,locale)].filter(Boolean).join(' → ');
@@ -300,7 +308,7 @@ export async function retryBookingStatusEmails(env:Env):Promise<void>{
   const rows=await db.prepare(`SELECT s.booking_id FROM iumrah_booking_email_subscriptions s
     LEFT JOIN pilgrim_trips t ON t.booking_id=s.booking_id
     WHERE (s.lease_until IS NULL OR s.lease_until<?1) AND (s.last_sent_status IS NULL OR s.last_error IS NOT NULL OR s.lease_until IS NOT NULL OR
-      CASE lower(t.status) WHEN 'availability_check' THEN 'checking' WHEN 'payment_pending' THEN 'available' WHEN 'booking_confirmed' THEN 'paid' WHEN 'ready_to_travel' THEN 'ready' WHEN 'in_trip' THEN 'traveling' ELSE s.last_sent_status END <> s.last_sent_status)
+      CASE lower(t.status) WHEN 'availability_check' THEN 'checking' WHEN 'payment_pending' THEN 'available' WHEN 'booking_confirmed' THEN 'paid' WHEN 'ready_to_travel' THEN 'ready' WHEN 'in_trip' THEN 'traveling' WHEN 'completed' THEN 'completed' WHEN 'cancelled' THEN 'cancelled' ELSE s.last_sent_status END <> s.last_sent_status)
     ORDER BY COALESCE(s.lease_until,s.last_sent_at,s.verified_at),s.booking_id LIMIT 10`).bind(now).all<{booking_id:string}>();
   for(const row of rows.results??[])await sendBookingEmailStatus(env,row.booking_id).catch(()=>console.warn('BOOKING_EMAIL_RETRY_FAILED'));
 }

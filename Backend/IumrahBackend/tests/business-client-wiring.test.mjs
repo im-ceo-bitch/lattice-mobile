@@ -65,14 +65,15 @@ test('V33 Business acknowledges the received cursor and listens to chat and oper
  assert.match(api,/URLQueryItem\(name: "scope", value: scope\)/);
  assert.match(chat,/retryText == text \? \(retryMessageID/);
  assert.match(notifications,/case "chat_message", "chat_image":/);
- assert.match(notifications,/case "payment_receipt", "booking_created", "booking_status_changed":/);
+ assert.match(notifications,/case "payment_receipt", "booking_created", "booking_status_changed", "booking_updated":/);
  assert.match(chat,/\.iumrahBusinessChatChanged/);
  assert.match(read('Sources/Views/BusinessTabView.swift'),/\.iumrahBusinessChatOpen/);
 });
-test('V33 refreshes cannot resurrect a deleted booking or overwrite unsaved operations',()=>{
+test('V3 preserves cancelled bookings and refreshes cannot overwrite unsaved operations',()=>{
  const list=read('Sources/Views/BookingsView.swift'), detail=read('Sources/Views/BookingDetailView.swift'), archive=read('Sources/Views/ClientArchiveView.swift');
- assert.match(list,/loadGeneration == generation, !deleting/);
- assert.match(list,/deleting = true\s+loadGeneration = UUID\(\)/);
+ assert.match(list,/loadGeneration == generation/);
+ assert.doesNotMatch(list,/deleteBooking\(id:/);
+ assert.match(detail,/cancellationReason/);
  assert.match(detail,/guard !hasUnsavedOperations else \{ return \}\s+detail = value/);
  assert.match(detail,/loadGeneration == generation, !saving, !restartingPriceLock/);
  assert.match(archive,/loadGeneration == generation/);

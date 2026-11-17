@@ -1,3 +1,4 @@
+import { recoverGuestBooking } from "./booking-recovery";
 import { referralLanding } from "./referral-rewards";
 import { smartConfiguratorPlan } from "./smart-configurator";
 import { handleGuestBookingEmail } from "./booking-email-verification";
@@ -197,6 +198,7 @@ export default {
 
 
     if (request.method === "GET" && url.pathname === "/api/package/email-brand/logo.png") return bookingLogoResponse();
+    if (url.pathname === "/api/package/booking-contact/recover") return recoverGuestBooking(request, env);
     if (url.pathname === "/api/package/booking-contact/email/start" ||
         url.pathname === "/api/package/booking-contact/email/confirm" ||
         /^\/api\/package\/booking\/IUM-\d{4}-[A-Z2-9]{7}\/verified-email$/.test(url.pathname)) {

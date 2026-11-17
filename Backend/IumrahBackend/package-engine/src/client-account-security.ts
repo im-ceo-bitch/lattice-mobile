@@ -1,3 +1,4 @@
+import { bookingGrantRead } from "./booking-grants";
 import { attributeNewAccount, referralDashboard } from "./referral-rewards";
 import type { D1Like } from "./d1";
 import type { Env } from "./env";
@@ -914,9 +915,7 @@ async function bookingActivationContext(
   if (!env.BOOKINGS_DB) throw new RouteError("BOOKINGS_DB_NOT_CONFIGURED", 503);
 
   const tokenHash = await sha256Hex(bookingToken);
-  const booking = await env.BOOKINGS_DB.prepare(
-    "SELECT id FROM bookings WHERE id=?1 AND access_token_hash=?2 LIMIT 1",
-  ).bind(bookingID, tokenHash).first<{ id: string }>();
+  const booking = await bookingGrantRead<{ id: string }>(env.BOOKINGS_DB,"SELECT id FROM bookings WHERE id=?1 AND access_token_hash=?2 LIMIT 1",bookingID, tokenHash);
   if (!booking) throw new RouteError("BOOKING_PROOF_INVALID", 403);
 
   const trip = await db.prepare(

@@ -1,3 +1,4 @@
+import { bookingGrantRead } from "./booking-grants";
 import { referralRows } from "./referral-rewards";
 import type { D1Like, D1PreparedStatementLike } from "./d1";
 import { ensureBookingRoomColumns, findHotelRoomCategory, parseRoomCategory } from "./room-categories";
@@ -49,9 +50,7 @@ async function authorizedBooking(request: Request, id: string, db: BookingD1): P
   const token = bookingToken(request);
   if (token.length >= 24 && token.length <= 128) {
     const hash = await hashBookingToken(token);
-    const booking = await db.prepare(
-      "SELECT id, payload_json FROM bookings WHERE id = ?1 AND access_token_hash = ?2 LIMIT 1",
-    ).bind(id, hash).first<BookingRow>();
+    const booking = await bookingGrantRead<BookingRow>(db,"SELECT id, payload_json FROM bookings WHERE id = ?1 AND access_token_hash = ?2 LIMIT 1",id, hash);
     if (booking) return booking;
   }
 
@@ -111,8 +110,7 @@ export async function deletePilgrimBooking(request: Request, id: string, env: Bo
   try {
     const row = await authorizedBooking(request, id, env.BOOKINGS_DB);
     if (!row) return json({ error: "BOOKING_NOT_FOUND" }, 404);
-    await hardDeleteBookingRows(id, env.BOOKINGS_DB);
-    return json({ ok: true, deleted: true });
+    return json({ ok: false, error: "USE_CANCELLATION" }, 409);
   } catch (error) {
     console.error("booking-control-delete-failed", error);
     return json({ error: "BOOKING_DELETE_FAILED" }, 500);
@@ -124,9 +122,9 @@ export async function deleteAdminBooking(id: string, env: BookingControlEnv): Pr
   if (!validBookingId(id)) return json({ error: "INVALID_BOOKING_ID" }, 400);
 
   try {
-    const deleted = await hardDeleteBookingRows(id, env.BOOKINGS_DB);
-    if (!deleted) return json({ error: "BOOKING_NOT_FOUND" }, 404);
-    return json({ ok: true, deleted: true });
+    const exists = await env.BOOKINGS_DB.prepare("SELECT id FROM bookings WHERE id=?1").bind(id).first();
+    if (!exists) return json({ error: "BOOKING_NOT_FOUND" }, 404);
+    return json({ ok: false, error: "USE_CANCELLATION" }, 409);
   } catch (error) {
     console.error("booking-control-admin-delete-failed", error);
     return json({ error: "BOOKING_DELETE_FAILED" }, 500);

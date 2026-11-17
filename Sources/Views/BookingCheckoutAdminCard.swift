@@ -2,11 +2,13 @@ import SwiftUI
 import PhotosUI
 import UniformTypeIdentifiers
 import UIKit
+import QuickLook
 
 struct BookingCheckoutAdminCard: View {
     let bookingID: String
     let status: TripStatus
     let checkout: BusinessCheckout?
+    var financesOnly = false
     let onReload: () -> Void
 
     @State private var visaCard = ""
@@ -21,6 +23,18 @@ struct BookingCheckoutAdminCard: View {
     @State private var documentKind = "visa"
     @State private var documentTitle = ""
     @State private var documentReference = ""
+    @State private var documentSlots: Set<String> = []
+    @State private var replaceDocument: BusinessTravelDocument?
+    @State private var stagedDocument: BusinessDocumentPreview?
+    @State private var documentPreview: BusinessDocumentPreview?
+    @State private var showDocumentHistory = false
+    private var canPublish: Bool { [.bookingConfirmed, .readyToTravel, .inTrip].contains(status) }
+    @State private var reviewReceipt: BusinessPaymentReceipt?
+    @State private var reviewAmount = ""
+    @State private var reviewReason = ""
+    @State private var reviewDecision = "approved"
+    @State private var editingDocument: BusinessTravelDocument?
+    @State private var editingSlots: Set<String> = []
     @State private var imagePreview: BusinessImagePreview?
     @State private var previewLoadingID: String?
     @State private var paymentTemplates: [BusinessPaymentTemplate] = []
@@ -29,14 +43,14 @@ struct BookingCheckoutAdminCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "creditcard.and.123")
+                Image(systemName: financesOnly ? "creditcard.and.123" : "doc.on.doc")
                     .font(.system(size: 20, weight: .semibold))
                     .frame(width: 44, height: 44)
                     .background(BusinessDesign.secondarySurface, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Оплата и данные паломников")
+                    Text(financesOnly ? "Оплата и чеки" : "Анкеты и документы")
                         .font(.title3.bold())
-                    Text("Реквизиты этой поездки, iumrah ID и готовность анкет.")
+                    Text(financesOnly ? "Реквизиты и фактические поступления." : "Данные паломников и готовность документов.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -46,19 +60,20 @@ struct BookingCheckoutAdminCard: View {
             if let checkout {
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 10) {
-                        readinessPill(title: "Iumrah ID \(checkout.iumrahID)", ready: checkout.accountActive, icon: "person.crop.circle.badge.checkmark")
+                        readinessPill(title: "Iumrah ID \(checkout.iumrahID)", ready: true, icon: "person.crop.circle.badge.checkmark")
                         readinessPill(title: "Анкеты \(checkout.travelers.filter(\.completed).count)/\(checkout.travelers.count)", ready: checkout.allTravelersComplete, icon: "person.text.rectangle")
-                        readinessPill(title: "Чек \(checkout.receipts.isEmpty ? "—" : "✓")", ready: !checkout.receipts.isEmpty, icon: "doc.text.image")
+                        readinessPill(title: "Оплата", ready: (checkout.paymentReview?.satisfied == true || checkout.paymentReview?.historicalConfirmed == true), icon: "doc.text.image")
                     }
                     VStack(spacing: 8) {
                         HStack(spacing: 8) {
-                            readinessPill(title: "Iumrah ID \(checkout.iumrahID)", ready: checkout.accountActive, icon: "person.crop.circle.badge.checkmark")
+                            readinessPill(title: "Iumrah ID \(checkout.iumrahID)", ready: true, icon: "person.crop.circle.badge.checkmark")
                             readinessPill(title: "Анкеты \(checkout.travelers.filter(\.completed).count)/\(checkout.travelers.count)", ready: checkout.allTravelersComplete, icon: "person.text.rectangle")
                         }
-                        readinessPill(title: "Чек \(checkout.receipts.isEmpty ? "—" : "✓")", ready: !checkout.receipts.isEmpty, icon: "doc.text.image")
+                        readinessPill(title: "Оплата", ready: (checkout.paymentReview?.satisfied == true || checkout.paymentReview?.historicalConfirmed == true), icon: "doc.text.image")
                     }
                 }
 
+                if financesOnly {
                 if let rewards = checkout.rewards, rewards.totalUsd > 0 {
                     VStack(alignment: .leading, spacing: 8) {
                         LabeledContent("Стоимость пакета", value: String(format: "$%.2f", rewards.totalUsd))
@@ -71,7 +86,16 @@ struct BookingCheckoutAdminCard: View {
                     .padding(14)
                     .background(BusinessDesign.secondarySurface, in: RoundedRectangle(cornerRadius: 16))
                 }
-                travelerSummary(checkout)
+                if let review = checkout.paymentReview {
+                    if review.historicalConfirmed == true {
+                        Text("Оплата подтверждена ранее. Сумма не детализирована в новой системе.").font(.caption).foregroundStyle(.secondary)
+                    } else {
+                    LabeledContent("Подтверждено", value: String(format: "$%.2f", Double(review.paidCents)/100))
+                    if let due = review.dueCents {
+                        LabeledContent("Остаток к оплате", value: String(format: "$%.2f", Double(max(0, due-review.paidCents))/100))
+                    }
+                    }
+                }
 
                 if status == .availabilityCheck || status == .paymentPending {
                     paymentEditor(checkout)
@@ -104,12 +128,24 @@ struct BookingCheckoutAdminCard: View {
                                 .background(BusinessDesign.secondarySurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                             }
                             .buttonStyle(.plain)
+                            if let amount = receipt.amountUsd, receipt.reviewStatus == "approved" { Text(String(format: "$%.2f · подтверждено", amount)).font(.caption) }
+                            if let reason = receipt.reviewReason, !reason.isEmpty { Text(reason).font(.caption).foregroundStyle(.secondary) }
+                            if receipt.reviewStatus == "submitted" && status == .paymentPending {
+                                Button("Проверить поступление") {
+                                    reviewAmount = ""; reviewReason = ""; reviewDecision = "approved"; reviewReceipt = receipt
+                                }
+                                .buttonStyle(BusinessActionStyle(primary: false))
+                                .disabled(saving)
+                            }
                         }
                     }
                 }
 
-                Divider()
-                documentsSection(checkout)
+                } else {
+                    travelerSummary(checkout)
+                    Divider()
+                    documentsSection(checkout)
+                }
             } else {
                 Text("Checkout появится после синхронизации поездки.")
                     .font(.subheadline).foregroundStyle(.secondary)
@@ -124,7 +160,7 @@ struct BookingCheckoutAdminCard: View {
         .padding(18)
         .businessCard(radius: 28)
         .onAppear { loadDraft() }
-        .task { await loadPaymentTemplates() }
+        .task { if financesOnly { await loadPaymentTemplates() } }
         .onChange(of: checkout?.payment) { _, _ in loadDraft() }
         .onChange(of: paymePhoto) { _, item in
             guard let item else { return }
@@ -144,13 +180,84 @@ struct BookingCheckoutAdminCard: View {
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Готово") { imagePreview = nil } } }
             }
         }
+        .sheet(item: $reviewReceipt) { receipt in
+            NavigationStack {
+                Form {
+                    Picker("Решение", selection: $reviewDecision) {
+                        Text("Подтвердить поступление").tag("approved")
+                        Text("Отклонить чек").tag("rejected")
+                    }
+                    if reviewDecision == "approved" {
+                        TextField("Фактически получено, USD", text: $reviewAmount).keyboardType(.decimalPad)
+                        Text("Укажите эквивалент поступления в USD. Не подтверждайте чек, пока деньги не поступили.").font(.caption)
+                    }
+                    TextField(reviewDecision == "rejected" ? "Причина отклонения" : "Примечание", text: $reviewReason, axis: .vertical)
+                    Button(reviewDecision == "approved" ? "Подтвердить оплату" : "Отклонить чек") {
+                        Task { await submitReview(receipt) }
+                    }.disabled(saving || (reviewDecision == "approved" ? (Double(reviewAmount.replacingOccurrences(of: ",", with: ".")) ?? 0) <= 0 : reviewReason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
+                    if let error { Text(error).foregroundStyle(.red) }
+                }
+                .navigationTitle("Проверка оплаты")
+                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Закрыть") { reviewReceipt = nil } } }
+            }
+        }
+        .sheet(item: $editingDocument) { doc in
+            NavigationStack {
+                Form {
+                    Section("Привязка документа") {
+                        ForEach((checkout?.documentRequirements ?? []).filter { $0.kind == doc.documentKind }) { item in
+                            Toggle(item.label, isOn: Binding(get: { editingSlots.contains(item.key) }, set: { enabled in if enabled { editingSlots.insert(item.key) } else { editingSlots.remove(item.key) } }))
+                        }
+                    }
+                    Button("Опубликовать с выбранными позициями") { Task { await setPublication(doc, state: "published", slots: Array(editingSlots)) } }.disabled(saving)
+                    Button("Отозвать у клиента", role: .destructive) { Task { await setPublication(doc, state: "revoked", slots: Array(editingSlots)) } }.disabled(saving)
+                    if let error { Text(error).foregroundStyle(.red) }
+                }
+                .navigationTitle(doc.title)
+                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Закрыть") { editingDocument = nil } } }
+            }
+        }
+        .sheet(item: $documentPreview, onDismiss: { BusinessDocumentPreview.cleanup() }) { file in
+            NavigationStack {
+                BusinessDocumentQuickLook(url: file.url)
+                    .navigationTitle(file.title).navigationBarTitleDisplayMode(.inline)
+                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Готово") { documentPreview = nil } } }
+            }
+        }
+        .sheet(item: $stagedDocument, onDismiss: { BusinessDocumentPreview.cleanup() }) { file in
+            NavigationStack {
+                VStack(spacing: 12) {
+                    BusinessDocumentQuickLook(url: file.url)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(file.title).font(.headline)
+                        TextField("Название для клиента", text: $documentTitle).textFieldStyle(.roundedBorder)
+                        TextField(documentReferenceTitle, text: $documentReference).textFieldStyle(.roundedBorder)
+                        if let items = checkout?.documentRequirements {
+                            DisclosureGroup("Позиции файла · \(documentSlots.count)") {
+                                ForEach(items.filter { $0.kind == documentKind }) { item in
+                                    Toggle(item.label, isOn: Binding(get: { documentSlots.contains(item.key) }, set: { enabled in if enabled { documentSlots.insert(item.key) } else { documentSlots.remove(item.key) } })).font(.caption).disabled((replaceDocument?.slots ?? []).contains(item.key) || saving)
+                                }
+                            }.font(.subheadline)
+                        }
+                        Text(replaceDocument == nil ? "После публикации клиент получит этот файл." : "Новый файл заменит прежний. Прежний останется в истории менеджера.").font(.caption).foregroundStyle(.secondary)
+                        if let error { Text(error).font(.caption).foregroundStyle(.red) }
+                        Button(saving ? "Публикуем…" : replaceDocument == nil ? "Опубликовать документ" : "Опубликовать замену") { Task { await uploadDocument(file.url) } }
+                            .buttonStyle(BusinessActionStyle(primary: true)).disabled(saving || ((checkout?.documentRequirements ?? []).contains { $0.kind == documentKind } && documentSlots.isEmpty))
+                    }.padding(16)
+                }.navigationTitle("Проверка файла").navigationBarTitleDisplayMode(.inline)
+                    .interactiveDismissDisabled(saving)
+                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Отмена") { stagedDocument = nil }.disabled(saving) } }
+            }
+        }
         .fileImporter(
             isPresented: $showDocumentImporter,
             allowedContentTypes: [.pdf, .jpeg, .png],
             allowsMultipleSelection: false
         ) { result in
-            guard case .success(let urls) = result, let url = urls.first else { return }
-            Task { await uploadDocument(url) }
+            switch result {
+            case .success(let urls): if let url = urls.first { stageDocument(url) }
+            case .failure(let failure): error = failure.localizedDescription
+            }
         }
     }
 
@@ -385,89 +492,131 @@ struct BookingCheckoutAdminCard: View {
     }
 
     private func documentsSection(_ checkout: BusinessCheckout) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Документы поездки").font(.headline)
-                    Text("Загрузите билет, ваучер, визу или страховку в PDF либо как изображение.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                Spacer()
+        let items = checkout.documentRequirements ?? []
+        let ready = items.filter(\.ready).count
+        let published = checkout.documents.filter { $0.publicationStatus != "revoked" }
+        let archived = checkout.documents.filter { $0.publicationStatus == "revoked" }
+        let selected = items.filter { $0.kind == documentKind }
+        return VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack { Label("Центр документов", systemImage: "folder.fill").font(.headline); Spacer(); if !items.isEmpty { Text("\(ready)/\(items.count)").font(.title2.bold().monospacedDigit()) } }
+                if !items.isEmpty { ProgressView(value: Double(ready), total: Double(items.count)).tint(.blue) }
+                Text(items.isEmpty ? "Обязательные позиции пока не определены." : ready == items.count ? "Все обязательные документы опубликованы. Остальные условия готовности проверяются отдельно." : "Осталось подготовить: \(items.count-ready). Общий PDF может покрывать несколько позиций.").font(.caption).foregroundStyle(.white.opacity(0.75))
+            }.foregroundStyle(.white).padding(16).frame(maxWidth: .infinity, alignment: .leading).background(Color.black, in: RoundedRectangle(cornerRadius: 18))
+            requirementGroup("Перелёты", kind: "ticket", icon: "airplane", items: items, documents: published)
+            requirementGroup("Отели", kind: "voucher", icon: "building.2", items: items, documents: published)
+            requirementGroup("Визы", kind: "visa", icon: "checkmark.seal", items: items, documents: published)
+            requirementGroup("Страховки", kind: "insurance", icon: "cross.case", items: items, documents: published)
+            let other = published.filter { !["ticket", "voucher", "visa", "insurance"].contains($0.documentKind) }
+            if !other.isEmpty { Text("Другие документы").font(.headline); ForEach(other) { document in documentRow(document, requirements: items) } }
+            if !archived.isEmpty {
+                DisclosureGroup("Отозванные документы · \(archived.count)", isExpanded: $showDocumentHistory) {
+                    ForEach(archived) { document in documentRow(document, requirements: items) }
+                }.font(.subheadline.weight(.semibold))
             }
-
-            if !checkout.documents.isEmpty {
-                ForEach(checkout.documents) { document in
-                    HStack {
-                        Image(systemName: document.contentType == "application/pdf" ? "doc.richtext.fill" : "photo.fill")
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(document.title).font(.subheadline.bold())
-                            Text(documentKindTitle(document.documentKind)).font(.caption).foregroundStyle(.secondary)
-                            if let reference = document.bookingReference, !reference.isEmpty {
-                                Text("Номер: \(reference)")
-                                    .font(.caption.monospaced().weight(.semibold))
-                                    .foregroundStyle(.primary)
-                                    .textSelection(.enabled)
-                            }
-                        }
-                        Spacer()
-                        Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+            if canPublish {
+                Divider()
+                HStack {
+                    Text(replaceDocument == nil ? "Публикация документа" : "Замена документа").font(.headline)
+                    Spacer()
+                    if replaceDocument != nil { Button("Отменить замену") { resetDocumentDraft() }.font(.caption) }
+                }
+                if let replaceDocument { Text("Заменяем: \(replaceDocument.title)").font(.caption).foregroundStyle(.secondary) }
+                Picker("Тип документа", selection: Binding(get: { documentKind }, set: { kind in documentKind = kind; documentSlots = []; documentTitle = ""; documentReference = "" })) {
+                    Text("Авиабилет").tag("ticket"); Text("Ваучер отеля").tag("voucher"); Text("Виза").tag("visa"); Text("Страховка").tag("insurance"); Text("Другое").tag("other")
+                }.pickerStyle(.menu).disabled(replaceDocument != nil || saving)
+                if !selected.isEmpty {
+                    Text("Позиции, которые покрывает файл").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    ForEach(selected) { item in
+                        Toggle(item.label, isOn: Binding(get: { documentSlots.contains(item.key) }, set: { enabled in if enabled { documentSlots.insert(item.key) } else { documentSlots.remove(item.key) } }))
+                            .font(.subheadline).disabled((replaceDocument?.slots ?? []).contains(item.key) || saving)
                     }
                 }
-            }
-
-            if status == .bookingConfirmed || status == .readyToTravel {
-                Menu {
-                    Picker("Тип документа", selection: $documentKind) {
-                        Text("Авиабилет").tag("ticket")
-                        Text("Ваучер отеля").tag("voucher")
-                        Text("Виза").tag("visa")
-                        Text("Страховка").tag("insurance")
-                        Text("Другое").tag("other")
-                    }
-                } label: {
-                    HStack(spacing: 10) {
-                        Image(systemName: "doc.badge.plus")
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Тип документа").font(.caption).foregroundStyle(.secondary)
-                            Text(documentKindTitle(documentKind)).font(.subheadline.bold())
-                        }
-                        Spacer()
-                        Image(systemName: "chevron.up.chevron.down").font(.caption.bold()).foregroundStyle(.secondary)
-                    }
-                    .foregroundStyle(.primary)
-                    .padding(.horizontal, 14)
-                    .frame(height: 56)
-                    .background(BusinessDesign.secondarySurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                }
-                .buttonStyle(.plain)
-
                 paymentField(title: "Название для клиента", text: $documentTitle, icon: "text.alignleft")
                 paymentField(title: documentReferenceTitle, text: $documentReference, icon: "number")
-
-                Label("Клиент увидит этот документ отдельной готовой карточкой. Номер бронирования можно скопировать одним нажатием.", systemImage: "info.circle.fill")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Button {
-                    showDocumentImporter = true
-                } label: {
-                    HStack(spacing: 10) {
-                        if saving { ProgressView().tint(BusinessDesign.onPrimaryControl) }
-                        Image(systemName: "square.and.arrow.up.fill")
-                        Text(saving ? "Загружаем…" : "Добавить PDF или изображение")
-                    }
-                        .font(.headline)
-                        .foregroundStyle(BusinessDesign.onPrimaryControl)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 54)
-                        .background(BusinessDesign.primaryControl, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .disabled(saving)
+                Button { showDocumentImporter = true } label: {
+                    Label("Выбрать и проверить PDF или фото", systemImage: "doc.badge.plus")
+                        .font(.headline).foregroundStyle(BusinessDesign.onPrimaryControl).frame(maxWidth: .infinity).frame(minHeight: 52)
+                        .background(BusinessDesign.primaryControl, in: RoundedRectangle(cornerRadius: 16))
+                }.buttonStyle(.plain).disabled(saving || (!selected.isEmpty && documentSlots.isEmpty))
+                if !selected.isEmpty && documentSlots.isEmpty { Text("Сначала выберите хотя бы одну позицию.").font(.caption).foregroundStyle(.secondary) }
             }
         }
     }
+
+    @ViewBuilder private func requirementGroup(_ title: String, kind: String, icon: String, items: [BusinessDocumentRequirement], documents: [BusinessTravelDocument]) -> some View {
+        let slots = items.filter { $0.kind == kind }
+        let files = documents.filter { $0.documentKind == kind }
+        if !slots.isEmpty || !files.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack { Label(title, systemImage: icon).font(.headline); Spacer(); if !slots.isEmpty { Text("\(slots.filter(\.ready).count)/\(slots.count)").font(.caption.monospacedDigit()).foregroundStyle(.secondary) } }
+                ForEach(slots) { item in
+                    HStack {
+                        Image(systemName: item.ready ? "checkmark.circle.fill" : "clock").foregroundStyle(item.ready ? Color.green : Color.secondary)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(item.label).font(.subheadline)
+                            Text(requirementStateTitle(item)).font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        if !item.ready && canPublish {
+                            Menu {
+                                Button("Ожидается") { Task { await updateRequirement(item, state: "pending") } }
+                                Button("На оформлении") { Task { await updateRequirement(item, state: "preparing") } }
+                                Button("Требует исправления") { Task { await updateRequirement(item, state: "needs_correction") } }
+                            } label: { Image(systemName: "ellipsis.circle").font(.title3).foregroundStyle(.blue) }.disabled(saving)
+                            Button { prepareSlot(item); showDocumentImporter = true } label: { Image(systemName: "plus.circle.fill").font(.title2).foregroundStyle(.blue) }
+                                .buttonStyle(.plain).disabled(saving).accessibilityLabel("Загрузить: \(item.label)")
+                        }
+                    }
+                }
+                ForEach(files) { doc in documentRow(doc, requirements: items) }
+            }.padding(12).background(BusinessDesign.secondarySurface, in: RoundedRectangle(cornerRadius: 16))
+        }
+    }
+
+    private func documentRow(_ document: BusinessTravelDocument, requirements: [BusinessDocumentRequirement]) -> some View {
+        let revoked = document.publicationStatus == "revoked"
+        let assigned = requirements.filter { (document.slots ?? []).contains($0.key) }
+        return HStack(alignment: .center, spacing: 10) {
+            Button { Task { await openTravelDocument(document) } } label: {
+                HStack(alignment: .center, spacing: 10) {
+                    Image(systemName: document.contentType == "application/pdf" ? "doc.richtext.fill" : "photo.fill").foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(document.title).font(.subheadline.bold()).foregroundStyle(.primary)
+                        Text(revoked ? "Отозван" : assigned.isEmpty ? "Опубликован · без привязки" : "Опубликован").font(.caption).foregroundStyle(revoked ? Color.red : Color.secondary)
+                        ForEach(assigned) { item in Text(item.label).font(.caption2).foregroundStyle(.secondary) }
+                        if let reference = document.bookingReference, !reference.isEmpty { Text(reference).font(.caption.monospaced()).foregroundStyle(.secondary) }
+                    }
+                    Spacer()
+                    if previewLoadingID == document.id { ProgressView() } else { Image(systemName: "arrow.up.right").font(.caption).foregroundStyle(.secondary) }
+                }
+            }.buttonStyle(.plain).disabled(previewLoadingID != nil || saving)
+            if canPublish {
+                Menu {
+                    Button("Изменить привязку / публикацию") { editingSlots = Set(document.slots ?? []); editingDocument = document }
+                    if !revoked { Button("Заменить документ") { prepareReplacement(document); showDocumentImporter = true } }
+                } label: { Image(systemName: "ellipsis.circle").font(.title2).foregroundStyle(.blue) }.disabled(saving)
+            }
+        }.padding(10).background(BusinessDesign.tertiarySurface, in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func requirementStateTitle(_ item: BusinessDocumentRequirement) -> String {
+        if item.ready { return "Опубликован" }
+        switch item.state { case "preparing": return "На оформлении"; case "needs_correction": return "Требует исправления"; default: return "Ожидается" }
+    }
+    @MainActor private func updateRequirement(_ item: BusinessDocumentRequirement, state: String) async {
+        saving = true; error = nil; defer { saving = false }
+        do { try await APIClient.shared.updateDocumentRequirement(bookingID: bookingID, key: item.key, state: state); onReload() }
+        catch { self.error = error.localizedDescription }
+    }
+
+    private func prepareSlot(_ item: BusinessDocumentRequirement) {
+        resetDocumentDraft(); documentKind = item.kind; documentSlots = [item.key]; documentTitle = item.label
+    }
+    private func prepareReplacement(_ document: BusinessTravelDocument) {
+        replaceDocument = document; documentKind = document.documentKind; documentSlots = Set(document.slots ?? []); documentTitle = document.title; documentReference = document.bookingReference ?? ""
+    }
+    private func resetDocumentDraft() { replaceDocument = nil; documentSlots = []; documentTitle = ""; documentReference = "" }
 
     private var documentReferenceTitle: String {
         switch documentKind {
@@ -565,6 +714,31 @@ struct BookingCheckoutAdminCard: View {
         saving = false
     }
 
+    @MainActor private func stageDocument(_ url: URL) {
+        error = nil
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        do {
+            let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+            guard size > 0, size <= 15_000_000 else { throw URLError(.dataLengthExceedsMaximum) }
+            let data = try Data(contentsOf: url)
+            let ext = url.pathExtension.lowercased()
+            guard ["pdf", "png", "jpeg", "jpg"].contains(ext) else { throw URLError(.cannotDecodeContentData) }
+            stagedDocument = try BusinessDocumentPreview.make(data: data, ext: ext, title: url.lastPathComponent)
+        } catch { self.error = error.localizedDescription }
+    }
+
+    @MainActor private func openTravelDocument(_ document: BusinessTravelDocument) async {
+        guard previewLoadingID == nil else { return }
+        previewLoadingID = document.id; error = nil
+        defer { previewLoadingID = nil }
+        do {
+            let data = try await APIClient.shared.privateMedia(path: document.mediaURL)
+            let ext = document.contentType == "application/pdf" ? "pdf" : document.contentType.contains("png") ? "png" : "jpg"
+            documentPreview = try BusinessDocumentPreview.make(data: data, ext: ext, title: document.title)
+        } catch { self.error = error.localizedDescription }
+    }
+
     @MainActor private func uploadDocument(_ url: URL) async {
         saving = true; error = nil
         let scoped = url.startAccessingSecurityScopedResource()
@@ -580,13 +754,34 @@ struct BookingCheckoutAdminCard: View {
                 title: title,
                 bookingReference: documentReference.trimmingCharacters(in: .whitespacesAndNewlines),
                 data: data,
-                contentType: contentType
+                contentType: contentType,
+                slots: Array(documentSlots).sorted(),
+                replacing: replaceDocument?.id
             )
-            documentTitle = ""
-            documentReference = ""
+            stagedDocument = nil
+            resetDocumentDraft()
             onReload()
         } catch { self.error = error.localizedDescription }
         saving = false
+    }
+
+    @MainActor private func submitReview(_ receipt: BusinessPaymentReceipt) async {
+        saving = true; error = nil
+        defer { saving = false }
+        do {
+            let amount = Double(reviewAmount.replacingOccurrences(of: ",", with: "."))
+            try await APIClient.shared.reviewBookingReceipt(bookingID: bookingID, receiptID: receipt.id, decision: reviewDecision, amountUsd: reviewDecision == "approved" ? amount : nil, reason: reviewReason)
+            reviewReceipt = nil; onReload()
+        } catch { self.error = error.localizedDescription }
+    }
+
+    @MainActor private func setPublication(_ doc: BusinessTravelDocument, state: String, slots: [String]) async {
+        saving = true; error = nil
+        defer { saving = false }
+        do {
+            try await APIClient.shared.updateDocumentPublication(bookingID: bookingID, documentID: doc.id, publicationStatus: state, slots: slots.sorted())
+            editingDocument = nil; onReload()
+        } catch { self.error = error.localizedDescription }
     }
 
     @MainActor private func openPrivateImage(path: String, id: String, title: String) async {
@@ -611,4 +806,30 @@ private struct BusinessImagePreview: Identifiable {
     let id: String
     let title: String
     let image: UIImage
+}
+
+
+private struct BusinessDocumentPreview: Identifiable {
+    let id = UUID()
+    let title: String
+    let url: URL
+    private static var folder: URL { FileManager.default.temporaryDirectory.appendingPathComponent("IumrahBusinessDocumentPreview", isDirectory: true) }
+    static func make(data: Data, ext: String, title: String) throws -> Self {
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.protectionKey: FileProtectionType.complete])
+        let url = folder.appendingPathComponent(UUID().uuidString).appendingPathExtension(ext)
+        try data.write(to: url, options: [.atomic, .completeFileProtection]); return Self(title: title, url: url)
+    }
+    static func cleanup() { try? FileManager.default.removeItem(at: folder) }
+}
+private struct BusinessDocumentQuickLook: UIViewControllerRepresentable {
+    let url: URL
+    func makeCoordinator() -> Coordinator { Coordinator(url) }
+    func makeUIViewController(context: Context) -> QLPreviewController { let controller = QLPreviewController(); controller.dataSource = context.coordinator; return controller }
+    func updateUIViewController(_ controller: QLPreviewController, context: Context) {}
+    final class Coordinator: NSObject, QLPreviewControllerDataSource {
+        let url: URL
+        init(_ url: URL) { self.url = url }
+        func numberOfPreviewItems(in controller: QLPreviewController) -> Int { 1 }
+        func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> QLPreviewItem { url as NSURL }
+    }
 }

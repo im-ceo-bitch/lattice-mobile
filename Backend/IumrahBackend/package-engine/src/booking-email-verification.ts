@@ -1,3 +1,4 @@
+import { bookingGrantRead } from "./booking-grants";
 import type { Env } from './env';
 import type { D1Like } from './d1';
 import { ensureBookingMailSchema,mailLocale,sendResend,sendBookingEmailStatus } from './booking-email';
@@ -69,7 +70,7 @@ async function attach(request:Request,bookingID:string,db:D1Like,env:Env):Promis
   if(!proof||Date.parse(proof.proof_expires_at)<=Date.now()||(proof.consumed_at&&proof.booking_id!==bookingID))return json({ok:false,error:'PROOF_EXPIRED_OR_INVALID'},400);
   const bookingToken=String(request.headers.get('x-booking-token')??'').trim();
   if(bookingToken.length<24||bookingToken.length>128)return json({ok:false,error:'BOOKING_AUTH_INVALID'},401);
-  const existing=await env.BOOKINGS_DB.prepare('SELECT id,payload_json FROM bookings WHERE id=?1 AND access_token_hash=?2 LIMIT 1').bind(bookingID,await digest(bookingToken)).first<{id:string;payload_json:string}>();
+  const existing=await bookingGrantRead<{id:string;payload_json:string}>(env.BOOKINGS_DB,'SELECT id,payload_json FROM bookings WHERE id=?1 AND access_token_hash=?2 LIMIT 1',bookingID,await digest(bookingToken));
   if(!existing)return json({ok:false,error:'BOOKING_AUTH_INVALID'},401);
   const now=new Date().toISOString(),locale=mailLocale(body?.locale);
   const payload=JSON.parse(existing.payload_json||'{}') as Record<string,unknown>;

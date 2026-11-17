@@ -85,7 +85,7 @@ final class BusinessAppDelegate: NSObject, UIApplicationDelegate, UNUserNotifica
         case "chat_message", "chat_image":
             NotificationCenter.default.post(name: .iumrahBusinessChatChanged, object: key)
             if opened { BusinessNotificationRoute.pendingChat = key; NotificationCenter.default.post(name: .iumrahBusinessChatOpen, object: key) }
-        case "payment_receipt", "booking_created", "booking_status_changed":
+        case "payment_receipt", "booking_created", "booking_status_changed", "booking_updated":
             NotificationCenter.default.post(name: .iumrahBusinessBookingChanged, object: key)
             if opened { BusinessNotificationRoute.pendingBooking = key; NotificationCenter.default.post(name: .iumrahBusinessBookingOpen, object: key) }
         default: break

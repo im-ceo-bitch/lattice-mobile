@@ -85,6 +85,8 @@ struct BookingSummary: Codable, Identifiable, Hashable {
     let bookingDisplayNumber: String?
     let tripID: String?
     let operationStatus: String?
+    var managerID: String? = nil
+    var operationTasks: [BookingOperationTask]? = nil
 }
 
 struct BookingsResponse: Codable { let bookings: [BookingSummary] }

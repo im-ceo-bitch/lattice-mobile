@@ -1,3 +1,4 @@
+import { bookingGrantRead } from "./booking-grants.js";
 // Native booking notification bot. Only one Worker; no legacy service binding.
 import { requestEnv, ORIGIN, backendFetch } from '../runtime.js';
 import { ensureTelegramBookingSchema, randomSecret, sha256, queueTelegramNotice, deliverTelegramNotice } from './telegram-booking.js';
@@ -59,7 +60,7 @@ async function authorized(request,id,env){
   if(session?.pilgrim_id && await env.HOTELS_DB.prepare('SELECT booking_id FROM pilgrim_trips WHERE booking_id=? AND pilgrim_id=? LIMIT 1').bind(id,session.pilgrim_id).first() && await env.BOOKINGS_DB.prepare('SELECT id FROM bookings WHERE id=?').bind(id).first())return {kind:'account',token:account};
  }
  const token=(request.headers.get('x-booking-token')||'').trim();
- if(token.length>=24&&token.length<=128){const row=await env.BOOKINGS_DB.prepare('SELECT id FROM bookings WHERE id=? AND access_token_hash=? LIMIT 1').bind(id,await sha256(token)).first();if(row)return {kind:'booking',token};}
+ if(token.length>=24&&token.length<=128){const row=await bookingGrantRead(env.BOOKINGS_DB,'SELECT id FROM bookings WHERE id=? AND access_token_hash=? LIMIT 1',id,await sha256(token));if(row)return {kind:'booking',token};}
  return false;
 }
 async function storedCredentialValid(env,id,row){

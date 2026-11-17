@@ -41,6 +41,9 @@ test('guest email OTP is independent of login, status mail is localized and only
     assert.equal(await sendBookingEmailStatus(f.env,f.id),'skipped');
     for(const [status,title] of [['payment_pending','Мавжудлик'],['paid','Тўлов'],['documents_ready','Ҳужжатлар'],['in_trip','Сиз сафардасиз']]){f.state.trip.status=status;assert.equal(await sendBookingEmailStatus(f.env,f.id),'sent');assert.match(sent.at(-1).subject,new RegExp(title));}
     assert.equal(sent.length,6);
+    f.state.trip.status='completed';assert.equal(await sendBookingEmailStatus(f.env,f.id),'sent');assert.match(sent.at(-1).subject,/Сафар якунланди/);
+    f.state.trip.status='cancelled';assert.equal(await sendBookingEmailStatus(f.env,f.id),'sent');assert.match(sent.at(-1).subject,/Брон бекор қилинди/);
+    assert.equal(sent.length,8);
     assert.match(f.state.booking.payload_json,/emailVerifiedAt/);
   }finally{globalThis.fetch=old;}
 });
