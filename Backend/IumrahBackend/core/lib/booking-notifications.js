@@ -44,6 +44,25 @@ export async function prepareCreationIntent(env,raw,input,quoteProof,lang){
  const profile={...(input.pilgrimProfile||{}),[field]:normalized,[field==='email'?'emailVerifiedAt':'phoneVerifiedAt']:row.verified_at};
  return {id,accessToken,requestHash,channel,locale:lang,profile,deviceToken,environment:raw.pushEnvironment==='development'?'development':'production'};
 }
+// A guest order is not a verified identity. Keep contact ownership separate from
+// the booking credential, and restrict unverified notifications to non-private copy.
+export async function prepareGuestCreationIntent(env,requestID,input,quoteProof,lang){
+ const p=input.pilgrimProfile||{},phone=String(p.phone||''),email=String(p.email||'').toLowerCase();
+ if(typeof requestID!=='string'||!/^[a-f0-9]{64}$/.test(requestID)||!p.firstName||!p.lastName||!/^\+998\d{9}$/.test(phone)||!/^\S+@\S+\.\S+$/.test(email)||email.length>180)throw err('GUEST_REQUEST_INVALID');
+ if(!env.BOOKINGS_DB||!env.HOTELS_DB||String(env.IUMRAH_SESSION_SECRET||'').length<32)throw err('NOTIFICATION_SERVICE_UNAVAILABLE');
+ const db=env.BOOKINGS_DB,requestHash=await hashBookingToken(JSON.stringify(['guest-v1',requestID,String(quoteProof||''),input]));
+ const bytes=await hmac(env.IUMRAH_SESSION_SECRET,'creation-id:'+requestHash);
+ const id=`IUM-${input.input.startDate.slice(0,4)}-${Array.from(bytes.slice(0,7),b=>alphabet[b%alphabet.length]).join('')}`;
+ const accessToken=hex(await hmac(env.IUMRAH_SESSION_SECRET,'creation-access:'+requestHash));
+ await db.prepare('CREATE TABLE IF NOT EXISTS guest_checkout_admission_v1 (id TEXT PRIMARY KEY, phone_hash TEXT NOT NULL, email_hash TEXT NOT NULL, created_at TEXT NOT NULL)').run();
+ await db.prepare('CREATE INDEX IF NOT EXISTS guest_checkout_rate_phone ON guest_checkout_admission_v1(phone_hash,created_at)').run();
+ await db.prepare('CREATE INDEX IF NOT EXISTS guest_checkout_rate_email ON guest_checkout_admission_v1(email_hash,created_at)').run();
+ const now=new Date().toISOString(), since=new Date(Date.now()-3600000).toISOString(),ph=await hashBookingToken(phone),eh=await hashBookingToken(email);
+ await db.prepare(`INSERT OR IGNORE INTO guest_checkout_admission_v1(id,phone_hash,email_hash,created_at)
+ SELECT ?,?,?,? WHERE (SELECT COUNT(*) FROM guest_checkout_admission_v1 WHERE phone_hash=? AND created_at>?)<3 AND (SELECT COUNT(*) FROM guest_checkout_admission_v1 WHERE email_hash=? AND created_at>?)<3 AND (SELECT COUNT(*) FROM guest_checkout_admission_v1 WHERE created_at>?)<200`).bind(id,ph,eh,now,ph,since,eh,since,since).run();
+ if(!await db.prepare('SELECT id FROM guest_checkout_admission_v1 WHERE id=?').bind(id).first())throw err('GUEST_RATE_LIMIT');
+ return {id,accessToken,requestHash,channel:'guest',locale:lang,profile:{...p,phone,email,guestCheckout:true},deviceToken:null,environment:'production'};
+}
 export function creationOutboxStatement(db,job,now){
  return db.prepare('INSERT INTO booking_creation_delivery_v1(booking_id,request_hash,channel,locale,device_token,environment,push_done,next_attempt_at,created_at) VALUES(?,?,?,?,?,?,?,?,?)').bind(job.id,job.requestHash,job.channel,job.locale,job.deviceToken,job.environment,job.deviceToken?0:1,now,now);
 }
@@ -66,7 +85,14 @@ export async function dispatchCreationNotifications(env,handlers,bookingID=null)
     if(!trip?.bookingNumber)throw Error('IDENTITY_PENDING');
     if(!contactDone)try{
      const p=booking.pilgrimProfile||{};
-     if(row.channel==='email'&&p.emailVerifiedAt&&p.email){
+     if(row.channel==='guest'&&p.guestCheckout===true){
+      await handlers.ensureBookingMailSchema(env.HOTELS_DB);
+      await env.HOTELS_DB.prepare('INSERT OR IGNORE INTO iumrah_booking_email_subscriptions(booking_id,email,locale,verified_at) VALUES(?,?,?,?)').bind(b.id,p.email,row.locale,'').run();
+      const mail=await handlers.sendBookingEmailStatus(env,b.id);
+      const sub=await env.HOTELS_DB.prepare('SELECT last_sent_status FROM iumrah_booking_email_subscriptions WHERE booking_id=?').bind(b.id).first();
+      const sms=await handlers.sendBookingSMSStatus(env,b.id);
+      contactDone=(mail==='sent'||!!sub?.last_sent_status)&&['accepted','rejected'].includes(sms)?1:0;
+     }else if(row.channel==='email'&&p.emailVerifiedAt&&p.email){
       await handlers.ensureBookingMailSchema(env.HOTELS_DB);
       await env.HOTELS_DB.prepare('INSERT OR IGNORE INTO iumrah_booking_email_subscriptions(booking_id,email,locale,verified_at) VALUES(?,?,?,?)').bind(b.id,p.email,row.locale,p.emailVerifiedAt).run();
       const result=await handlers.sendBookingEmailStatus(env,b.id);

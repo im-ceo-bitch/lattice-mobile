@@ -261,7 +261,7 @@ export async function sendBookingEmailStatus(env:Env,bookingID:string):Promise<'
   if(!booking){await db.prepare('DELETE FROM iumrah_booking_email_subscriptions WHERE booking_id=?1').bind(bookingID).run();return 'skipped';}
   const payload=obj(JSON.parse(booking.payload_json||'{}'));
   const profile=obj(payload.pilgrimProfile);
-  if(profile.emailVerifiedAt&&String(profile.email||'').toLowerCase()!==sub.email.toLowerCase())return 'skipped';
+  if((profile.emailVerifiedAt||profile.guestCheckout===true)&&String(profile.email||'').toLowerCase()!==sub.email.toLowerCase())return 'skipped';
   const operational=await db.prepare('SELECT * FROM pilgrim_trips WHERE booking_id=?1 LIMIT 1').bind(bookingID).first<{status:string;booking_number?:number|string;booking_display_number?:string}>().catch(()=>null);
   const status=resolveMailStage(operational?.status)||resolveMailStage(booking.status)||resolveMailStage(payload.status)||resolveMailStage(obj(payload.booking).status);
   if(!status||status===sub.last_sent_status)return 'skipped';
@@ -289,7 +289,13 @@ export async function sendBookingEmailStatus(env:Env,bookingID:string):Promise<'
     snapshot.makkahImage=safeHttps(primary.coverImageURL)??await findHotelImage(db,hotelIds.makkahHotelId??primary.hotelId);
     snapshot.madinahImage=safeHttps(secondary.coverImageURL)??await findHotelImage(db,hotelIds.madinahHotelId??secondary.hotelId);
     // Resend idempotency key is stable per booking and status. No duplicate on retries.
-    await sendResend(env,sub.email,renderBookingEmail(snapshot,mailLocale(sub.locale),status,{phoneUZ:env.BOOKING_SUPPORT_PHONE_UZ,phoneSA:env.BOOKING_SUPPORT_PHONE_SA,telegram:env.BOOKING_SUPPORT_TELEGRAM,whatsapp:env.BOOKING_SUPPORT_WHATSAPP}),`iumrah-${bookingID}-${status}-${sub.email}`);
+    const lang=mailLocale(sub.locale);
+    const generic={ru:'Откройте бронирование и подтвердите контакт, чтобы увидеть детали. Если вы не оформляли заявку, проигнорируйте письмо.',en:'Open your booking and verify your contact to see details. If you did not request a booking, ignore this email.',uz:'Tafsilotlarni ko‘rish uchun bronni oching va kontaktingizni tasdiqlang. Agar bron qilmagan bo‘lsangiz, xatni e’tiborsiz qoldiring.','uz-cyrl':'Тафсилотларни кўриш учун бронни очинг ва контактингизни тасдиқланг. Агар брон қилмаган бўлсангиз, хатни эътиборсиз қолдиринг.'}[lang];
+    const stageLabel=status==='checking'?text[lang].head:status==='available'?text[lang].available:status==='paid'?text[lang].paid:status==='ready'?text[lang].ready:status==='traveling'?text[lang].traveling:({ru:['Поездка завершена','Бронирование отменено'],en:['Trip completed','Booking cancelled'],uz:['Safar yakunlandi','Bron bekor qilindi'],'uz-cyrl':['Сафар якунланди','Брон бекор қилинди']}[lang][status==='completed'?0:1]);
+    const subject=`iumrah · ${bookingNo||bookingID} · ${stageLabel}`;
+    const url='https://iumrah.uz/booking';
+    const copy=profile.guestCheckout===true&&!profile.emailVerifiedAt?{subject,text:`${subject}\n${generic}\n${url}`,html:`<p>${esc(subject)}</p><p>${esc(generic)}</p><p><a href="${url}">${url}</a></p>`}:renderBookingEmail(snapshot,lang,status,{phoneUZ:env.BOOKING_SUPPORT_PHONE_UZ,phoneSA:env.BOOKING_SUPPORT_PHONE_SA,telegram:env.BOOKING_SUPPORT_TELEGRAM,whatsapp:env.BOOKING_SUPPORT_WHATSAPP});
+    await sendResend(env,sub.email,copy,`iumrah-${bookingID}-${status}-${sub.email}`);
     await db.prepare(`UPDATE iumrah_booking_email_subscriptions SET last_sent_status=?1,last_sent_at=?2,last_error=NULL,lease_until=NULL,lease_token=NULL
       WHERE booking_id=?3 AND lease_token=?4`).bind(status,new Date().toISOString(),bookingID,lease).run();
     return 'sent';

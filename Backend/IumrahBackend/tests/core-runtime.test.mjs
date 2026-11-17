@@ -140,4 +140,19 @@ test('merged native offers use existing Sales schema, revision, verified contact
  assert.equal((await go(secondBase+'/accept','POST',accept,{},live)).status,409); // same OTP cannot create another offer booking
  const emailResponse=await go(secondBase+'/accept','POST',{...accept,channel:'email',verificationToken:emailProof,requestSecret:'b7'.repeat(32)},{},live);assert.equal(emailResponse.status,201,await emailResponse.clone().text());
  assert.equal((await emailResponse.json()).booking.pilgrimProfile.email,'example@example.com');assert.equal(sql.prepare('SELECT COUNT(*) n FROM bookings').get().n,before+2);
+ const third=await (await go('/api/admin/offers','POST',{...payload,requestSecret:'c1'.repeat(32)},auth)).json();
+ const thirdToken=new URL(third.shareURL).hash.slice(1),thirdPath='/api/bookings/offers/'+thirdToken+'/accept';
+ assert.equal(new URL(third.shareURL).hostname,'iumrah.uz');
+ const guestEnv={...live,IUMRAH_SESSION_SECRET:'g'.repeat(64)};
+ const guest={guestCheckout:true,revision:1,requestSecret:'c2'.repeat(32),firstName:'Guest',lastName:'Offer',phone:'+998901234568',email:'guest@example.com',totalUsd:1};
+ assert.equal((await go(thirdPath,'POST',{...guest,phone:'wrong'},{},guestEnv)).status,400);
+ assert.equal((await go(thirdPath,'POST',{...guest,revision:0},{},guestEnv)).status,409);
+ const guestRes=await go(thirdPath,'POST',guest,{},guestEnv);assert.equal(guestRes.status,201,await guestRes.clone().text());const guestReceipt=await guestRes.json();
+ assert.equal(guestReceipt.booking.totalUsd,1785);assert.equal(guestReceipt.booking.pilgrimProfile.guestCheckout,true);assert.equal(guestReceipt.booking.pilgrimProfile.phoneVerifiedAt,undefined);
+ const retry=await go(thirdPath,'POST',{guestCheckout:true,requestSecret:guest.requestSecret},{},guestEnv);assert.equal(retry.status,201);assert.equal((await retry.json()).accessToken,guestReceipt.accessToken);
+ assert.equal((await go(thirdPath,'POST',{...guest,requestSecret:'c3'.repeat(32)},{},guestEnv)).status,409);
+ assert.equal((await go('/api/bookings/'+guestReceipt.booking.id,'GET',undefined,{'x-booking-token':guestReceipt.accessToken})).status,200);
+ assert.equal(sql.prepare('SELECT channel FROM booking_creation_delivery_v1 WHERE booking_id=?').get(guestReceipt.booking.id).channel,'guest');
+ assert.equal(sql.prepare('SELECT COUNT(*) n FROM bookings').get().n,before+3);
+
 });

@@ -122,14 +122,14 @@ export async function manualBookingInfo(request,{params}) {
   if(!row)return json({manual:false});
   const data=JSON.parse(row.cost_json);
   const offer=await db.prepare('SELECT id,token FROM business_offers WHERE booking_id=?').bind(id).first().catch(()=>null);
-  return json({manual:true,cost:data.cost,emailStatus:row.email_status,packageID:offer?.id??null,shareURL:offer?`${origin}/api/offers#${offer.token}`:null});
+  return json({manual:true,cost:data.cost,emailStatus:row.email_status,packageID:offer?.id??null,shareURL:offer?`https://iumrah.uz/api/offers#${offer.token}`:null});
 }
 export async function rotateManualShare(request,{params}) {
   const staff=await authorize(request);if(!staff)return json({error:'FORBIDDEN'},403);
   const {id}=await params;const db=getBookingDb();if(!db)return json({error:'UNAVAILABLE'},503);await schema(db);
   const token=await hashBookingToken(crypto.randomUUID()+crypto.randomUUID());
   const offer=await db.prepare('SELECT id FROM business_offers WHERE booking_id=?').bind(id).first().catch(()=>null);
-  if(offer){await db.batch([db.prepare('UPDATE business_offers SET token=?,token_hash=? WHERE id=?').bind(token,await hashBookingToken(token),offer.id),db.prepare('UPDATE business_manual_bookings SET share_hash=? WHERE booking_id=?').bind(await hashBookingToken(await hashBookingToken('manual-offer-share:'+token)),id)]);return json({shareURL:`${origin}/api/offers#${token}`});}
+  if(offer){await db.batch([db.prepare('UPDATE business_offers SET token=?,token_hash=? WHERE id=?').bind(token,await hashBookingToken(token),offer.id),db.prepare('UPDATE business_manual_bookings SET share_hash=? WHERE booking_id=?').bind(await hashBookingToken(await hashBookingToken('manual-offer-share:'+token)),id)]);return json({shareURL:`https://iumrah.uz/api/offers#${token}`});}
   const result=await db.prepare('UPDATE business_manual_bookings SET share_hash=? WHERE booking_id=? AND EXISTS (SELECT 1 FROM bookings WHERE id=?)').bind(await hashBookingToken(token),id,id).run();
   if(Number(result.meta?.changes??0)!==1)return json({error:'MANUAL_BOOKING_NOT_FOUND'},404);
   return json({shareURL:`${origin}/api/bookings/share#${token}`});

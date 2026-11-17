@@ -23,7 +23,7 @@ export async function recoverGuestBooking(request:Request,env:Env):Promise<Respo
   const row=await bookings.prepare('SELECT id,access_token_hash,payload_json,status,created_at,updated_at FROM bookings WHERE id=? LIMIT 1').bind(trip.booking_id).first<{id:string;access_token_hash:string;payload_json:string;status:string;created_at:string;updated_at:string}>();
   if(!row)return invalid();
   const payload=JSON.parse(row.payload_json||'{}'), profile=payload.pilgrimProfile||{};
-  if(channel==='email'?(!profile.emailVerifiedAt||String(profile.email||'').trim().toLowerCase()!==verified.contact):(!profile.phoneVerifiedAt||String(profile.phone||'')!==verified.contact))return invalid();
+  if(channel==='email'?((!profile.emailVerifiedAt&&profile.guestCheckout!==true)||String(profile.email||'').trim().toLowerCase()!==verified.contact):((!profile.phoneVerifiedAt&&profile.guestCheckout!==true)||String(profile.phone||'')!==verified.contact))return invalid();
   await bookings.prepare('CREATE TABLE IF NOT EXISTS booking_device_grants_v3(booking_id TEXT NOT NULL,token_hash TEXT NOT NULL PRIMARY KEY,primary_hash TEXT NOT NULL,channel TEXT NOT NULL,contact TEXT NOT NULL,created_at TEXT NOT NULL,revoked_at TEXT)').run();
   const token=secret(),tokenHash=await hash(token);
   await bookings.prepare('INSERT INTO booking_device_grants_v3(booking_id,token_hash,primary_hash,channel,contact,created_at) VALUES(?,?,?,?,?,?)').bind(row.id,tokenHash,row.access_token_hash,channel,verified.contact,now).run();

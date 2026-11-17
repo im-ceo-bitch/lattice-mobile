@@ -81,6 +81,7 @@ export async function PATCH(request, { params }) {
         const payload = JSON.parse(result.row.payload_json);
         const previousProfile = payload.pilgrimProfile && typeof payload.pilgrimProfile === 'object' ? payload.pilgrimProfile : {};
         payload.pilgrimProfile = {...previousProfile,...nextProfile};
+        if(previousProfile.guestCheckout===true){payload.pilgrimProfile.phone=previousProfile.phone;payload.pilgrimProfile.email=previousProfile.email;}
         if(previousProfile.phoneVerifiedAt){payload.pilgrimProfile.phone=previousProfile.phone;payload.pilgrimProfile.phoneVerifiedAt=previousProfile.phoneVerifiedAt;}
         if(previousProfile.emailVerifiedAt){payload.pilgrimProfile.email=previousProfile.email;payload.pilgrimProfile.emailVerifiedAt=previousProfile.emailVerifiedAt;}
         const now = new Date().toISOString();
@@ -92,7 +93,7 @@ export async function PATCH(request, { params }) {
         ]);
         return NextResponse.json({
             ok: true,
-            profile: nextProfile,
+            profile: payload.pilgrimProfile,
             booking: {
                 ...payload,
                 id,

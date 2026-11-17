@@ -1,6 +1,7 @@
 import { requestEnv, NextResponse, backendFetch } from '../runtime.js';
 import { hashBookingToken } from './booking-store.js';
 import { dbReady, lookup, readOffer, convert } from './business-offers.js';
+import { prepareGuestCreationIntent, ensureCreationOutbox } from './booking-notifications.js';
 import { offerPage } from './business-offer-page.js';
 const origin='https://iumrah-backend.helloiumrah.workers.dev';
 const headers={'cache-control':'no-store','referrer-policy':'no-referrer','x-content-type-options':'nosniff'};
@@ -17,6 +18,7 @@ export async function readNativeOffer(request,{params}){
 }
 export async function acceptNativeOffer(request,{params}){
  const {token}=await params,raw=await request.json().catch(()=>null),env=requestEnv();
+ if(raw?.guestCheckout===true)return acceptGuestOffer(env,token,raw);
  if(!secret(raw?.requestSecret)||!secret(raw?.verificationToken)||!['sms','email'].includes(raw?.channel))return json({error:'VERIFIED_CONTACT_REQUIRED'},400);
  const db=await dbReady();if(!db||!env.HOTELS_DB)return json({error:'UNAVAILABLE'},503);
  const row=await lookup(db,token);if(!row||row.state==='revoked')return json({error:'NOT_FOUND'},404);
@@ -37,3 +39,19 @@ export async function acceptNativeOffer(request,{params}){
  return response;
 }
 export function nativeOfferPage(request){return offerPage(request);}
+
+// The offer link authorizes the immutable staff quote, not contact ownership.
+// A separate 256-bit request secret authenticates repeat receipt retrieval.
+async function acceptGuestOffer(env,token,raw){
+ if(!secret(raw.requestSecret))return json({error:'INVALID_REQUEST'},400);
+ const db=await dbReady();if(!db||!env.HOTELS_DB)return json({error:'UNAVAILABLE'},503);
+ const row=await lookup(db,token);if(!row||row.state==='revoked')return json({error:'NOT_FOUND'},404);
+ const native={channel:'guest',requestHash:await hashBookingToken('guest-offer:'+row.id+':'+raw.requestSecret),proofHash:await hashBookingToken('guest-offer-proof:'+row.id+':'+raw.requestSecret),accessToken:await hashBookingToken('guest-offer-access:'+row.id+':'+raw.requestSecret)};
+ if(row.state==='converted')return convert(db,row,{},'',false,raw.revision,'client','web-guest-offer',native);
+ if(raw.revision!==row.revision||row.expires_at<=new Date().toISOString())return json({error:'OFFER_CHANGED'},409);
+ const firstName=String(raw.firstName||'').trim().slice(0,120),lastName=String(raw.lastName||'').trim().slice(0,120),phone=String(raw.phone||'').trim(),email=String(raw.email||'').trim().toLowerCase();
+ if(firstName.length<2||lastName.length<2||!/^\+998\d{9}$/.test(phone)||!/^\S+@\S+\.\S+$/.test(email)||email.length>180)return json({error:'INVALID_CONTACT'},400);
+ const booking=JSON.parse(row.snapshot_json);
+ try{native.guestJob=await prepareGuestCreationIntent(env,raw.requestSecret,{...booking,pilgrimProfile:{firstName,lastName,phone,email}},'offer:'+row.id+':'+row.revision,row.lang);await ensureCreationOutbox(db);}catch(e){return json({error:e.checkoutError?e.message:'UNAVAILABLE'},e.message==='GUEST_RATE_LIMIT'?429:503);}
+ return convert(db,row,{firstName,lastName,phone},email,false,raw.revision,'client','web-guest-offer',native);
+}

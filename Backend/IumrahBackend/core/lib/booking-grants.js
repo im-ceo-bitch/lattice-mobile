@@ -5,7 +5,7 @@ export async function bookingGrantHash(db,id,hash){
   if(!row)return null;
   const p=JSON.parse(row.payload_json||'{}').pilgrimProfile||{};
   const email=String(p.email||'').trim().toLowerCase(), phone=String(p.phone||'');
-  return ((row.channel==='email'&&p.emailVerifiedAt&&email===row.contact)||(row.channel==='sms'&&p.phoneVerifiedAt&&phone===row.contact))?row.access_token_hash:null;
+  return ((row.channel==='email'&&(p.emailVerifiedAt||p.guestCheckout===true)&&email===row.contact)||(row.channel==='sms'&&(p.phoneVerifiedAt||p.guestCheckout===true)&&phone===row.contact))?row.access_token_hash:null;
  }catch(e){if(String(e?.message||e).includes('no such table'))return null;throw e;}
 }
 export async function bookingGrantRead(db,sql,id,hash){

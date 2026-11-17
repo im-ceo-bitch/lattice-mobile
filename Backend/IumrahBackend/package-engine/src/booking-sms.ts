@@ -23,7 +23,7 @@ export async function sendBookingSMSStatus(env:Env,bookingID:string):Promise<str
  if(!env.HOTELS_DB||!env.BOOKINGS_DB||!env.DEVSMS_API_TOKEN)return 'not_configured';
  const booking=await env.BOOKINGS_DB.prepare('SELECT status,payload_json,start_date,end_date,traveler_count FROM bookings WHERE id=? LIMIT 1').bind(bookingID).first<{status:string;payload_json:string;start_date:string;end_date:string;traveler_count:number}>();
  if(!booking)return 'skipped';const profile=JSON.parse(booking.payload_json||'{}').pilgrimProfile;
- const phone=String(profile?.phone||'');if(!profile?.phoneVerifiedAt||!/^\+998\d{9}$/.test(phone))return 'skipped';
+ const phone=String(profile?.phone||'');if(!(profile?.phoneVerifiedAt||profile?.guestCheckout===true)||!/^\+998\d{9}$/.test(phone))return 'skipped';
  const db=env.HOTELS_DB;
  const trip=await db.prepare('SELECT status,booking_number FROM pilgrim_trips WHERE booking_id=? LIMIT 1').bind(bookingID).first<{status:string;booking_number:number}>();
  const status=String(trip?.status||booking.status||'').toLowerCase();const copy=messages[status];if(!copy||!trip?.booking_number)return 'skipped';
@@ -36,7 +36,7 @@ export async function sendBookingSMSStatus(env:Env,bookingID:string):Promise<str
  }
  const now=new Date().toISOString();
  const dates=/^\d{4}-\d{2}-\d{2}$/.test(booking.start_date)&&/^\d{4}-\d{2}-\d{2}$/.test(booking.end_date)?` ${booking.start_date} – ${booking.end_date}. ${booking.traveler_count} чел.`:'';
- const message=`iumrah. №${String(trip.booking_number).padStart(4,'0')}. ${copy}${status==='availability_check'?dates:''} https://iumrah.app/booking`;
+ const message=`iumrah. №${String(trip.booking_number).padStart(4,'0')}. ${copy}${status==='availability_check'&&profile.phoneVerifiedAt?dates:''} https://iumrah.app/booking`;
  await db.prepare('INSERT OR IGNORE INTO booking_sms_jobs_v2(booking_id,status,phone,message,request_id,created_at,next_attempt_at) VALUES(?,?,?,?,?,?,?)').bind(bookingID,status,phone,message,await smsIdempotencyKey(bookingID,status,phone),now,now).run();
  return deliver(env,bookingID,status,phone);
 }
@@ -53,7 +53,7 @@ async function deliver(env:Env,bookingID:string,status:string,phone:string):Prom
   const b=await env.BOOKINGS_DB!.prepare('SELECT status,payload_json FROM bookings WHERE id=?').bind(bookingID).first<{status:string;payload_json:string}>();
   const p=b?JSON.parse(b.payload_json).pilgrimProfile:null;
   const trip=await db.prepare('SELECT status FROM pilgrim_trips WHERE booking_id=?').bind(bookingID).first<{status:string}>();
-  if(!b||!trip||!p?.phoneVerifiedAt||p.phone!==phone||String(trip.status).toLowerCase()!==status)result='skipped';
+  if(!b||!trip||!(p?.phoneVerifiedAt||p?.guestCheckout===true)||p.phone!==phone||String(trip.status).toLowerCase()!==status)result='skipped';
   else{
    const response=await fetch('https://devsms.uz/api/v1/sms',{method:'POST',headers:{authorization:`Bearer ${env.DEVSMS_API_TOKEN}`,'content-type':'application/json','Idempotency-Key':job.request_id},signal:AbortSignal.timeout(8000),body:JSON.stringify({phone:phone.slice(1),message:job.message})});
    const payload=await response.json().catch(()=>null) as {success?:boolean;data?:{id?:string|number;sms_id?:string|number;status?:string};error_code?:string;meta?:{sms_id?:number}}|null;

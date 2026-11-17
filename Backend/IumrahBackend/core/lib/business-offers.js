@@ -1,4 +1,4 @@
-import { requestEnv, NextResponse, ORIGIN } from '../runtime.js';
+import { requestEnv, NextResponse } from '../runtime.js';
 import { getBookingDb, hashBookingToken, makeBookingId, cents } from './booking-store.js';
 import { schema as manualSchema, authorize, manualTotals, safeDetails, sendEmail, publicBooking } from './business-manual-booking.js';
 import { parsePayload } from '../app/api/bookings/route.js';
@@ -9,7 +9,7 @@ const json=(v,status=200)=>NextResponse.json(v,{status,headers});
 const secret=v=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v);
 const str=(v,n=180)=>typeof v==='string'?v.trim().slice(0,n):'';
 const now=()=>new Date().toISOString();
-const link=token=>`${ORIGIN}/api/offers#${token}`;
+const link=token=>`https://iumrah.uz/api/offers#${token}`;
 const lang=v=>['ru','uz','uz-cyrl','en'].includes(v)?v:'ru';
 async function body(request){
   if(Number(request.headers.get('content-length')||0)>160000||!request.body)return null;
@@ -89,7 +89,7 @@ export async function convert(db,row,contact,email,send,revision,actor,actorID,n
   if(row.state==='converted')return native?nativeReceipt(db,row,native,false):receipt(db,row,false,actor==='staff');
   if(row.state!=='active'||row.expires_at<=now())return json({error:'OFFER_EXPIRED'},409);
   if(revision!==row.revision)return json({error:'OFFER_CHANGED'},409);
-  const profile={firstName:str(contact?.firstName,120),lastName:str(contact?.lastName,120),phone:str(contact?.phone,60),telegram:'',whatsapp:''};email=str(email);if(/^\S+@\S+\.\S+$/.test(email))profile.email=email;
+  const profile={firstName:str(contact?.firstName,120),lastName:str(contact?.lastName,120),phone:str(contact?.phone,60),telegram:'',whatsapp:''};email=str(email);if(/^\S+@\S+\.\S+$/.test(email))profile.email=email;if(native?.guestJob)profile.guestCheckout=true;
   if(!profile.firstName||!profile.lastName||((!native||native.channel==='sms')&&!/^\+[1-9]\d{7,14}$/.test(profile.phone))||(send&&!/^\S+@\S+\.\S+$/.test(email)))return json({error:'INVALID_CONTACT'},400);
   const b=JSON.parse(row.snapshot_json),at=now(),id=makeBookingId(b.input.startDate.slice(0,4)),status='AVAILABILITY_CHECK';
   const booking={...b,pilgrimProfile:profile,offerPackageID:row.id,id,status,createdAt:at,updatedAt:at};
@@ -100,6 +100,7 @@ export async function convert(db,row,contact,email,send,revision,actor,actorID,n
     db.prepare(`UPDATE business_offers SET state='converted',booking_id=?,converted_at=?,updated_at=?,email_status=? WHERE ${guard}`).bind(id,at,at,send?'pending':'not_requested',row.id,revision,at),
     ...(native?[db.prepare(`INSERT INTO business_offer_native_acceptances (offer_id,request_hash,proof_hash) SELECT id,?,? FROM business_offers WHERE id=? AND booking_id=?`).bind(native.requestHash,native.proofHash,row.id,id)]:[]),
     db.prepare(`INSERT INTO bookings (id,access_token_hash,status,created_at,updated_at,lang,plan_id,total_cents,per_pilgrim_cents,traveler_count,rooms,origin_code,outbound_destination,return_origin,start_date,end_date,flight_name,makkah_hotel,madinah_hotel,payload_json) SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,? FROM business_offers WHERE id=? AND booking_id=?`).bind(id,await hashBookingToken(accessToken),status,at,at,row.lang,b.planId,cents(b.totalUsd),cents(b.perPilgrimUsd),row.travelers,b.input.travelers.rooms,b.route.originCode,b.route.outboundDestination,b.route.returnOrigin,b.input.startDate,b.input.endDate,b.flight,b.hotelNames.makkah,b.hotelNames.madinah,JSON.stringify(booking),row.id,id),
+    ...(native?.guestJob?[db.prepare(`INSERT INTO booking_creation_delivery_v1(booking_id,request_hash,channel,locale,device_token,environment,push_done,next_attempt_at,created_at) SELECT ?,?,?,?,?,?,?,?,? FROM business_offers WHERE id=? AND booking_id=?`).bind(id,native.guestJob.requestHash,'guest',row.lang,null,'production',1,at,at,row.id,id)]:[]),
     db.prepare(`INSERT INTO booking_events (booking_id,status,actor_type,actor_id,note,created_at) SELECT ?,?,?,?,?,? FROM business_offers WHERE id=? AND booking_id=?`).bind(id,status,actor,actorID,'Offer converted; availability not confirmed.',at,row.id,id),
     db.prepare(`INSERT INTO business_manual_bookings (request_hash,booking_id,share_hash,staff_login,cost_json,email_status,created_at) SELECT ?,?,?,?,?,?,? FROM business_offers WHERE id=? AND booking_id=?`).bind(requestHash,id,shareHash,row.staff_login,JSON.stringify({cost:JSON.parse(row.cost_json),email,lang:row.lang}),send?'pending':'not_requested',at,row.id,id),
     db.prepare(`INSERT INTO business_offer_events (offer_id,kind,created_at) SELECT id,'converted',? FROM business_offers WHERE id=? AND booking_id=?`).bind(at,row.id,id)
@@ -111,6 +112,7 @@ async function receipt(db,row,won,staff){
   const b=await db.prepare('SELECT payload_json,status FROM bookings WHERE id=?').bind(row.booking_id).first();if(!b)return json({error:'NOT_FOUND'},404);
   const booking={...JSON.parse(b.payload_json),status:b.status},env=requestEnv();let trip=null;
   try{if(won||staff)trip=await env.IUMRAH_MATERIALIZE_BOOKING_IDENTITY?.(booking)}catch{console.warn('OFFER_IDENTITY_PENDING')}
+  if(won&&booking.pilgrimProfile?.guestCheckout===true){try{await env.IUMRAH_BOOKING_CREATION_NOTIFY?.(booking.id)}catch{console.warn('OFFER_CREATION_NOTIFY_PENDING')}}
   if(won)await push('Новое бронирование',row.source==='direct'?'Менеджер создал бронирование':'Предложение принято',{type:'booking_created',bookingID:booking.id,offerID:row.id});
   let emailStatus=row.email_status;
   if(['pending','failed','not_configured'].includes(emailStatus)&&(won||staff)){const m=await db.prepare('SELECT cost_json FROM business_manual_bookings WHERE booking_id=?').bind(booking.id).first();if(m){const data=JSON.parse(m.cost_json);emailStatus=await sendEmail(env,data.email,data.lang,link(row.token),booking.id);await db.batch([db.prepare('UPDATE business_offers SET email_status=? WHERE id=?').bind(emailStatus,row.id),db.prepare('UPDATE business_manual_bookings SET email_status=? WHERE booking_id=?').bind(emailStatus,booking.id)]).catch(()=>{});}}
