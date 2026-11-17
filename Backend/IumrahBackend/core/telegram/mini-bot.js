@@ -1,8 +1,10 @@
+import {careCopy, careIncoming, careThread, requestHuman} from "./care.js";
 import { conciergeCopy, conciergeIntent, conciergeAnswer, advancePlan, conciergeAirports } from "./concierge.js";
 import { STATUS_ASSETS } from './status-assets.js';
 import { MINI_ASSETS } from './mini-assets.js';
 import { SUPPORT_ASSETS } from './support-assets.js';
 import { bookingMiniV7HTML } from './mini-v7.js';
+import { storefrontAction } from './storefront.js';
 const I18N = {
     ru: {
         actions: { refresh: "Обновить статус", liveTimer: "Живой таймер", openIumrah: "Открыть iumrah", connectTelegram: "Подключить Telegram", callCare: "Позвонить iumrah Care" },
@@ -474,7 +476,7 @@ async function sendLanguageSelector(env, chatID, current) {
 }
 async function ensurePinnedMiniAppMessage(env, chatID, telegramUserID, locale, runtimeBaseURL) {
     const copy = botUX(locale);
-    const text = `<b>${escapeHtml(copy.pinnedTitle)}</b>\n\n${escapeHtml(copy.pinnedBody)}`;
+    const text = `<b>iumrah</b>\n\n${escapeHtml(careCopy(locale).welcome)}`;
     const pref = await getUserPreference(env, telegramUserID);
     const existing = Number(pref?.pinned_message_id || 0);
     if (existing > 0) {
@@ -499,22 +501,13 @@ async function sendBotHome(env, chatID, telegramUserID, locale, runtimeBaseURL, 
     const copy = botUX(locale);
     await setMiniAppMenuButton(env, chatID, locale, runtimeBaseURL);
     await ensurePinnedMiniAppMessage(env, chatID, telegramUserID, locale, runtimeBaseURL);
-    await sendMessage(env, chatID, `<b>iumrah Concierge</b>\n\n${escapeHtml(conciergeCopy(locale).welcome)}`, {remove_keyboard:true});
-    await sendMessage(env,chatID,escapeHtml(conciergeCopy(locale).help),conciergeKeyboard(env,locale,runtimeBaseURL));
-    if (includeStatus)
+    await sendMessage(env, chatID, `<b>iumrah Care</b>\n\n${escapeHtml(careCopy(locale).welcome)}`, {remove_keyboard:true});
+    await sendMessage(env,chatID,escapeHtml(careCopy(locale).contact),conciergeKeyboard(env,locale,runtimeBaseURL));
+    if (includeStatus && (await linkedRowsForUser(env,telegramUserID)).length)
         await showBookings(env, chatID, telegramUserID, runtimeBaseURL, locale);
 }
 async function sendSupportHome(env, chatID, locale, runtimeBaseURL) {
-    const copy = botUX(locale);
-    const base = miniBaseURL(env, runtimeBaseURL);
-    const rows = [];
-    if (base)
-        rows.push([{ text: copy.support, web_app: { url: `${base}/telegram/mini?tab=care` } }]);
-    rows.push([{ text: copy.liveSupport, callback_data: "home:live_support" }]);
-    rows.push([{ text: copy.website, url: "https://iumrah.app" }]);
-    await sendEmbeddedPhotoMessage(env, chatID, SUPPORT_ASSETS.care, `<b>${escapeHtml(copy.supportTitle)}</b>
-
-${escapeHtml(copy.supportBody)}`, { inline_keyboard: rows });
+    const c=careCopy(locale);return sendMessage(env,chatID,escapeHtml(c.welcome)+'\n\n'+escapeHtml(c.private),conciergeKeyboard(env,locale,runtimeBaseURL));
 }
 async function sendLiveSupportHome(env, chatID, locale, runtimeBaseURL) {
     const copy = botUX(locale);
@@ -889,6 +882,13 @@ async function handleCallback(env, callback, runtimeBaseURL) {
     const data = clean(callback.data, 128);
     const message = callback.message;
     const chatID = message?.chat.id;
+    if (data === "care:human" && chatID) {
+        const pref=await getUserPreference(env,callback.from.id), locale=normalizeLocale(pref?.language||callback.from.language_code);
+        await answerCallback(env,callback.id);
+        const answer=await requestHuman(env.DB,callback.from,locale,'cb:'+callback.id,()=>notifyCare(env));
+        if(answer)return sendMessage(env,chatID,escapeHtml(answer));
+        return;
+    }
     if (data.startsWith("concierge:") && chatID) return handleConciergeCallback(env,callback,runtimeBaseURL);
     if (data.startsWith("lang:")) {
         if (!chatID)
@@ -928,7 +928,8 @@ async function handleCallback(env, callback, runtimeBaseURL) {
         const pref = await getUserPreference(env, callback.from.id);
         const locale = normalizeLocale(pref?.language || callback.from.language_code || "ru");
         await answerCallback(env, callback.id);
-        await sendLiveSupportHome(env, chatID, locale, runtimeBaseURL);
+        const answer=await requestHuman(env.DB,callback.from,locale,'cb:'+callback.id,()=>notifyCare(env));
+        if(answer)await sendMessage(env,chatID,escapeHtml(answer));
         return;
     }
     if (data === "live_support:call") {
@@ -1058,7 +1059,7 @@ async function handleConciergeMessage(env,message,locale,runtimeBaseURL){
     const intent=conciergeIntent(v);
     if(intent==='trip'&&/^\/trip(?:@\w+)?$/i.test(v))delete session.bookingID;
     if(intent==='plan')return startPlan(env,chatID,userID,locale,session);
-    if(intent==='unknown')return sendMessage(env,chatID,escapeHtml(c.help),conciergeKeyboard(env,locale,runtimeBaseURL,session.bookingID));
+    if(intent==='unknown')return smartCare(env,message,locale,runtimeBaseURL);
     return conciergeBooking(env,chatID,userID,locale,runtimeBaseURL,session,intent,message.message_id);
 }
 async function handleConciergeCallback(env,callback,runtimeBaseURL){
@@ -1070,10 +1071,15 @@ async function handleConciergeCallback(env,callback,runtimeBaseURL){
         const next=advancePlan(session.draft,data.split(':').at(-1));if(!next)return sendMessage(env,chatID,escapeHtml(c.bad));session.draft=next;await saveConciergeSession(env,userID,session);return askPlan(env,chatID,next,locale);}
     if(data.startsWith('concierge:submit:'))return submitPlan(env,chatID,userID,locale,session,data.split(':').at(-1),callback.from.username,runtimeBaseURL);
     const [,action,intent,selected]=data.split(':');if(action==='select'&&['trip','visa','ticket','insurance','documents','payment','hotel','guide','schedule','manager'].includes(intent)&&validBookingID(selected))return conciergeBooking(env,chatID,userID,locale,runtimeBaseURL,session,intent,undefined,undefined,selected);
+    if(action==='manager'){const answer=await requestHuman(env.DB,callback.from,locale,'cb:'+callback.id,()=>notifyCare(env));if(answer)return sendMessage(env,chatID,escapeHtml(answer));return;}
     if(action==='trip'){delete session.bookingID;delete session.managerBookingID;await saveConciergeSession(env,userID,session);}
     if(['trip','manager'].includes(action))return conciergeBooking(env,chatID,userID,locale,runtimeBaseURL,session,action);
 }
 
+async function notifyCare(env){if(env.notifyCare)await env.notifyCare('iumrah Care','Новый диалог Telegram',{type:'telegram_care'});}
+async function smartCare(env,message,locale,runtimeBaseURL,forceHuman=false){
+ const c=careCopy(locale);return careIncoming(env,message.from,locale,message.text,message.message_id,(answer)=>sendMessage(env,message.chat.id,escapeHtml(answer),{inline_keyboard:[[{text:c.button,callback_data:'care:human'}],[{text:botUX(locale).openMini,web_app:{url:miniBaseURL(env,runtimeBaseURL)+'/telegram/mini'}}]] }),()=>notifyCare(env),forceHuman);
+}
 async function handleMessage(env, message, runtimeBaseURL) {
     const text = message.text?.trim();
     if (!text || !message.from)
@@ -1090,7 +1096,7 @@ async function handleMessage(env, message, runtimeBaseURL) {
             return;
         }
         await setMiniAppMenuButton(env,message.chat.id,savedLocale,runtimeBaseURL);
-        await sendLanguageSelector(env, message.chat.id, pref ? savedLocale : undefined);
+        if(pref)await sendBotHome(env,message.chat.id,message.from.id,savedLocale,runtimeBaseURL,false);else await sendLanguageSelector(env, message.chat.id, undefined);
         return;
     }
     if (/^\/language(?:@\w+)?$/i.test(text)) {
@@ -1106,14 +1112,27 @@ async function handleMessage(env, message, runtimeBaseURL) {
         return;
     }
     if (text === ux.liveSupport || Object.values(BOT_UX).some(v => v.liveSupport === text)) {
-        await sendLiveSupportHome(env, message.chat.id, savedLocale, runtimeBaseURL);
+        const answer=await requestHuman(env.DB,message.from,savedLocale,'tg:'+message.message_id,()=>notifyCare(env));
+        if(answer)await sendMessage(env,message.chat.id,escapeHtml(answer));
         return;
     }
     if (/^\/help(?:@\w+)?$/i.test(text)) {
         await sendMessage(env, message.chat.id, `<b>${escapeHtml(strings.generic.helpTitle)}</b>\n\n${escapeHtml(strings.generic.helpBody)}\n/language — Language`, persistentReplyKeyboard(env, savedLocale, runtimeBaseURL));
         return;
     }
-    return handleConciergeMessage(env,message,savedLocale,runtimeBaseURL);
+    if (/^\/(care)(?:@\w+)?$/i.test(text)) return sendMessage(env,message.chat.id,escapeHtml(careCopy(savedLocale).welcome),{inline_keyboard:[[{text:careCopy(savedLocale).button,callback_data:'care:human'}]]});
+    if (/^\/manager(?:@\w+)?$/i.test(text) || /^(?:менеджер|manager|menejer|менежер|оператор|operator)$/iu.test(text)) {
+        const answer=await requestHuman(env.DB,message.from,savedLocale,'tg:'+message.message_id,()=>notifyCare(env));if(answer)return sendMessage(env,message.chat.id,escapeHtml(answer));return;
+    }
+    const thread=await careThread(env.DB,message.from,savedLocale);
+    const session=await conciergeSession(env,message.from.id);
+    if (/^(?:менеджер|manager|menejer|менежер|оператор|operator)\s*:/iu.test(text))return smartCare(env,message,savedLocale,runtimeBaseURL,true);
+    if (text.startsWith('/')||session.draft||offerTokenFromText(text))return handleConciergeMessage(env,message,savedLocale,runtimeBaseURL);
+    if(thread.mode==='human')return smartCare(env,message,savedLocale,runtimeBaseURL);
+    // Personal booking questions use the already authorized, deterministic trip reader.
+    const personal=/(?:^|[^\p{L}])(?:my|mening|моя|моей|мои|мою|моё|мое|мой|мне|у меня|менинг)(?:$|[^\p{L}])|safarim|сафарим|bronim|броним/iu.test(text);
+    if(personal&&['trip','visa','ticket','insurance','documents','payment','hotel','guide','schedule'].includes(conciergeIntent(text)))return handleConciergeMessage(env,message,savedLocale,runtimeBaseURL);
+    return smartCare(env,message,savedLocale,runtimeBaseURL);
 }
 export async function handleUpdate(env, update, runtimeBaseURL) {
     const event = update.callback_query || update.message;
@@ -1235,6 +1254,33 @@ async function miniBookingBundle(env, row) {
         return null;
     }
 }
+async function miniStorefront(request,env){
+ const raw=await request.text();if(raw.length>180000)return json({error:'PAYLOAD_TOO_LARGE'},413);let b;try{b=JSON.parse(raw)}catch{return json({error:'INVALID_REQUEST'},400)}const user=await validateTelegramInitData(env,clean(b?.initData,8192));
+ if(!user)return json({error:'TELEGRAM_AUTH_FAILED'},401);
+ return storefrontAction(env,user,b,request);
+}
+async function miniDocument(request,env){
+ const context=await miniHotelContext(request,env);if(context instanceof Response)return context;
+ const documentId=clean(context.body.documentId,180);if(!/^[A-Za-z0-9_-]{1,180}$/.test(documentId))return json({error:'INVALID_DOCUMENT'},400);
+ const path='/api/catalog/hotels/client/trips/'+encodeURIComponent(context.row.booking_id);
+ const checkout=await fetchServerJSON(env,path+'/checkout',context.token);
+ if(checkout.status!==200)return json({error:'DOCUMENT_NOT_FOUND'},404);const media=context.body.mediaKind==='payment-qr'&&checkout.body?.payment?.hasPaymeQR?'payment-qr':context.body.mediaKind==='receipt'&&checkout.body?.receipts?.some(d=>d.id===documentId)?'receipt-'+documentId:checkout.body?.documents?.some(d=>d.id===documentId&&d.publicationStatus==='published')?'document-'+documentId:null;if(!media)return json({error:'DOCUMENT_NOT_FOUND'},404);
+ const r=await env.dispatch(serverOrigin(env)+path+'/media/'+encodeURIComponent(media),{method:'GET',headers:storedBookingCredentialHeaders(context.token),redirect:'manual'});
+ if(!r.ok)return json({error:'DOCUMENT_UNAVAILABLE'},r.status);
+ const mime=(r.headers.get('content-type')||'').split(';')[0];if(!['application/pdf','image/jpeg','image/png','image/webp'].includes(mime))return json({error:'DOCUMENT_TYPE_UNSUPPORTED'},415);
+ return new Response(r.body,{headers:{'content-type':mime,'cache-control':'no-store','x-content-type-options':'nosniff','content-disposition':'attachment'}});
+}
+async function miniTripAction(request,env){
+ const len=Number(request.headers.get('content-length')||0);if(len>11000000)return json({error:'PAYLOAD_TOO_LARGE'},413);
+ const context=await miniHotelContext(request,env);if(context instanceof Response)return context;
+ const body=context.body,path='/api/catalog/hotels/client/trips/'+encodeURIComponent(context.row.booking_id),position=body.position;
+ let suffix='',method='POST',payload,headers={};
+ if(body.action==='traveler'){if(!Number.isInteger(position)||position<1||position>9||!body.fields||typeof body.fields!=='object')return json({error:'INVALID_TRAVELER'},400);const fields=['relationship','firstName','middleName','lastName','gender','dateOfBirth','placeOfBirth','nationality','residenceCountry','passportNumber','passportIssueDate','passportExpiryDate','passportIssuingCountry','phone','email','emergencyName','emergencyPhone','emergencyRelation'];payload=JSON.stringify(Object.fromEntries(fields.map(k=>[k,clean(body.fields[k],220)])));suffix='/travelers/'+position;method='PUT';}
+ else if(body.action==='passport'||body.action==='receipt'){if(typeof body.dataBase64!=='string'||body.dataBase64.length>10000000)return json({error:'IMAGE_TOO_LARGE'},413);const bytes=decodeBase64Payload(body.dataBase64);if(!bytes||bytes.length<4||bytes.length>7500000||bytes[0]!==255||bytes[1]!==216||bytes[2]!==255)return json({error:'IMAGE_REQUIRED'},415);payload=bytes;headers['content-type']='image/jpeg';if(body.action==='passport'){if(!Number.isInteger(position)||position<1||position>9)return json({error:'INVALID_TRAVELER'},400);suffix='/travelers/'+position+'/passport';}else{if(!['visa','humo','payme','other'].includes(body.paymentMethod))return json({error:'INVALID_PAYMENT_METHOD'},400);suffix='/receipt';headers['x-payment-method']=body.paymentMethod;}}
+ else return json({error:'INVALID_ACTION'},400);
+ const result=await fetchServerJSON(env,path+suffix,context.token,{method,headers,body:payload});return json(result.body||{error:'SERVICE_UNAVAILABLE'},result.status);
+}
+async function miniCareBot(request,env){const b=await request.json().catch(()=>null);const user=await validateTelegramInitData(env,clean(b?.initData,8192));if(!user)return json({error:'TELEGRAM_AUTH_FAILED'},401);const bot=await telegramCall(env,'getMe',{});return /^[A-Za-z0-9_]{5,32}$/.test(bot?.username||'')?json({url:'https://t.me/'+bot.username}):json({error:'BOT_UNAVAILABLE'},503);}
 async function miniBootstrap(request, env) {
     let body;
     try {
@@ -1247,9 +1293,9 @@ async function miniBootstrap(request, env) {
     if (!user)
         return json({ error: "TELEGRAM_AUTH_FAILED" }, 401);
     const rows = await linkedRowsForUser(env, user.id);
-    if (!rows.length)
-        return json({ error: "BOOKING_NOT_LINKED" }, 404);
-    const locale = normalizeLocale(rows[0]?.language || user.language_code || "ru");
+    const pref=await getUserPreference(env,user.id);
+    const locale = normalizeLocale(pref?.language || rows[0]?.language || user.language_code || "ru");
+    if (!rows.length) return json({ok:true,locale,bookings:[],careProfile:null,emptyReason:"BOOKING_NOT_LINKED"});
     const bundles = [];
     for (const row of rows.slice(0, 10)) {
         const bundle = await miniBookingBundle(env, row);
@@ -1257,7 +1303,7 @@ async function miniBootstrap(request, env) {
             bundles.push(bundle);
     }
     if (!bundles.length)
-        return json({ error: "BOOKING_REFRESH_FAILED" }, 502);
+        return json({ok:true,locale,bookings:[],careProfile:null,emptyReason:"BOOKING_REFRESH_FAILED"});
     let careProfile = null;
     try {
         const token = await decryptSecret(env, rows[0].booking_token_ciphertext, rows[0].booking_token_iv);
@@ -1590,7 +1636,7 @@ async function miniSnapshot(request, env) {
         });
     }
     catch {
-        return json({ error: "BOOKING_REFRESH_FAILED" }, 502);
+        return json({ok:true,locale,bookings:[],careProfile:null,emptyReason:"BOOKING_REFRESH_FAILED"});
     }
 }
 export async function miniFetch(request, env) {
@@ -1606,7 +1652,7 @@ export async function miniFetch(request, env) {
     if (request.method !== "POST")
         return json({ error: "NOT_FOUND" }, 404);
     const handlers = {
-        "/telegram/mini/bootstrap": miniBootstrap, "/telegram/mini/hotels": miniHotels, "/telegram/mini/hotel": miniHotel, "/telegram/mini/action": miniAction,
+        "/telegram/mini/storefront": miniStorefront, "/telegram/mini/document": miniDocument, "/telegram/mini/trip-action": miniTripAction, "/telegram/mini/bootstrap": miniBootstrap, "/telegram/mini/care/bot": miniCareBot, "/telegram/mini/hotels": miniHotels, "/telegram/mini/hotel": miniHotel, "/telegram/mini/action": miniAction,
         "/telegram/mini/care/call": miniCareCall, "/telegram/mini/care/messages": miniCareMessages, "/telegram/mini/care/send": miniCareSend, "/telegram/mini/care/photo": miniCarePhoto, "/telegram/mini/care/attachment": miniCareAttachment, "/telegram/mini/snapshot": miniSnapshot
     };
     const handler = handlers[path];

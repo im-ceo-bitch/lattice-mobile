@@ -1,0 +1,26 @@
+{
+  "baseCommit": "1ae62a27aa3cfb25906b8f3189f55100ebf65638",
+  "stage": "Telegram Edition 1/2",
+  "changedFiles": [
+    "Backend/HotelsWorker/src/index.js",
+    "Backend/IumrahBackend/core/telegram/care.js",
+    "Backend/IumrahBackend/core/telegram/mini-bot.js",
+    "Backend/IumrahBackend/core/telegram/mini-v7.js",
+    "Backend/IumrahBackend/core/telegram/storage.js",
+    "Backend/IumrahBackend/src/router.js",
+    "Backend/IumrahBackend/tests/telegram-care.test.mjs",
+    "Backend/IumrahBackend/tests/telegram-native.test.mjs",
+    "IUMRAH_TELEGRAM_EDITION_STAGE_1_20261117.md",
+    "Sources/Networking/APIClient.swift",
+    "Sources/Views/ChatsView.swift",
+    "Sources/Views/TelegramCareInbox.swift"
+  ],
+  "tests": {
+    "core": 185,
+    "flights": 40,
+    "package": 119,
+    "pythonMigration": 20,
+    "newHotelsWorkerFailures": 0
+  },
+  "workflowChanged": false
+}

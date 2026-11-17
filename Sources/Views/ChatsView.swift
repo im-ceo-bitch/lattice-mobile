@@ -140,6 +140,17 @@ struct ChatsView: View {
         LazyVStack(alignment: .leading, spacing: 14) {
             BusinessPageHeading(title: "Чаты", subtitle: "Персональная переписка с паломниками")
 
+            NavigationLink { TelegramCareInbox() } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "paperplane.fill").font(.title2)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Telegram Care").font(.headline)
+                        Text("Обращения до и после бронирования").font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.right").foregroundStyle(.secondary)
+                }.padding(16).background(BusinessDesign.secondarySurface, in: RoundedRectangle(cornerRadius: 20))
+            }.buttonStyle(.plain)
             filterBar
 
             if let errorMessage {

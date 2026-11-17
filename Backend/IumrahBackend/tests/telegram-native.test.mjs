@@ -30,7 +30,7 @@ test('deployment setup is protected, uses fixed webhook and Mini App, preserves 
 });
 test('Mini App routes signed Telegram identity through unified booking and Care APIs only',async()=>{
  const user=await initData(123);const d=await go('/telegram/mini/bootstrap','POST',{initData:user});assert.equal(d.status,200,await d.clone().text());assert.equal((await d.json()).bookings[0].reference,'#0001');
- assert.equal((await go('/telegram/mini/bootstrap','POST',{initData:await initData(999)})).status,404);
+ const guest=await go('/telegram/mini/bootstrap','POST',{initData:await initData(999)});assert.equal(guest.status,200);assert.deepEqual((await guest.json()).bookings,[]);
  assert.equal((await go('/telegram/mini/bootstrap','POST',{initData:await initData(123,7200)})).status,401);
  assert.equal((await go('/telegram/mini/bootstrap','POST',{initData:user+'&user=x'})).status,401);
  const req={initData:user,bookingId:id};assert.equal((await go('/telegram/mini/care/messages','POST',req)).status,200);assert.equal((await go('/telegram/mini/care/send','POST',{...req,message:'Test'})).status,200);
@@ -42,7 +42,7 @@ test('Mini App routes signed Telegram identity through unified booking and Care 
 });
 test('existing notification-only subscription can reconnect; old Telegram identity loses access after rebind',async()=>{
  bookSQL.prepare('DELETE FROM telegram_mini_credentials').run();const before=await (await go('/api/telegram/link?bookingId='+id,'GET',undefined,headers)).json();assert.equal(before.connected,true);assert.equal(before.linked,false);
- const link=await (await go('/api/telegram/link','POST',{bookingId:id},headers)).json();start=link.startParameter;const h={'x-telegram-bot-api-secret-token':await purposeSecret(env,'webhook')};await go('/api/telegram/webhook','POST',update(456),h);assert.equal((await go('/telegram/mini/bootstrap','POST',{initData:await initData(123)})).status,404);assert.equal((await go('/telegram/mini/bootstrap','POST',{initData:await initData(456)})).status,200);assert.equal(bookSQL.prepare('SELECT COUNT(*) n FROM telegram_mini_credentials').get().n,1);
+ const link=await (await go('/api/telegram/link','POST',{bookingId:id},headers)).json();start=link.startParameter;const h={'x-telegram-bot-api-secret-token':await purposeSecret(env,'webhook')};await go('/api/telegram/webhook','POST',update(456),h);const detached=await go('/telegram/mini/bootstrap','POST',{initData:await initData(123)});assert.equal(detached.status,200);assert.deepEqual((await detached.json()).bookings,[]);assert.equal((await go('/telegram/mini/bootstrap','POST',{initData:await initData(456)})).status,200);assert.equal(bookSQL.prepare('SELECT COUNT(*) n FROM telegram_mini_credentials').get().n,1);
 });
 test('Mini App assets are served by one Worker and browser script parses',async()=>{
  const e={...env,TELEGRAM_ASSETS:{async fetch(req){assert.equal(new URL(req.url).pathname,'/telegram/mini-asset/wordmark-light.png');return new Response(new Uint8Array([1,2,3]));}}};
@@ -68,11 +68,11 @@ test('Cloudflare-compatible setup rejects redirects without following or retryin
   assert.equal(response.status,502);const result=await response.json();assert.equal(result.detail,'TELEGRAM_getMe_HTTP_302');assert.equal(requests,1);
  }finally{globalThis.fetch=mock;}
 });
-test('Concierge webhook answers from the linked booking and relays an explicit manager message',async()=>{
+test('Concierge reads linked booking; explicit manager text opens Telegram Care for Business',async()=>{
  const h={'x-telegram-bot-api-secret-token':await purposeSecret(env,'webhook')};
  const msg=(who,text,message_id=100)=>({message:{message_id,from:{id:who,username:'tester',is_bot:false},chat:{id:who,type:'private'},text}});
  const r=await go('/api/telegram/webhook','POST',msg(456,'Моя поездка'),h);assert.equal(r.status,200,await r.clone().text());assert.match(calls.filter(x=>x.method==='sendMessage').at(-1).body.text,/#0001/);
  const before=dispatched.length;const unauthorized=await go('/api/telegram/webhook','POST',msg(999,'Моя виза'),h);assert.equal(unauthorized.status,200);assert.equal(dispatched.length,before);
- const forward=await go('/api/telegram/webhook','POST',msg(456,'Менеджер: Нужна помощь',101),h);assert.equal(forward.status,200,await forward.clone().text());assert.ok(dispatched.some(x=>x.path===`/api/catalog/hotels/client/chats/${id}/messages`&&x.method==='POST'));assert.match(calls.filter(x=>x.method==='sendMessage').at(-1).body.text,/передано менеджеру/);
+ const forward=await go('/api/telegram/webhook','POST',msg(456,'Менеджер: Нужна помощь',101),h);assert.equal(forward.status,200,await forward.clone().text());assert.equal(bookSQL.prepare('SELECT mode FROM telegram_care_threads WHERE user_id=?').get('456').mode,'human');assert.match(bookSQL.prepare("SELECT body FROM telegram_care_messages WHERE user_id=? AND role='user' ORDER BY id DESC LIMIT 1").get('456').body,/Нужна помощь/);assert.match(calls.filter(x=>x.method==='sendMessage').at(-1).body.text,/передан сотруднику/);
 });
 test.after(()=>{globalThis.fetch=oldFetch;bookSQL.close();hotelSQL.close();flightSQL.close();});

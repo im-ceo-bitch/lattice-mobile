@@ -1013,6 +1013,7 @@ actor APIClient {
             request.url?.host == AppConfig.apiBaseURL.host &&
             request.url?.path.hasPrefix("/api/admin/hotels") == true &&
             request.url?.path.hasPrefix("/api/admin/hotels/chats") != true &&
+            request.url?.path.hasPrefix("/api/admin/hotels/telegram-care") != true &&
             request.url?.path.hasPrefix("/api/admin/hotels/push") != true &&
             request.url?.path.hasPrefix("/api/admin/hotels/security") != true
         if changesCatalog { catalogCache.clear(); catalogGeneration = UUID() }

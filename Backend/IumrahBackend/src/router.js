@@ -34,7 +34,7 @@ export function isPendingHotelOperation(pathname) {
   const prefixes=['/api/catalog/hotels','/api/admin/hotels'];
   const prefix=prefixes.find(p=>matches(pathname,p));if(!prefix)return false;
   let segment;try{segment=decodeURIComponent(pathname.slice(prefix.length).replace(/^\/+/, '').split('/')[0]);}catch{return true;}
-  return prefix===prefixes[0]?segment==='client':['chats','push','security','operations'].includes(segment);
+  return prefix===prefixes[0]?segment==='client':['chats','push','security','operations','telegram-care'].includes(segment);
 }
 export function resolveBackendRoute(pathname) {
   if (pathname === '/__iumrah/health') return 'health';
