@@ -51,6 +51,24 @@ type CachedItinerary = {
 const IATA = /^[A-Z]{3}$/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
+// iOS sends the departure calendar day in the origin airport's time zone.
+// Supplier identities may retain the original timestamp date for API lookup.
+const DEPARTURE_ZONES: Record<string, string> = Object.fromEntries([
+  ...["TAS","FEG","NMA","AZN","SKD","BHK","KSQ","TMJ","UGC","NCU","NVI"].map(code => [code, "Asia/Tashkent"]),
+  ...["JED","MED","TIF","RUH","DMM"].map(code => [code, "Asia/Riyadh"]),
+]);
+
+export function airportDepartureDay(timestamp: string, origin: string): string {
+  const instant = new Date(timestamp);
+  if (!Number.isFinite(instant.getTime())) return "";
+  const zone = DEPARTURE_ZONES[origin.toUpperCase()];
+  // An offset-free supplier timestamp already expresses a wall-clock day.
+  if (!/(?:Z|[+-]\d{2}:?\d{2})$/i.test(timestamp) || !zone) return timestamp.slice(0, 10);
+  const parts = new Intl.DateTimeFormat("en-CA", {timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit"}).formatToParts(instant);
+  const part = (type: string) => parts.find(p => p.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
 function json(value: unknown, status = 200) {
   return new Response(JSON.stringify(value), {
     status,
@@ -450,7 +468,7 @@ async function resolveAviasalesFare(providerItineraryId: string, travelerCount: 
     fareScope: "totalParty",
     providerId: "Aviasales Data",
     observedAt: resolved.observedAt,
-    travelDate: resolved.outbound.departureAt.slice(0, 10),
+    travelDate: airportDepartureDay(resolved.outbound.departureAt, resolved.outbound.origin),
     normalizedGroupUsd: total,
   };
 }
@@ -533,7 +551,7 @@ export async function resolveMixedSelection(providerID: string, travelerCount: n
   const total = Math.round(legs.reduce((sum,item)=>sum+item.amount,0)*100)/100;
   const fare: VerifiedJourneyFare = { candidateId:providerID, amount:total, normalizedGroupUsd:total,
     currency:"USD", fareScope:"totalParty", providerId:"iumrah Published + Aviasales",
-    observedAt:new Date().toISOString(), travelDate:legs[0].leg.departureAt.slice(0,10) };
+    observedAt:new Date().toISOString(), travelDate:airportDepartureDay(legs[0].leg.departureAt, legs[0].leg.origin) };
   return {fare, schedule:{outbound:legs[0].leg,inbound:legs[1].leg}};
 }
 
@@ -676,7 +694,7 @@ export async function generateManualPackageEstimate(request: Request, env: Env):
         schedule={outbound:offer.outbound,inbound:undefined};
         fare={candidateId:id,amount:offer.perTravelerUsd*adults,currency:"USD",fareScope:"totalParty",providerId:"Aviasales",observedAt:new Date().toISOString(),travelDate:day,normalizedGroupUsd:offer.perTravelerUsd*adults};
       } else throw new Error("ESTIMATE_FLIGHT_IDENTITY_INVALID");
-      const selectedLeg = [schedule?.outbound,schedule?.inbound].find(leg=>leg?.origin===origin && leg.destination===destination && leg.departureAt.slice(0,10)===day);
+      const selectedLeg = [schedule?.outbound,schedule?.inbound].find(leg=>leg?.origin===origin && leg.destination===destination && airportDepartureDay(leg.departureAt,leg.origin)===day);
       if (!selectedLeg) throw new Error("ESTIMATE_FLIGHT_ROUTE_MISMATCH");
       verifiedSelected.push(selectedLeg);
       if (direction === "out") {
@@ -741,7 +759,7 @@ export async function generatePackageQuote(request: Request, env: Env): Promise<
     if (raw.nuiteeRooms && text(raw.flight?.providerItineraryId,220).startsWith("aviasales:")) {
       const identity=parseAviasalesIdentity(text(raw.flight?.providerItineraryId,220));
       const legs=raw.flight?.legs ?? [];
-      if (legs[0]?.origin!==identity.origin || legs[0]?.destination!==identity.destination || legs[0]?.departureDate!==identity.departureDate || legs[1]?.origin!==identity.returnOrigin || legs[1]?.destination!==identity.returnDestination || legs[1]?.departureDate!==identity.returnDate) throw new Error("AVIASALES_ROUTE_MISMATCH");
+      if (legs[0]?.origin!==identity.origin || legs[0]?.destination!==identity.destination || legs[1]?.origin!==identity.returnOrigin || legs[1]?.destination!==identity.returnDestination) throw new Error("AVIASALES_ROUTE_MISMATCH");
     }
     const flightLegCount = Array.isArray(raw.flight?.legs) ? raw.flight!.legs!.length : 0;
     if (tripType === "roundTrip" && flightLegCount !== 2) throw new Error("ROUND_TRIP_REQUIRES_TWO_LEGS");
@@ -757,13 +775,20 @@ export async function generatePackageQuote(request: Request, env: Env): Promise<
       const selected = raw.flight?.legs ?? [];
       [mixed.schedule.outbound,mixed.schedule.inbound].forEach((leg,index)=>{
         if (selected[index]?.origin !== leg.origin || selected[index]?.destination !== leg.destination ||
-            selected[index]?.departureDate !== leg.departureAt.slice(0,10)) throw new Error("MIXED_ROUTE_MISMATCH");
+            selected[index]?.departureDate !== airportDepartureDay(leg.departureAt,leg.origin)) throw new Error("MIXED_ROUTE_MISMATCH");
       });
     }
     const [journeyFare, verifiedSchedule] = mixed ? [mixed.fare,mixed.schedule] : await Promise.all([
       resolveJourneyFare(raw, travelerCount, { adults, children, infants }, env),
       resolveJourneySchedule(raw, { adults, children, infants }, env),
     ]);
+    if (raw.nuiteeRooms && providerID.startsWith("aviasales:")) {
+      if (!verifiedSchedule?.inbound) throw new Error("AVIASALES_ROUTE_MISMATCH");
+      const selected = raw.flight?.legs ?? [];
+      for (const [index, leg] of [verifiedSchedule.outbound, verifiedSchedule.inbound].entries()) {
+        if (selected[index]?.departureDate !== airportDepartureDay(leg.departureAt, leg.origin)) throw new Error("AVIASALES_ROUTE_MISMATCH");
+      }
+    }
     if (verifiedSchedule) {
       const verifiedLegs = [verifiedSchedule.outbound,verifiedSchedule.inbound];
       for (const [index,leg] of (raw.flight?.legs ?? []).entries()) {

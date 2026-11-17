@@ -248,3 +248,32 @@ test('mixed supplier quote seals authoritative fare and rejects altered routes',
   const rejected=await send();assert.notEqual(rejected.status,200);assert.match(JSON.stringify(await rejected.json()),/MIXED_ROUTE_MISMATCH/);
  });
 });
+
+test('airport departure day handles UTC midnight and rejects invalid timestamps', async()=>{
+ const {airportDepartureDay}=await import('../.runtime-dist/package-search.js');
+ assert.equal(airportDepartureDay('2027-01-02T21:15:00Z','TAS'),'2027-01-03');
+ assert.equal(airportDepartureDay('2027-01-09T22:10:00Z','MED'),'2027-01-10');
+ assert.equal(airportDepartureDay('2027-01-10T01:10:00+03:00','JED'),'2027-01-10');
+ assert.equal(airportDepartureDay('2027-01-10T01:10:00','JED'),'2027-01-10');
+ assert.equal(airportDepartureDay('bad','TAS'),'');
+});
+
+test('mixed quote accepts local departure dates across UTC midnight, rejects altered date or airport',async()=>{
+ const env=fixture({sandbox:true});
+ const prev=day=>new Date(Date.parse(day)-86400000).toISOString().slice(0,10);
+ const originalPrepare=env.HOTELS_DB.prepare;
+ env.HOTELS_DB.prepare=sql=>sql.includes('curated_flight_offers')?{bind(){return this;},async first(){return {currency:'USD',per_traveler_fare:200,observed_at:new Date().toISOString(),itinerary_json:JSON.stringify({legs:[{origin:'TAS',destination:'JED',departure_at:prev(checkin)+'T21:00:00Z',arrival_at:checkin+'T03:00:00Z'}]})};}}:originalPrepare(sql);
+ const body={tier:'standard',tripType:'roundTrip',includeMadinah:false,travelers:party,hotels:{makkah:{hotelId:'lp123',roomId:'room',nights:7}},flight:{providerItineraryId:`mixed:curated:direct~aviasales:ow:JED:TAS:${prev(checkout)}:-:HY:338:-:-`,legs:[{origin:'TAS',destination:'JED',departureDate:checkin},{origin:'JED',destination:'TAS',departureDate:checkout}]},nuiteeRooms:[room()]};
+ await mockFetch(async()=>Response.json({success:true,data:[{price:300,airline:'HY',flight_number:'338',departure_at:prev(checkout)+'T22:00:00Z',duration:360}]}),async()=>{
+  const send=()=>generatePackageQuote(new Request('https://fixture/api/package/quote',{method:'POST',body:JSON.stringify(body)}),env);
+  const response=await send();const payload=await response.json();assert.equal(response.status,200,JSON.stringify(payload));
+  const sealed=await unsealPricingSnapshot(payload.quote.quoteProof,env);
+  assert.equal(sealed.components.find(x=>x.code==='flight_roundtrip').supplierCostUsd,1000);
+  assert.equal(sealed.bookingContract.legs[0].departureDate,checkin);
+  assert.equal(sealed.bookingContract.legs[1].departureDate,checkout);
+  body.flight.legs[0].departureDate=prev(checkin);
+  assert.match(JSON.stringify(await (await send()).json()),/MIXED_ROUTE_MISMATCH/);
+  body.flight.legs[0].departureDate=checkin;body.flight.legs[1].destination='SKD';
+  assert.match(JSON.stringify(await (await send()).json()),/MIXED_ROUTE_MISMATCH/);
+ });
+});
