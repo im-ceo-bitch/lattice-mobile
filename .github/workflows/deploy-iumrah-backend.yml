@@ -2,19 +2,16 @@ name: Deploy iumrah backend
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '0 3,15 * * *' # Existing airline monitors: 08:00 / 20:00 Asia/Tashkent
 
 permissions:
   contents: read
 
 concurrency:
-  group: iumrah-backend-${{ github.event_name }}
+  group: iumrah-backend
   cancel-in-progress: false
 
 jobs:
   deploy:
-    if: github.event_name == 'workflow_dispatch'
     name: Deploy iumrah backend
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -84,47 +81,3 @@ jobs:
           echo 'One active deployment target: iumrah-backend'
           echo 'Flights, hotels and Gemini run in the same Worker (D1 databases remain separate).'
           echo 'Legacy iumrah-flight-hub is NOT deleted: retire only after every client and bot uses this endpoint.'
-
-  flight-monitors:
-    if: github.event_name == 'schedule'
-    name: Update existing airline prices
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        provider: [centrum, uzbekistan, flynas]
-    defaults:
-      run:
-        working-directory: Backend/AirlineMonitors
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - name: Resolve unified backend and existing bot key
-        working-directory: Backend/FlightHubWorker
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.NEW_CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.NEW_CLOUDFLARE_API_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}
-          FLIGHT_HUB_BOT_TOKEN: ${{ secrets.FLIGHT_HUB_BOT_TOKEN }}
-          FLIGHT_HUB_ADMIN_TOKEN: ${{ secrets.FLIGHT_HUB_ADMIN_TOKEN }}
-        run: |
-          node scripts/write-ci-service-keys.mjs
-          node scripts/find-worker-url.mjs
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Install browser runtime
-        run: |
-          pip install -r requirements.txt
-          python -m playwright install --with-deps chromium
-      - name: Monitor fares in unified backend
-        run: python -m monitor.cli --provider '${{ matrix.provider }}' --limit 20
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: airline-${{ matrix.provider }}-${{ github.run_number }}
-          path: Backend/AirlineMonitors/output/${{ matrix.provider }}/
-          retention-days: 7
-          if-no-files-found: ignore
