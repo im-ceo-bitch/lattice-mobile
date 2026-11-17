@@ -1,3 +1,4 @@
+import { fcmConfigured } from '../../HotelsWorker/src/fcm.js';
 import {botConfigured,telegramRetrySecret,notifyTelegramStatus} from '../core/lib/telegram-native.js';
 import {runCore} from '../core/runtime.js';
 import { cutoverStatus, coreReady } from './cutover.js';
@@ -103,7 +104,7 @@ export function createBackendRouter({hotels, flights, packages, core, requestAer
         };
         const coreReady = bindings.HOTELS_DB && bindings.BOOKINGS_DB && bindings.FLIGHTS_DB;
         const fullyConfigured = coreReady && bindings.HOTELS_MEDIA;
-        return json({ok:!!coreReady,status:fullyConfigured?'configured':'degraded',fullyConfigured:!!fullyConfigured,service:'iumrah-backend',bindings,modules:{hotels:true,flights:true,packages:!!packages,core:!!core,coreCutoverEnabled:ready},...(aeroDataBoxConfiguration ? aeroDataBoxConfiguration(env) : {}),kind:'binding-presence-only'},coreReady?200:503);
+        return json({ok:!!coreReady,status:fullyConfigured?'configured':'degraded',fullyConfigured:!!fullyConfigured,service:'iumrah-backend',bindings,modules:{hotels:true,flights:true,packages:!!packages,core:!!core,coreCutoverEnabled:ready},...(aeroDataBoxConfiguration ? aeroDataBoxConfiguration(env) : {}),pushProviders:{apns:!!(env.APNS_PRIVATE_KEY&&env.APNS_KEY_ID&&env.APPLE_TEAM_ID),fcm:fcmConfigured(env)},kind:'binding-presence-only'},coreReady?200:503);
       }
       return json({ok:false,error:'NOT_FOUND'},404);
     },

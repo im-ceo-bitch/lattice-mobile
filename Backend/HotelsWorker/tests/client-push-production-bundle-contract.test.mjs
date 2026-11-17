@@ -18,7 +18,8 @@ test('client push registration uses the production com.iumrah.app topic', () => 
 
 test('client APNs delivery cannot fall back to the business topic', () => {
   assert.match(source, /fallbackTopic = BUSINESS_APP_BUNDLE_ID/);
-  assert.ok(occurrences(source, 'CLIENT_APP_BUNDLE_ID);') >= 3);
+  assert.match(source, /apple=>sendAPNsToRows\(env,apple,title,body,data,persistResult,CLIENT_APP_BUNDLE_ID\)/);
+  assert.match(source, /deliverClientPushRows\(env, rows, title, body, data, persistResult,/);
   assert.match(source, /app_bundle_id=\?/);
 });
 

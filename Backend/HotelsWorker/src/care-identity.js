@@ -43,9 +43,9 @@ export async function carePushTargets(db,key,bundle,now=new Date().toISOString()
 export async function persistCarePushResult(db,device,key,result,now=new Date().toISOString()) {
   if(device.installation_id){
     if(result.ok) await db.prepare('UPDATE client_notification_devices SET last_success_at=?,last_error=NULL WHERE installation_id=? AND device_token=?').bind(now,device.installation_id,device.device_token).run();
-    else if(result.response) await db.prepare('UPDATE client_notification_devices SET enabled=?,last_error=? WHERE installation_id=? AND device_token=?').bind(result.disable?0:1,String(result.error||'').slice(0,900),device.installation_id,device.device_token).run();
+    else if(result.error) await db.prepare('UPDATE client_notification_devices SET enabled=CASE WHEN ?=1 THEN 0 ELSE enabled END,last_error=? WHERE installation_id=? AND device_token=?').bind(result.disable?1:0,String(result.error||'').slice(0,900),device.installation_id,device.device_token).run();
   }else{
     if(result.ok) await db.prepare('UPDATE client_push_subscriptions SET last_success_at=?,last_error=NULL WHERE device_token=? AND booking_id=?').bind(now,device.device_token,key).run();
-    else if(result.response) await db.prepare('UPDATE client_push_subscriptions SET enabled=?,last_error=? WHERE device_token=? AND booking_id=?').bind(result.disable?0:1,String(result.error||'').slice(0,900),device.device_token,key).run();
+    else if(result.error) await db.prepare('UPDATE client_push_subscriptions SET enabled=CASE WHEN ?=1 THEN 0 ELSE enabled END,last_error=? WHERE device_token=? AND booking_id=?').bind(result.disable?1:0,String(result.error||'').slice(0,900),device.device_token,key).run();
   }
 }

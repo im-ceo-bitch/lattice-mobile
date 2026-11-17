@@ -119,3 +119,49 @@ test('failed client insert rolls back thread preview; same message key is idempo
  const retry=await data(await go(C+'account/messages',accountA,'POST',{body:'original',clientMessageID:'old-id'}));assert.equal(retry.message.id,first.message.id);
  assert.equal(sql.prepare('SELECT COUNT(*) AS n FROM business_chat_messages').get().n,1);
  }finally{sql.close()}});
+
+test('real Worker routes Android FCM and Apple APNs, keeps case, scopes guest/account, broadcasts Signal',async()=>{
+ const {sql,db,env,go,register}=await fixture();const originalFetch=globalThis.fetch;
+ const rsa=generateKeyPairSync('rsa',{modulusLength:2048});
+ env.FCM_SERVICE_ACCOUNT_JSON=JSON.stringify({type:'service_account',project_id:'iumrah-test',client_email:'push@iumrah-test.iam.gserviceaccount.com',private_key:rsa.privateKey.export({type:'pkcs8',format:'pem'})});
+ const apple=generateKeyPairSync('ec',{namedCurve:'prime256v1'});env.APNS_PRIVATE_KEY=apple.privateKey.export({type:'pkcs8',format:'pem'});env.APNS_KEY_ID='test';env.APPLE_TEAM_ID='test';
+ const fcm='AndroidCaseSensitive:APA91bAbCdEf_'+ 'X'.repeat(270), guestFCM='GuestTokenCase:APA91bAbCdEf_'+ 'Z'.repeat(130), ios='9'.repeat(64);
+ const messages=[];let invalid=false;
+ globalThis.fetch=async(url,init)=>{
+   if(String(url)==='https://oauth2.googleapis.com/token')return Response.json({access_token:'mock',expires_in:3600});
+   messages.push({url:String(url),payload:JSON.parse(init.body)});
+   if(String(url).startsWith('https://fcm.googleapis.com')&&invalid)return Response.json({error:{details:[{'@type':'type.googleapis.com/google.firebase.fcm.v1.FcmError',errorCode:'UNREGISTERED'}]}},{status:404});
+   return Response.json({name:'accepted'});
+ };
+ try{
+  assert.equal((await data(await register('android-installation-01',fcm,accountA))).ready,true);
+  await data(await register('apple-installation-001',ios,accountA));
+  assert.equal(sql.prepare('SELECT device_token FROM client_notification_devices WHERE installation_id=?').get('android-installation-01').device_token,fcm);
+  const registration={bookingID:'guest',deviceToken:guestFCM,appBundleID:'com.iumrah.app',locale:'en'};
+  const guestReg=await data(await go('/api/catalog/hotels/client/push/devices',guestA,'POST',registration));assert.equal(guestReg.initialPushAccepted,true);
+  await data(await go('/api/catalog/hotels/client/push/devices',guestA,'POST',registration));
+  assert.equal(messages.filter(m=>m.payload.message?.data?.type==='booking_created').length,1);
+  assert.equal((await go('/api/catalog/hotels/client/push/devices',guestA,'POST',{...registration,bookingID:'foreign'})).status,404);
+  messages.length=0;
+  await data(await go(A+accountChatKey(1)+'/messages',staff,'POST',{body:'mixed push test'}));
+  assert.equal(messages.length,2);assert.equal(messages.find(x=>x.payload.message)?.payload.message.token,fcm);assert.ok(messages.some(x=>x.url.includes('push.apple.com')));
+  assert.equal(messages.find(x=>x.payload.message).payload.message.data.bookingID,'account');
+  messages.length=0;
+  const signal=await data(await go('/api/admin/hotels/operations/notifications',staff,'POST',{title:'Signal',body:'Update',targetScope:'all',destination:'home'}));
+  assert.equal(signal.delivery.sent,2);assert.equal(signal.delivery.pushReady,true);assert.equal(messages.find(x=>x.payload.message).payload.message.data.type,'system_notification');
+  messages.length=0;
+  env.HOTELS_MEDIA.put=async()=>{};
+  const doc=await worker.fetch(new Request(base+'/api/admin/hotels/operations/bookings/a/documents?kind=visa&title=Visa',{method:'POST',headers:{...staff,'content-type':'application/pdf'},body:new Uint8Array([37,80,68,70])}),env);
+  await data(doc);assert.equal(messages.length,2);assert.equal(messages.find(x=>x.payload.message).payload.message.data.type,'travel_document');
+  messages.length=0;
+  sql.exec("CREATE TABLE bookings(id TEXT PRIMARY KEY,status TEXT,updated_at TEXT); INSERT INTO bookings VALUES('a','READY_TO_TRAVEL','2026-01-01'); UPDATE pilgrim_trips SET status='ready_to_travel' WHERE booking_id='a'");
+  env.BOOKINGS_DB=db;
+  const moved=await go('/api/admin/hotels/operations/bookings/a',staff,'PATCH',{status:'in_trip'});
+  await data(moved);assert.equal(messages.length,2);assert.equal(messages.find(x=>x.payload.message).payload.message.data.status,'in_trip');
+  assert.equal(sql.prepare("SELECT status FROM bookings WHERE id='a'").get().status,'IN_TRIP');
+  invalid=true;messages.length=0;
+  await data(await go(A+accountChatKey(1)+'/messages',staff,'POST',{body:'invalid token test'}));
+  assert.equal(sql.prepare('SELECT enabled,last_error FROM client_notification_devices WHERE installation_id=?').get('android-installation-01').enabled,0);
+  assert.equal(sql.prepare('SELECT enabled FROM client_notification_devices WHERE installation_id=?').get('apple-installation-001').enabled,1);
+ }finally{globalThis.fetch=originalFetch;sql.close();}
+});

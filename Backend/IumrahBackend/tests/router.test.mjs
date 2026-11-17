@@ -45,3 +45,13 @@ test('cron executes exactly one relevant subsystem',async()=>{
   await router.scheduled({cron:'0 * * * *'},{},{});
   assert.deepEqual(seen,['gemini','cleanup']);
 });
+
+test('health reports FCM configuration shape without returning credentials',async()=>{
+ const router=createBackendRouter({hotels:{fetch(){}},flights:{fetch(){}}});
+ const base={HOTELS_DB:{},BOOKINGS_DB:{},FLIGHTS_DB:{},HOTELS_MEDIA:{}};
+ const url='https://example.com/__iumrah/health';
+ for(const [secret,ready] of [['{}',false],[JSON.stringify({type:'service_account',project_id:'iumrah-test',client_email:'test@iumrah-test.iam.gserviceaccount.com',private_key:'-----BEGIN PRIVATE KEY-----\nfixture-key\n-----END PRIVATE KEY-----'}),true]]){
+  const response=await router.fetch(new Request(url),{...base,FCM_SERVICE_ACCOUNT_JSON:secret});
+  const json=await response.json();assert.equal(json.pushProviders.fcm,ready);assert.equal(json.pushProviders.apns,false);assert.ok(!JSON.stringify(json).includes('fixture-key'));assert.ok(!JSON.stringify(json).includes('client_email'));
+ }
+});
