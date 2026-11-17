@@ -564,7 +564,7 @@ private struct ESIMPurchaseSheet: View {
             }
             .background(BusinessDesign.background.ignoresSafeArea())
             .navigationTitle(result == nil ? "Подтверждение" : "eSIM куплена")
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Закрыть") { dismiss() }
@@ -878,7 +878,7 @@ private struct ESIMAssignmentSheet: View {
             }
         }
         .navigationTitle("Назначить eSIM")
-        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
         .searchable(text: $search, prompt: "Бронь или паломник")
         .toolbar {
             ToolbarItem(placement: .cancellationAction) { Button("Отмена") { dismiss() } }

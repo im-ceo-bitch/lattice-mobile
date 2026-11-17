@@ -1,14 +1,13 @@
 import SwiftUI
 
 struct BusinessOffersView: View {
-    @EnvironmentObject private var auth: AuthStore
     @Environment(\.scenePhase) private var scenePhase
     @State private var offers: [BusinessOffer] = []
     @State private var loading = true
     @State private var error: String?
     @State private var filter = "all"
     @State private var selected: BusinessOffer?
-    @State private var create = false
+    @State private var hasLoaded = false
     @State private var generation = UUID()
     let search: String
     private var filtered: [BusinessOffer] {
@@ -20,18 +19,14 @@ struct BusinessOffersView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                HStack {
-                    Text("Предложения").font(.system(size: 32, weight: .bold, design: .rounded))
-                    Spacer()
-                    Button { create = true } label: { Image(systemName: "plus.circle.fill").font(.title) }.accessibilityLabel("Создать предложение")
-                }
+                BusinessPageHeading(title: "Предложения", subtitle: "Персональные пакеты и продажи")
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                     metric("Активные", String(offers.filter(\.active).count))
                     metric("Просмотренные", String(offers.filter { $0.firstViewedAt != nil }.count))
                     metric("Забронированные", String(offers.filter { $0.status == "converted" }.count))
                     metric("Потенциальные продажи", offers.filter(\.active).reduce(0) { $0 + $1.totalUsd }.formatted(.currency(code: "USD").precision(.fractionLength(0))))
                 }
-                Text("По последним \(offers.count) предложениям").font(.caption).foregroundStyle(.secondary)
+                Text(hasLoaded ? "По последним \(offers.count) предложениям" : "Данные ещё не загружены").font(.caption).foregroundStyle(.secondary)
                 Picker("Статус", selection: $filter) {
                     Text("Все").tag("all"); Text("Активные").tag("active"); Text("Брони").tag("converted"); Text("Истекли").tag("expired"); Text("Отозваны").tag("revoked")
                 }.pickerStyle(.menu)
@@ -41,7 +36,7 @@ struct BusinessOffersView: View {
                 ForEach(filtered) { offer in
                     Button { selected = offer } label: {
                         VStack(alignment: .leading, spacing: 8) {
-                            HStack { Text(offer.id.suffix(8).description).font(.caption.monospaced()); Spacer(); Text(offer.statusTitle).font(.caption.weight(.semibold)).foregroundStyle(offer.active ? Color.blue : Color.secondary) }
+                            HStack { Text("ID · " + String(offer.id.suffix(8))).font(.caption.monospaced()); Spacer(); Text(offer.statusTitle).font(.caption.weight(.semibold)).foregroundStyle(offer.active ? BusinessDesign.ink : BusinessDesign.muted) }
                             Text(offer.makkah).font(.headline)
                             Text("\(offer.startDate) — \(offer.endDate) · \(offer.travelers) чел.").font(.caption).foregroundStyle(.secondary)
                             HStack { Text(offer.totalUsd, format: .currency(code: "USD")).font(.title3.bold()); Spacer(); Label("\(offer.views)", systemImage: "eye").font(.caption); Image(systemName: "chevron.right").font(.caption) }
@@ -58,18 +53,17 @@ struct BusinessOffersView: View {
         .sheet(item: $selected, onDismiss: { Task { await load() } }) { offer in
             NavigationStack { BusinessOfferDetailView(id: offer.id, modal: true) }
         }
-        .sheet(isPresented: $create, onDismiss: { Task { await load() } }) { NavigationStack { UmrahBuilderView(owner: auth.user?.login ?? "") } }
     }
     private func metric(_ title: String, _ value: String) -> some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text(value).font(.title2.bold()).lineLimit(1).minimumScaleFactor(0.55)
+            Text(hasLoaded ? value : "—").font(.title2.bold()).lineLimit(1).minimumScaleFactor(0.55)
             Text(title).font(.caption).foregroundStyle(.secondary)
         }.padding(14).frame(maxWidth: .infinity, alignment: .leading).businessCard(radius: 16)
     }
     @MainActor private func load() async {
         let token = UUID(); generation = token; loading = true
         defer { if generation == token { loading = false } }
-        do { let result = try await APIClient.shared.listOffers(); if generation == token { offers = result; error = nil } }
+        do { let result = try await APIClient.shared.listOffers(); if generation == token { offers = result; error = nil; hasLoaded = true } }
         catch { if generation == token { self.error = error.localizedDescription } }
     }
     private func openPending() {
@@ -104,30 +98,35 @@ struct BusinessOfferDetailView: View {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("PACKAGE ID").font(.caption.weight(.semibold)).tracking(2).foregroundStyle(.secondary)
                         Text(offer.id).font(.caption.monospaced()).textSelection(.enabled)
-                        Text("Индивидуальная умра").font(.system(size: 30, weight: .bold, design: .rounded))
-                        Text(offer.statusTitle).font(.subheadline.weight(.semibold)).foregroundStyle(.blue)
+                        Text("Индивидуальная умра").font(BusinessDesign.TypeStyle.hero)
+                        Text(offer.statusTitle).font(.subheadline.weight(.semibold)).foregroundStyle(offer.active ? BusinessDesign.ink : BusinessDesign.muted)
                         Text("\(offer.startDate) — \(offer.endDate) · \(offer.travelers) чел.").foregroundStyle(.secondary)
                         Text(offer.totalUsd, format: .currency(code: "USD")).font(.largeTitle.bold())
                         Text("\(offer.views) открытий ссылки · до \(dateLabel(offer.expiresAt))").font(.caption).foregroundStyle(.secondary)
                     }.padding(18).frame(maxWidth: .infinity, alignment: .leading).businessCard(radius: 24)
-                    if offer.status != "revoked", let url = URL(string: offer.shareURL) {
-                        ShareLink(item: url) { Label("Поделиться ссылкой", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity) }.buttonStyle(.borderedProminent)
-                        if let preview = previewURL(url) { Link("Предпросмотр без учёта просмотра", destination: preview) }
-                    }
-                    if offer.active {
-                        Button("Отметить отправленным") { Task { await action(offer, "sent") } }.disabled(working || offer.sentAt != nil)
-                        Button("Оформить за клиента") { accept = true }.buttonStyle(.borderedProminent).tint(.blue).disabled(working)
-                    }
-                    if offer.editable {
-                        Button("Изменить пакет и срок") { edit = true }.disabled(working || detail.editorDraft.isEmpty)
-                        Button("Отозвать предложение", role: .destructive) { revoke = true }.disabled(working)
-                    }
-                    if let bookingID = offer.bookingID {
-                        NavigationLink { BookingDetailView(bookingID: bookingID) } label: { Label("Открыть бронирование", systemImage: "suitcase.rolling") }
-                        if let receipt { Text("Email: \(receipt.emailDescription)").font(.caption) }
-                        Button("Проверить отправку и ID") { Task { await convert(offer) } }.disabled(working)
-                    }
-                    Text("История событий").font(.headline)
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Действия").font(BusinessDesign.TypeStyle.section)
+                        if let bookingID = offer.bookingID {
+                            NavigationLink { BookingDetailView(bookingID: bookingID) } label: { Label("Открыть бронирование", systemImage: "suitcase.rolling") }.buttonStyle(BusinessActionStyle())
+                            if let receipt { Text("Email: \(receipt.emailDescription)").font(.caption) }
+                            Button("Проверить отправку и ID") { Task { await convert(offer) } }.buttonStyle(BusinessActionStyle(primary: false)).disabled(working)
+                        } else if offer.active {
+                            Button { accept = true } label: { Label("Оформить за клиента", systemImage: "suitcase.rolling") }.buttonStyle(BusinessActionStyle(primary: false)).disabled(working)
+                        }
+                        if offer.status != "revoked", let url = URL(string: offer.shareURL) {
+                            ShareLink(item: url) { Label("Поделиться ссылкой", systemImage: "square.and.arrow.up") }.buttonStyle(BusinessActionStyle(primary: offer.active || offer.bookingID == nil))
+                            if let preview = previewURL(url) { Link(destination: preview) { Label("Предпросмотр без учёта просмотра", systemImage: "eye") }.buttonStyle(BusinessActionStyle(primary: false)) }
+                        }
+                        if offer.active && offer.sentAt == nil {
+                            Button("Отметить отправленным") { Task { await action(offer, "sent") } }.buttonStyle(BusinessActionStyle(primary: false)).disabled(working)
+                            Text("Отметка не отправляет сообщение автоматически.").font(.caption).foregroundStyle(.secondary)
+                        }
+                        if offer.editable {
+                            Button { edit = true } label: { Label("Изменить пакет и срок", systemImage: "pencil") }.buttonStyle(BusinessActionStyle(primary: false)).disabled(working || detail.editorDraft.isEmpty)
+                            Button("Отозвать предложение", role: .destructive) { revoke = true }.font(.subheadline.weight(.medium)).frame(minHeight: 44).disabled(working)
+                        }
+                    }.padding(16).businessCard(radius: BusinessDesign.Radius.card)
+                    Text("История событий").font(BusinessDesign.TypeStyle.section)
                     ForEach(Array(detail.events.enumerated()), id: \.offset) { _, event in
                         HStack { Image(systemName: "clock").foregroundStyle(.secondary); VStack(alignment: .leading) { Text(event.title); Text(dateLabel(event.createdAt)).font(.caption).foregroundStyle(.secondary) }; Spacer() }.padding(.vertical, 5)
                     }
@@ -140,7 +139,7 @@ struct BusinessOfferDetailView: View {
         .navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
         .toolbar {
             ToolbarItem(placement: .principal) { BusinessBrandLogo(width: 150, foreground: .white).frame(height: 36) }
-            if modal { ToolbarItem(placement: .topBarLeading) { Button("Закрыть") { dismiss() } } }
+            if modal { ToolbarItem(placement: .topBarLeading) { Button("Закрыть") { dismiss() }.foregroundStyle(.white) } }
         }
         .task { await load() }.refreshable { await load() }
         .sheet(isPresented: $edit, onDismiss: { Task { await load() } }) {
@@ -160,7 +159,7 @@ struct BusinessOfferDetailView: View {
                     }
                     Section { Text("Будет создана заявка на проверку наличия. Оплата пока не требуется.").font(.caption); Button("Создать бронирование") { if let offer = detail?.offer { Task { await convert(offer) } } }.disabled(working || firstName.trimmingCharacters(in: .whitespaces).isEmpty || lastName.trimmingCharacters(in: .whitespaces).isEmpty || phone.range(of: #"^\+[1-9][0-9]{7,14}$"#, options: .regularExpression) == nil) }
                     if let error { Text(error).foregroundStyle(.red) }
-                }.navigationTitle("Бронирование").navigationBarTitleDisplayMode(.inline).toolbar { ToolbarItem(placement: .cancellationAction) { Button("Закрыть") { accept = false } } }
+                }.navigationTitle("Бронирование").navigationBarTitleDisplayMode(.inline).businessNavigationSurface().toolbar { ToolbarItem(placement: .cancellationAction) { Button("Закрыть") { accept = false } } }
             }
         }
         .confirmationDialog("Отозвать предложение?", isPresented: $revoke, titleVisibility: .visible) { Button("Отозвать", role: .destructive) { if let offer = detail?.offer { Task { await action(offer, "revoke") } } } } message: { Text("Ссылка перестанет открываться. Это действие не отменяет уже созданные бронирования.") }

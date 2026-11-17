@@ -282,7 +282,7 @@ private struct PrimaryHotelManualPriceSheet: View {
             .padding(18)
             .background(BusinessDesign.background)
             .navigationTitle("Цена Primary Hotel")
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Закрыть") { dismiss() } } }
         }
         .presentationDetents([.medium])
@@ -359,7 +359,7 @@ private struct PrimaryHotelCategoryPicker: View {
             if let errorMessage { Text(errorMessage).foregroundStyle(.red) }
         }
         .navigationTitle("\(city) · \(stars)★")
-        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
         .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Сохранить") { Task { await save() } }.fontWeight(.semibold).disabled(saving) } }
     }
 

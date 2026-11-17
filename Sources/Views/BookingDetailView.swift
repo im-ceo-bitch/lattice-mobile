@@ -177,11 +177,11 @@ struct BookingDetailView: View {
 
     private func hero(_ detail: BookingDetailResponse) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 10) {
                 VStack(alignment: .leading, spacing: 5) {
                     Text((detail.booking.clientName?.isEmpty == false ? detail.booking.clientName : detail.pilgrim?.displayName) ?? "Имя не синхронизировано")
                         .font(.system(size: 30, weight: .bold, design: .rounded)).tracking(-1)
-                    HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 6) {
                         if let pilgrimID = detail.pilgrim?.id ?? detail.booking.pilgrimID {
                             Label("Iumrah ID \(pilgrimID)", systemImage: "person.text.rectangle")
                                 .contextMenu {
@@ -199,9 +199,8 @@ struct BookingDetailView: View {
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
                 }
-                Spacer()
                 Text(detail.booking.totalUsd, format: .currency(code: "USD").precision(.fractionLength(0)))
-                    .font(.title3.bold()).monospacedDigit()
+                    .font(BusinessDesign.TypeStyle.hero).monospacedDigit()
             }
             HStack(spacing: 8) {
                 statusBadge(status)
@@ -262,6 +261,10 @@ struct BookingDetailView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Color.yellow.opacity(0.13), in: RoundedRectangle(cornerRadius: 17, style: .continuous))
 
+            Button {
+                if let next = suggestedNextStatus, currentStatusTargets.contains(next) { status = next }
+            } label: { Label(suggestedNextStatus.map { "Следующий этап: \($0.title)" } ?? "Следующий этап", systemImage: "arrow.right.circle") }
+                .buttonStyle(BusinessActionStyle(primary: false)).disabled(suggestedNextStatus == nil || saving)
             labeledField("Статус оплаты", text: $paymentStatus, placeholder: "Например: оплачено полностью")
             labeledField("Номер бронирования / подтверждения", text: $confirmationNumber, placeholder: "Confirmation number")
 
@@ -307,11 +310,24 @@ struct BookingDetailView: View {
                 .background(BusinessDesign.primaryControl, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
             }
             .buttonStyle(.plain)
-            .disabled(saving || detail.operation == nil)
+            .disabled(saving || detail.operation == nil || !hasUnsavedOperations)
         }
         .padding(18).businessCard(radius: 28)
     }
 
+    private var suggestedNextStatus: TripStatus? {
+        guard let actual = detail?.operation?.tripStatus, status == actual else { return nil }
+        let target: TripStatus?
+        switch actual {
+        case .availabilityCheck: target = .paymentPending
+        case .paymentPending: target = .bookingConfirmed
+        case .bookingConfirmed: target = .readyToTravel
+        case .readyToTravel: target = .inTrip
+        case .inTrip: target = .completed
+        case .completed, .cancelled: target = nil
+        }
+        return target.flatMap { currentStatusTargets.contains($0) ? $0 : nil }
+    }
     private var statusGuidance: String {
         switch status {
         case .availabilityCheck:
@@ -1208,7 +1224,7 @@ private struct HotelAssignmentPicker: View {
                     }.buttonStyle(.plain)
                 }
             }
-            .listStyle(.plain).navigationTitle("Отель · \(city)").navigationBarTitleDisplayMode(.inline)
+            .listStyle(.plain).navigationTitle("Отель · \(city)").navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
             .toolbar { ToolbarItem(placement: .topBarLeading) { Button("Закрыть") { dismiss() } } }
             .overlay { if loading { ProgressView() } }
             .task { await load() }
@@ -1265,7 +1281,7 @@ private struct GuideAssignmentPicker: View {
                 }.buttonStyle(.plain)
             }
         }
-        .listStyle(.plain).navigationTitle("Выбрать гида").navigationBarTitleDisplayMode(.inline)
+        .listStyle(.plain).navigationTitle("Выбрать гида").navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
         .toolbar { ToolbarItem(placement: .topBarLeading) { Button("Закрыть") { dismiss() } } }
         .overlay { if loading { ProgressView() } }
         .task { await load() }

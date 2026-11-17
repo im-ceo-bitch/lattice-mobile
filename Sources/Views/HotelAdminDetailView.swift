@@ -49,7 +49,7 @@ struct HotelAdminDetailView: View {
         }
         .background(BusinessDesign.background.ignoresSafeArea())
         .navigationTitle("Отель")
-        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
         .overlay {
             if loading {
                 ProgressView()

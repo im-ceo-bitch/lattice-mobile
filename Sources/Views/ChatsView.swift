@@ -18,6 +18,8 @@ private enum ChatFilter: String, CaseIterable, Identifiable {
 
 struct ChatsView: View {
     @Environment(\.businessAdaptiveLayout) private var layout
+    @EnvironmentObject private var navigation: BusinessNavigationStore
+    @State private var search = ""
 
     @State private var threads: [ChatThread] = []
     @State private var bookings: [BookingSummary] = []
@@ -47,11 +49,12 @@ struct ChatsView: View {
             ToolbarItem(placement: .principal) { BusinessBrandLogo(width: 150, foreground: .white).frame(height: 36) }
             ToolbarItem(placement: .topBarTrailing) {
                 NavigationLink { NewChatBookingPicker(bookings: bookings) } label: {
-                    Image(systemName: "square.and.pencil")
+                    Image(systemName: "square.and.pencil").foregroundStyle(.white)
                 }
                 .disabled(bookings.isEmpty)
             }
         }
+        .searchable(text: $search, prompt: "Имя, iumrah ID или номер брони")
         .overlay { if loading && !hasLoadedThreads { ProgressView() } }
         .task { await load(); openPendingChat() }
         .onReceive(NotificationCenter.default.publisher(for: .iumrahBusinessChatOpen)) { _ in
@@ -85,7 +88,7 @@ struct ChatsView: View {
     private func openPendingChat() {
         guard let key = BusinessNotificationRoute.pendingChat,
               let thread = threads.first(where: { $0.id == key || $0.booking?.id == key || $0.relatedBookings.contains(where: { $0.id == key }) }) else { return }
-        filter = .all
+        filter = .all; search = ""
         if layout.supportsTwoPaneWorkspace { selectedThread = thread } else { pushedThread = thread }
         BusinessNotificationRoute.pendingChat = nil
     }
@@ -149,7 +152,7 @@ struct ChatsView: View {
             }
 
             if filteredThreads.isEmpty && !loading {
-                ContentUnavailableView(emptyTitle, systemImage: "message", description: Text(emptySubtitle))
+                ContentUnavailableView(search.isEmpty ? emptyTitle : "Ничего не найдено", systemImage: "message", description: Text(search.isEmpty ? emptySubtitle : "Измените поисковый запрос."))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 42)
             } else {
@@ -202,7 +205,7 @@ struct ChatsView: View {
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(item == filter ? BusinessDesign.onPrimaryControl : Color.primary)
                         .padding(.horizontal, 12)
-                        .frame(height: 38)
+                        .frame(minHeight: 44)
                         .background(item == filter ? BusinessDesign.primaryControl : BusinessDesign.secondarySurface, in: Capsule())
                     }
                     .buttonStyle(.plain)
@@ -212,12 +215,18 @@ struct ChatsView: View {
         }
     }
 
-    private var filteredThreads: [ChatThread] {
+    private var scopedThreads: [ChatThread] {
         switch filter {
         case .all: return threads
         case .new: return threads.filter(\.unreadForStaff)
         case .active: return threads.filter { !isCompleted($0.booking) }
         case .completed: return threads.filter { isCompleted($0.booking) }
+        }
+    }
+    private var filteredThreads: [ChatThread] {
+        let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
+        return scopedThreads.filter { thread in
+            query.isEmpty || [thread.pilgrimName ?? businessPilgrimName(thread.booking), thread.pilgrimID ?? "", thread.booking?.bookingDisplayNumber ?? "", thread.lastMessagePreview].contains { $0.localizedCaseInsensitiveContains(query) }
         }
     }
 
@@ -284,6 +293,7 @@ struct ChatsView: View {
             }
             if !hasLoadedThreads, threads.filter(\.unreadForStaff).isEmpty, filter == .new { filter = .active }
             hasLoadedThreads = true
+            navigation.unreadChatCount = threads.filter(\.unreadForStaff).count
             if layout.supportsTwoPaneWorkspace {
                 if let selectedThread,
                    let refreshed = threads.first(where: { $0.id == selectedThread.id }) {
@@ -404,6 +414,7 @@ struct ChatConversationView: View {
     @State private var retryMessageID: String?
     @Environment(\.scenePhase) private var scenePhase
     @State private var draft = ""
+    @State private var showQuickReplies = false
     @State private var loading = true
     @State private var sending = false
     @State private var errorMessage: String?
@@ -419,6 +430,7 @@ struct ChatConversationView: View {
                 .safeAreaInset(edge: .bottom, spacing: 0) {
                     VStack(spacing: 6) {
                         if let errorMessage { errorBar(errorMessage) }
+                        if showQuickReplies { quickReplies }
                         composer(proxy: proxy)
                     }
                     .businessAdaptiveDetailWidth()
@@ -431,8 +443,8 @@ struct ChatConversationView: View {
                     HStack(spacing: 8) {
                         pilgrimAvatar(size: 32)
                         VStack(alignment: .leading, spacing: 1) {
-                            Text(displayName).font(.system(size: 13.5, weight: .semibold)).lineLimit(1)
-                            Text(pilgrimID.map { "iumrah ID \($0)" } ?? "Паломник").font(.system(size: 10.5, weight: .medium)).foregroundStyle(.secondary).lineLimit(1)
+                            Text(displayName).font(.subheadline.weight(.semibold)).foregroundStyle(.white).lineLimit(1)
+                            Text(pilgrimID.map { "iumrah ID \($0)" } ?? "Паломник").font(.caption2.weight(.medium)).foregroundStyle(.white.opacity(0.7)).lineLimit(1)
                         }
                     }
                 }
@@ -445,7 +457,7 @@ struct ChatConversationView: View {
                                 }
                             }
                         } label: {
-                            Image(systemName: "info.circle").font(.system(size: 18, weight: .medium))
+                            Image(systemName: "info.circle").font(.system(size: 18, weight: .medium)).foregroundStyle(.white)
                         }
                     }
                 }
@@ -480,7 +492,7 @@ struct ChatConversationView: View {
             }
         }
         .navigationTitle("")
-        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
         .toolbar(.hidden, for: .tabBar)
         .businessNavigationSurface()
     }
@@ -598,11 +610,23 @@ struct ChatConversationView: View {
         return result.isEmpty ? "I" : result
     }
 
+    private var quickReplies: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(["Ассаляму алейкум! Чем могу помочь?", "Уточняем наличие и сообщим вам.", "Пожалуйста, проверьте данные поездки.", "Спасибо! Мы на связи."], id: \.self) { reply in
+                    Button { draft = draft.isEmpty ? reply : draft + "\n" + reply; showQuickReplies = false; composerFocused = true } label: {
+                        Text(reply).font(.caption.weight(.medium)).padding(.horizontal, 12).frame(minHeight: 44).background(BusinessDesign.secondarySurface, in: Capsule())
+                    }.buttonStyle(.plain)
+                }
+            }.padding(.horizontal, 12)
+        }.accessibilityLabel("Быстрые ответы. Добавляются в черновик, не отправляются автоматически.")
+    }
     private func composer(proxy: ScrollViewProxy) -> some View {
         // Keep the Business composer in parity with the proven client Care chat:
         // compact when empty, centered controls, and controlled growth for multiline text.
         BusinessChatGlassContainer(spacing: 8) {
             HStack(alignment: .center, spacing: 8) {
+                Button { showQuickReplies.toggle() } label: { Image(systemName: "text.bubble").frame(width: 44, height: 44).foregroundStyle(BusinessDesign.ink) }.buttonStyle(.plain).accessibilityLabel("Быстрые ответы")
                 PhotosPicker(selection: $selectedPhoto, matching: .images) {
                     Group {
                         if sending && selectedPhoto != nil {

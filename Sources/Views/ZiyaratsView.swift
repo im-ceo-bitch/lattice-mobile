@@ -271,7 +271,7 @@ private struct ZiyaratEditorView: View {
         }
         .background(BusinessDesign.background)
         .navigationTitle(place == nil ? "Новое место" : "Изменить место")
-        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
         .toolbar {
             ToolbarItem(placement: .topBarLeading) { Button("Закрыть") { dismiss() } }
             ToolbarItem(placement: .topBarTrailing) {

@@ -141,7 +141,7 @@ struct BookingPricingEditorSheet: View {
         }
         .background(BusinessDesign.background)
         .navigationTitle("Редактор цены")
-        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
         .toolbar {
             ToolbarItem(placement: .topBarLeading) { Button("Закрыть") { dismiss() } }
         }

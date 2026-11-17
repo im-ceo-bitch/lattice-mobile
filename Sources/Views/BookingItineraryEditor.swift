@@ -435,7 +435,7 @@ private struct ItineraryEventEditorSheet: View {
                 .padding(18)
             }
             .navigationTitle(value.originalID == nil ? "Новое событие" : "Событие")
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Отмена") { onCancel(); dismiss() }

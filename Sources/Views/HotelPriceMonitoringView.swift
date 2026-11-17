@@ -68,7 +68,7 @@ struct HotelPriceMonitoringView: View {
                 }
             }
             .navigationTitle("Hotel Sync")
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
             .toolbar {
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()

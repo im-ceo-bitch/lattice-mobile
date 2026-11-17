@@ -270,7 +270,7 @@ struct PaymentTemplateEditorView: View {
         .scrollIndicators(.hidden)
         .background(BusinessDesign.background)
         .navigationTitle(creating ? "Новые реквизиты" : "Реквизиты")
-        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
         .toolbar {
             if creating {
                 ToolbarItem(placement: .topBarLeading) { Button("Отмена") { dismiss() } }

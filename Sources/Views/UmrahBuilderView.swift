@@ -6,15 +6,17 @@ struct UmrahBuilderView: View {
     @StateObject private var store: UmrahDraftStore
 
     private let editingOffer: BusinessOffer?
-    init(owner: String, editingOffer: BusinessOffer? = nil, initial: UmrahPackageDraft? = nil) {
+    @State private var finishAsOffer: Bool
+    init(owner: String, editingOffer: BusinessOffer? = nil, initial: UmrahPackageDraft? = nil, preferOffer: Bool = false) {
         self.editingOffer = editingOffer
+        _finishAsOffer = State(initialValue: preferOffer || editingOffer != nil)
         _store = StateObject(wrappedValue: UmrahDraftStore(owner: editingOffer.map { owner + ":" + $0.id + ":" + String($0.revision) } ?? owner, initial: initial))
     }
     @State private var step = 0
     @State private var error: String?
     @State private var saved = false
     @State private var restart = false
-    private let steps = ["Авиабилеты", "Проживание", "Услуги", "Стоимость", "Клиент"]
+    private let steps = ["Авиабилеты", "Проживание", "Услуги", "Стоимость", "Оформление"]
     @State private var submitting = false
     @State private var showConfirmation = false
     @State private var showOfferConfirmation = false
@@ -24,13 +26,11 @@ struct UmrahBuilderView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     Color.clear.frame(height: 0).id("top")
-                    Text("СОЗДАТЬ UMRAH").font(.caption.weight(.semibold)).tracking(3).foregroundStyle(.secondary)
-                    Text(store.draft.offerReceipt != nil ? "Предложение" : store.draft.requestSecret != nil ? (store.draft.submissionMode == "offer" ? "Предложение" : "Бронирование") : steps[step]).font(.system(size: 34, weight: .bold, design: .rounded)).tracking(-1)
-                    HStack(spacing: 6) {
-                        ForEach(steps.indices, id: \.self) { index in
-                            Capsule().fill(index <= step ? BusinessDesign.ink : BusinessDesign.line).frame(height: 4)
-                        }
-                    }.accessibilityLabel("Шаг \(step + 1) из \(steps.count): \(steps[step])")
+                    BusinessPageHeading(title: store.draft.offerReceipt != nil ? "Предложение" : store.draft.receipt != nil ? "Бронирование" : store.draft.requestSecret != nil ? (store.draft.submissionMode == "offer" ? "Предложение" : "Бронирование") : steps[step], subtitle: editingOffer == nil ? "Создание индивидуальной умры" : "Редактирование предложения")
+                    if store.draft.requestSecret == nil && store.draft.offerReceipt == nil && store.draft.receipt == nil {
+                        BusinessStageRail(titles: steps, symbols: ["airplane", "bed.double", "car", "creditcard", "doc.text"], current: step) { index in step = index; error = nil }
+                        Text("Шаг \(step + 1) из \(steps.count)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                    }
                     if let offer = store.draft.offerReceipt { offerReceiptView(offer) }
                     else if let receipt = store.draft.receipt { receiptView(receipt) }
                     else if store.draft.requestSecret != nil { pendingView }
@@ -41,26 +41,27 @@ struct UmrahBuilderView: View {
                     case 3: summary
                     default: clientForm
                     } }
-                    if let error { Label(error, systemImage: "exclamationmark.circle").font(.subheadline).foregroundStyle(.red) }
+                    if let error { Label(error, systemImage: "exclamationmark.circle").font(.subheadline).foregroundStyle(.red).id("validation") }
                     if let storageError = store.storageError { Text(storageError).font(.caption).foregroundStyle(.red) }
-                }.businessAdaptiveReadableWidth().padding(22)
+                }.businessAdaptiveReadableWidth().padding(BusinessDesign.Space.page)
             }
             .onChange(of: step) { _, _ in reader.scrollTo("top", anchor: .top) }
+            .onChange(of: error) { _, value in if value != nil { reader.scrollTo("validation", anchor: .bottom) } }
         }
         .background(BusinessDesign.background)
         .navigationBarTitleDisplayMode(.inline)
         .businessNavigationSurface()
         .toolbar {
             ToolbarItem(placement: .principal) { BusinessBrandLogo(width: 150, foreground: .white).frame(height: 36) }
-            ToolbarItem(placement: .topBarLeading) { Button("Закрыть") { store.save(); if store.storageError == nil { dismiss() } } }
+            ToolbarItem(placement: .topBarLeading) { Button("Закрыть") { store.save(); if store.storageError == nil { dismiss() } }.foregroundStyle(.white) }
             ToolbarItem(placement: .topBarTrailing) {
-                Menu { Button("Начать заново", role: .destructive) { restart = true }.disabled(store.draft.requestSecret != nil && store.draft.receipt == nil && store.draft.offerReceipt == nil) } label: { Image(systemName: "ellipsis.circle") }
+                Menu { Button("Начать заново", role: .destructive) { restart = true }.disabled(store.draft.requestSecret != nil && store.draft.receipt == nil && store.draft.offerReceipt == nil) } label: { Image(systemName: "ellipsis.circle").foregroundStyle(.white) }
             }
         }
         .confirmationDialog("Удалить текущий черновик?", isPresented: $restart, titleVisibility: .visible) {
             Button("Начать заново", role: .destructive) { store.draft = UmrahPackageDraft(); step = 0; error = nil; store.save() }.disabled(submitting)
         }
-        .safeAreaInset(edge: .bottom) { if store.draft.requestSecret == nil && store.draft.offerReceipt == nil { footer } }
+        .safeAreaInset(edge: .bottom) { if store.draft.requestSecret == nil && store.draft.offerReceipt == nil && store.draft.receipt == nil { footer } }
         .environment(\.locale, Locale(identifier: "ru_RU"))
         .onChange(of: scenePhase) { _, phase in if phase != .active { store.save() } }
         .onDisappear { store.save() }
@@ -77,15 +78,18 @@ struct UmrahBuilderView: View {
     }
 
     private var footer: some View {
-        HStack(spacing: 16) {
-            if step > 0 { Button { step -= 1; error = nil } label: { Image(systemName: "arrow.left").frame(width: 44, height: 44) }.tint(BusinessDesign.ink) }
-            VStack(alignment: .leading, spacing: 3) {
+        VStack(spacing: 8) {
+            HStack(spacing: 8) {
+                if step > 0 {
+                    Button { step -= 1; error = nil } label: { Image(systemName: "arrow.left").frame(width: 44, height: 44) }
+                        .buttonStyle(.plain).accessibilityLabel("Предыдущий этап")
+                }
                 Text("За \(store.draft.travelers) чел.").font(.caption).foregroundStyle(.secondary)
-                if let total = store.draft.saleTotal { Text(total, format: .currency(code: "USD")).font(.headline) }
-                else { Text("Цена не заполнена").font(.caption) }
+                Spacer(minLength: 0)
+                if let total = store.draft.saleTotal { Text(total, format: .currency(code: "USD")).font(.headline).monospacedDigit() }
+                else { Text("Цена не заполнена").font(.caption).foregroundStyle(.secondary) }
             }
-            Spacer(minLength: 0)
-            Button(step == 4 ? (editingOffer == nil ? "Создать бронь" : "Сохранить") : "Продолжить") {
+            Button(step == 4 ? (editingOffer != nil ? "Сохранить предложение" : finishAsOffer ? "Создать предложение" : "Создать бронирование") : "Продолжить") {
                 if step < 4 {
                     if let issue = store.draft.issue(at: step) { error = issue; return }
                     step += 1; error = nil
@@ -93,14 +97,15 @@ struct UmrahBuilderView: View {
                     for index in 0..<3 {
                         if let issue = store.draft.issue(at: index) { error = issue; step = index; return }
                     }
-                    if editingOffer != nil { if store.draft.saleTotal == nil { error = "Проверьте стоимость"; return }; showOfferConfirmation = true; return }
+                    if editingOffer != nil || finishAsOffer {
+                        if store.draft.saleTotal == nil { error = "Проверьте стоимость"; return }
+                        showOfferConfirmation = true; return
+                    }
                     if let issue = store.draft.bookingIssue { error = issue; return }
                     showConfirmation = true
                 }
-            }
-            .font(.subheadline.bold()).padding(.horizontal, 20).frame(minHeight: 56)
-            .foregroundStyle(BusinessDesign.onAccent).background(BusinessDesign.accent, in: Capsule())
-        }.padding(.horizontal, 20).padding(.vertical, 12).background(.regularMaterial)
+            }.buttonStyle(BusinessActionStyle()).disabled(submitting)
+        }.businessAdaptiveReadableWidth().padding(.horizontal, BusinessDesign.Space.page).padding(.vertical, 10).background(BusinessDesign.background).overlay(alignment: .top) { Divider() }
     }
 
     private var pickupText: String {
@@ -115,7 +120,7 @@ struct UmrahBuilderView: View {
         VStack(alignment: .leading, spacing: 18) {
             VStack(spacing: 5) {
                 IumrahOrbitAssemblyMoment(services: orbitServices, logo: Image("Logo"),
-                                          maxDiameter: 220, accessibilityTitle: "iumrah Business")
+                                          maxDiameter: 160, accessibilityTitle: "iumrah Business")
                 Text("Компоненты в одном пакете").font(.headline)
                 Text("Предложение · наличие проверяется отдельно").font(.footnote).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -164,25 +169,47 @@ struct UmrahBuilderView: View {
         Binding(get: { store.draft[keyPath: key] ?? fallback }, set: { store.draft[keyPath: key] = $0 })
     }
     private var clientForm: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            UmrahPanel(title: "Предложение") {
-                Text("Клиент ещё не принял решение. Контакты не обязательны: отправьте постоянную ссылку.").font(.subheadline).foregroundStyle(.secondary)
-                Picker("Срок действия", selection: Binding(get: { store.draft.offerHours ?? 24 }, set: { store.draft.offerHours = $0 })) { Text("24 часа").tag(24); Text("48 часов").tag(48); Text("7 дней").tag(168) }.pickerStyle(.segmented)
-                Picker("Язык клиента", selection: optional(\.language, default: "ru")) { Text("Русский").tag("ru"); Text("O‘zbekcha").tag("uz"); Text("Ўзбекча").tag("uz-cyrl"); Text("English").tag("en") }
-                Button { for index in 0..<3 { if let issue = store.draft.issue(at: index) { error = issue; step = index; return } }; if store.draft.saleTotal == nil { error = "Проверьте стоимость"; return }; showOfferConfirmation = true } label: { Label(editingOffer == nil ? "Создать предложение" : "Обновить предложение", systemImage: "doc.text").frame(maxWidth: .infinity) }.buttonStyle(.borderedProminent).tint(.blue).disabled(submitting)
+        VStack(alignment: .leading, spacing: 16) {
+            if let total = store.draft.saleTotal {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Стоимость поездки").font(.subheadline).foregroundStyle(.secondary)
+                    Text(total, format: .currency(code: "USD")).font(BusinessDesign.TypeStyle.hero).monospacedDigit()
+                    Text("За \(store.draft.travelers) паломников").font(.caption).foregroundStyle(.secondary)
+                }.padding(18).frame(maxWidth: .infinity, alignment: .leading).businessCard(radius: BusinessDesign.Radius.compact)
             }
-            if editingOffer == nil { UmrahPanel(title: "Бронирование · клиент согласен") {
-                TextField("Имя как в паспорте", text: $store.draft.clientName).textContentType(.givenName)
-                TextField("Фамилия как в паспорте", text: optional(\.lastName, default: "")).textContentType(.familyName)
-                TextField("Телефон +998…", text: $store.draft.phone).keyboardType(.phonePad).textContentType(.telephoneNumber)
-                TextField("Email", text: optional(\.email, default: "")).keyboardType(.emailAddress).textInputAutocapitalization(.never).autocorrectionDisabled()
-                Picker("Язык", selection: optional(\.language, default: "ru")) { Text("Русский").tag("ru"); Text("O‘zbekcha").tag("uz"); Text("Ўзбекча").tag("uz-cyrl"); Text("English").tag("en") }
-                Toggle("Отправить подтверждение на email", isOn: Binding(get: { store.draft.sendEmail ?? false }, set: { store.draft.sendEmail = $0 }))
-                Text("После создания можно отправить защищённую ссылку через сообщения или WhatsApp. Регистрация для просмотра не нужна.").font(.caption).foregroundStyle(.secondary)
+            if editingOffer == nil {
+                Button { finishAsOffer = true; error = nil } label: {
+                    BusinessChoiceRow(title: "Создать предложение", subtitle: "Клиент ещё думает. Контакты не нужны.", symbol: "doc.text", selected: finishAsOffer)
+                }.buttonStyle(.plain)
+                Button { finishAsOffer = false; error = nil } label: {
+                    BusinessChoiceRow(title: "Создать бронирование", subtitle: "Клиент согласен. Начать проверку наличия.", symbol: "suitcase.rolling", selected: !finishAsOffer)
+                }.buttonStyle(.plain)
             }
+            if finishAsOffer || editingOffer != nil {
+                UmrahPanel(title: "Условия предложения") {
+                    Text("Постоянная ссылка. Наличие и цена подтверждаются при бронировании.").font(.subheadline).foregroundStyle(.secondary)
+                    Picker("Срок действия", selection: Binding(get: { store.draft.offerHours ?? 24 }, set: { store.draft.offerHours = $0 })) { Text("24 часа").tag(24); Text("48 часов").tag(48); Text("7 дней").tag(168) }.pickerStyle(.segmented)
+                    languagePicker
+                }
+            } else {
+                UmrahPanel(title: "Контакт паломника") {
+                    TextField("Имя как в паспорте", text: $store.draft.clientName).textContentType(.givenName)
+                    Divider()
+                    TextField("Фамилия как в паспорте", text: optional(\.lastName, default: "")).textContentType(.familyName)
+                    Divider()
+                    TextField("Телефон +998…", text: $store.draft.phone).keyboardType(.phonePad).textContentType(.telephoneNumber)
+                    Divider()
+                    TextField("Email", text: optional(\.email, default: "")).keyboardType(.emailAddress).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    languagePicker
+                    Toggle("Отправить подтверждение на email", isOn: Binding(get: { store.draft.sendEmail ?? false }, set: { store.draft.sendEmail = $0 }))
+                    Text("После создания можно поделиться защищённой ссылкой. Регистрация не нужна.").font(.caption).foregroundStyle(.secondary)
+                }
             }
-            Button("Сохранить черновик") { store.save(); saved = store.storageError == nil }
+            Button { store.save(); saved = store.storageError == nil } label: { Label("Сохранить черновик", systemImage: "tray.and.arrow.down") }.buttonStyle(BusinessActionStyle(primary: false))
         }
+    }
+    private var languagePicker: some View {
+        Picker("Язык клиента", selection: optional(\.language, default: "ru")) { Text("Русский").tag("ru"); Text("O‘zbekcha").tag("uz"); Text("Ўзбекча").tag("uz-cyrl"); Text("English").tag("en") }
     }
     private var pendingView: some View {
         UmrahPanel(title: "Отправка заявки") {
@@ -199,7 +226,7 @@ struct UmrahBuilderView: View {
             Text(receipt.totalUsd, format: .currency(code: "USD")).font(.title2.bold())
             Text("Проверка наличия · оплата пока не требуется").font(.caption).foregroundStyle(.secondary)
             Text("Email: \(receipt.emailDescription)").font(.subheadline)
-            if !receipt.shareURL.isEmpty, let url = URL(string: receipt.shareURL) { ShareLink(item: url) { Label("Отправить ссылку", systemImage: "square.and.arrow.up") }; Link("Предпросмотр поездки", destination: url) }
+            if !receipt.shareURL.isEmpty, let url = URL(string: receipt.shareURL) { ShareLink(item: url) { Label("Отправить ссылку", systemImage: "square.and.arrow.up") }.buttonStyle(BusinessActionStyle()); Link("Предпросмотр поездки", destination: url).buttonStyle(BusinessActionStyle(primary: false)) }
             Button("Проверить отправку и ID") { Task { await submit() } }.disabled(submitting)
             NavigationLink("Открыть бронирование") { BookingDetailView(bookingID: receipt.bookingID) }
             Button("Создать новую умру") { store.draft = UmrahPackageDraft(); step = 0; error = nil; store.save() }.disabled(submitting)
@@ -234,10 +261,10 @@ struct UmrahBuilderView: View {
             Text(offer.totalUsd, format: .currency(code: "USD")).font(.title2.bold())
             Text("Наличие не зарезервировано · " + offer.statusTitle).font(.caption).foregroundStyle(.secondary)
             if let url = URL(string: offer.shareURL) {
-                ShareLink(item: url) { Label("Поделиться предложением", systemImage: "square.and.arrow.up") }
+                ShareLink(item: url) { Label("Поделиться предложением", systemImage: "square.and.arrow.up") }.buttonStyle(BusinessActionStyle())
                 if let preview = offerPreviewURL(url) { Link("Предпросмотр без учёта просмотра", destination: preview) }
             }
-            NavigationLink("Управление предложением") { BusinessOfferDetailView(id: offer.id) }
+            NavigationLink("Управление предложением") { BusinessOfferDetailView(id: offer.id) }.buttonStyle(BusinessActionStyle(primary: false))
             Button(editingOffer == nil ? "Создать новую умру" : "Готово") {
                 if editingOffer != nil { dismiss() } else { store.draft = UmrahPackageDraft(); step = 0; error = nil; store.save() }
             }
@@ -326,8 +353,11 @@ private struct UmrahFlightStep: View {
             Picker("Направление", selection: $direction) { Text("Туда").tag(0); Text("Обратно").tag(1) }.pickerStyle(.segmented)
             // System segmented control and system Liquid Glass; no hand-drawn glass substitute.
             Picker("Источник авиабилета", selection: $source) { Text("Umrah Direct Flights").tag(0); Text("Aviasales").tag(1) }
-                .pickerStyle(.segmented).padding(6).businessGlass(in: Capsule(), interactive: true)
+                .pickerStyle(.segmented)
             if let chosen { UmrahFlightCard(title: "Выбранный рейс", flight: chosen) }
+            if direction == 1, let outbound = draft.outbound {
+                Label("Туда: \(outbound.legs.first?.origin ?? "—") → \(outbound.legs.last?.destination ?? "—") · выбрано", systemImage: "checkmark.circle").font(.caption).foregroundStyle(.secondary)
+            }
             UmrahPanel(title: "Фильтры") {
                 Picker("Город Узбекистана", selection: $origin) { ForEach(["Все","TAS","FEG","NMA","AZN","SKD","BHK","KSQ","TMJ","UGC"], id: \.self) { Text($0) } }
                 Picker("Аэропорт Саудии", selection: $airport) { ForEach(["Все","JED","MED"], id: \.self) { Text($0) } }
@@ -357,7 +387,10 @@ private struct UmrahFlightStep: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack { Text(source == 0 ? "Опубликованные рейсы iumrah" : "Сохранённые предложения Aviasales").font(.headline); Spacer(); Button { Task { await load() } } label: { Image(systemName: "arrow.clockwise") }.disabled(loading) }
             if loading { ProgressView("Загрузка каталога…") }
-            if !loading && sourceOffers.isEmpty { ContentUnavailableView("Рейсов пока нет", systemImage: "airplane", description: Text("Обновите каталог или добавьте рейс вручную.")) }
+            if !loading && !sourceOffers.contains(where: { offer in
+                guard let itinerary = offer.itinerary else { return false }
+                return flightGroups(itinerary.legs).contains { isDirection($0) && matchesFilters($0) }
+            }) { ContentUnavailableView("Нет подходящих рейсов", systemImage: "airplane", description: Text("Измените фильтры или добавьте рейс вручную.")) }
             ForEach(sourceOffers) { offer in
                 if let itinerary = offer.itinerary, !itinerary.legs.isEmpty {
                     let groups = flightGroups(itinerary.legs)
@@ -365,7 +398,14 @@ private struct UmrahFlightStep: View {
                         let flight = UmrahPackageDraft.Flight(id: offer.id + "-\(index)", source: source == 0 ? "Umrah Direct Flights" : "Aviasales · сохранённое предложение", legs: legs)
                         if isDirection(legs) && matchesFilters(legs) {
                             Button { select(flight, offer: offer) } label: {
-                                VStack(alignment: .leading, spacing: 4) { UmrahFlightCard(title: chosen?.id == flight.id ? "Выбрано ✓" : "Выбрать", flight: flight); Text("\(offer.perTravelerFare, specifier: "%.2f") \(offer.currency) · \(offer.offerType == "round_trip" ? "туда-обратно" : "тариф из базы")").font(.caption).foregroundStyle(.secondary) }
+                                VStack(alignment: .leading, spacing: 8) {
+                                    UmrahFlightCard(title: chosen?.id == flight.id ? "Выбранный рейс" : "Рейс", flight: flight)
+                                    HStack {
+                                        Text("\(offer.perTravelerFare, specifier: "%.2f") \(offer.currency) · \(offer.offerType == "round_trip" ? "туда-обратно" : "тариф из базы")").font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                                        Spacer()
+                                        Image(systemName: chosen?.id == flight.id ? "checkmark.circle.fill" : "circle").font(.title2).foregroundStyle(BusinessDesign.ink)
+                                    }.padding(.horizontal, 12).padding(.bottom, 8)
+                                }.overlay { RoundedRectangle(cornerRadius: BusinessDesign.Radius.card).strokeBorder(chosen?.id == flight.id ? BusinessDesign.ink : Color.clear, lineWidth: 2) }.accessibilityAddTraits(chosen?.id == flight.id ? .isSelected : [])
                             }.buttonStyle(.plain)
                         }
                     }
@@ -622,7 +662,7 @@ private struct UmrahStayEditor: View {
                 }
                 .overlay { if hotels.isEmpty { ContentUnavailableView("Нет отелей в каталоге", systemImage: "building.2", description: Text("Нет доступных отелей. Проверьте подключение нового гостиничного API или выберите существующее размещение.")) } }
                 .searchable(text: $search, prompt: "Название отеля")
-                .navigationTitle("Отели · \(title)")
+                .navigationTitle("Отели · \(title)").navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
                 .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Закрыть") { picker = false } } }
             }
         }

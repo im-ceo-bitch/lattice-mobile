@@ -11,6 +11,7 @@ final class OverviewStore: ObservableObject {
     @Published var recentSecurityEvent: BusinessSecurityLoginEvent?
     @Published var refreshWarning: String?
     @Published var hasLoadedBookings = false
+    @Published var hasLoadedChats = false
     private var refreshGeneration = UUID()
 
     func reloadSecurityEvents() async {
@@ -33,7 +34,7 @@ final class OverviewStore: ObservableObject {
         else { failed.append("бронирования") }
         let newChats = try? await chatsTask
         guard !Task.isCancelled, refreshGeneration == generation else { return }
-        if let newChats { unreadChats = newChats.filter(\.unreadForStaff).count }
+        if let newChats { unreadChats = newChats.filter(\.unreadForStaff).count; hasLoadedChats = true }
         else { failed.append("чаты") }
         let newUsage = try? await usageTask
         guard !Task.isCancelled, refreshGeneration == generation else { return }
@@ -45,6 +46,7 @@ final class OverviewStore: ObservableObject {
 
 struct OverviewView: View {
     @EnvironmentObject private var auth: AuthStore
+    @EnvironmentObject private var navigation: BusinessNavigationStore
     @Environment(\.businessAdaptiveLayout) private var layout
     @StateObject private var store = OverviewStore()
     @State private var showUmrahBuilder = false
@@ -80,63 +82,19 @@ struct OverviewView: View {
                 if let event = store.recentSecurityEvent, event.id != dismissedSecurityEvent {
                     securityBanner(event)
                 }
-                Button { showUmrahBuilder = true } label: {
-                    HStack(spacing: 16) {
-                        Image(systemName: "plus").font(.title2.weight(.medium))
-                            .frame(width: 56, height: 56)
-                            .businessGlass(in: RoundedRectangle(cornerRadius: 20), interactive: true)
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Создать умру").font(.title2.bold())
-                            Text("Перелёт, отели и личный трансфер")
-                                .font(.subheadline).foregroundStyle(.secondary)
-                        }
-                        Spacer(minLength: 0)
-                        Image(systemName: "chevron.right").font(.headline)
-                    }.foregroundStyle(BusinessDesign.ink).padding(22).businessCard(radius: 30)
-                }.buttonStyle(.plain)
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Индивидуальная умра").font(BusinessDesign.TypeStyle.section)
+                    Text("Соберите пакет, отправьте предложение или оформите бронирование.").font(.subheadline).foregroundStyle(.secondary)
+                    Button { showUmrahBuilder = true } label: { Label("Создать умру", systemImage: "plus") }.buttonStyle(BusinessActionStyle())
+                }.padding(18).businessCard(radius: BusinessDesign.Radius.hero)
 
-                VStack(alignment: .leading, spacing: 14) {
-                    Text("БРОНИРОВАНИЯ").font(.caption2.bold()).tracking(2.2).foregroundStyle(.white.opacity(0.52))
-                    Text(!store.hasLoadedBookings ? (store.loading ? "Проверяем бронирования…" : "Бронирования не загружены.") : checking == 0 ? "Очередь подтверждений чистая." : "\(checking) бронирований ждут подтверждения.")
-                        .font(.largeTitle.bold()).foregroundStyle(.white)
-                    Text("Актуальное состояние поездок и очередь подтверждений.")
-                        .font(.subheadline).foregroundStyle(.white.opacity(0.62))
-                    HStack { Image(systemName: "checkmark.shield.fill"); Text("SUPERADMIN").font(.caption2.bold()).tracking(1.5) }
-                        .foregroundStyle(Color.orange).padding(.top, 10)
+                BusinessPageHeading(title: "Требуют внимания", subtitle: store.hasLoadedBookings ? "Операционные задачи" : "Данные бронирований ещё не загружены")
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: layout.supportsDenseDashboard ? 4 : 2), spacing: 10) {
+                    Button { navigation.openBookings(filter: "availability") } label: { StatCard(title: "НАЛИЧИЕ", value: checking, subtitle: "проверить", attention: true, available: store.hasLoadedBookings) }.buttonStyle(.plain)
+                    Button { navigation.openBookings(filter: "payment") } label: { StatCard(title: "ОПЛАТА", value: payment, subtitle: "ожидают", available: store.hasLoadedBookings) }.buttonStyle(.plain)
+                    Button { navigation.navigate(to: .chats) } label: { StatCard(title: "ЧАТЫ", value: store.unreadChats, subtitle: "непрочитанных", available: store.hasLoadedChats) }.buttonStyle(.plain)
+                    Button { navigation.openBookings(filter: "all") } label: { StatCard(title: "БРОНИ", value: store.bookings.count, subtitle: "всего", available: store.hasLoadedBookings) }.buttonStyle(.plain)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading).padding(26)
-                .background(
-                    LinearGradient(colors: [Color.black, Color(red: 0.11, green: 0.11, blue: 0.12)], startPoint: .topLeading, endPoint: .bottomTrailing),
-                    in: RoundedRectangle(cornerRadius: 36, style: .continuous)
-                )
-
-                if layout.supportsDenseDashboard {
-                    LazyVGrid(
-                        columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4),
-                        spacing: 10
-                    ) {
-                        StatCard(title: "ВСЕГО", value: store.bookings.count, subtitle: "бронирований")
-                        StatCard(title: "НАЛИЧИЕ", value: checking, subtitle: "проверить", attention: true)
-                        StatCard(title: "ОПЛАТА", value: payment, subtitle: "ожидают")
-                        StatCard(title: "В РАБОТЕ", value: active, subtitle: "активных")
-                    }
-                } else {
-                    HStack(spacing: 10) {
-                        StatCard(title: "ВСЕГО", value: store.bookings.count, subtitle: "бронирований")
-                        StatCard(title: "НАЛИЧИЕ", value: checking, subtitle: "проверить", attention: true)
-                    }
-                    HStack(spacing: 10) {
-                        StatCard(title: "ОПЛАТА", value: payment, subtitle: "ожидают")
-                        StatCard(title: "В РАБОТЕ", value: active, subtitle: "активных")
-                    }
-                }
-
-
-                Button { showPush = true } label: {
-                    HStack { Image(systemName: "bell.badge"); Text("Уведомления").font(.headline); Spacer(); Text("\(store.unreadChats) непрочитанных").font(.caption); Image(systemName: "chevron.right") }
-                        .foregroundStyle(BusinessDesign.ink).padding(18).businessCard(radius: 22)
-                }.buttonStyle(.plain)
-                DisclosureGroup("Использование API") { IgnavUsageCard(usage: store.ignavUsage, loading: store.loading) }.padding(16).businessCard(radius: 22)
 
                 VStack(alignment: .leading, spacing: 12) {
                     HStack { Text("Последние бронирования").font(.title2.bold()); Spacer(); if store.loading { ProgressView() } }
@@ -148,9 +106,14 @@ struct OverviewView: View {
                         }
                         .buttonStyle(.plain)
                     }
+                    Button { navigation.openBookings() } label: { Label("Все бронирования", systemImage: "arrow.right") }.buttonStyle(BusinessActionStyle(primary: false))
                     if store.hasLoadedBookings && store.bookings.isEmpty && !store.loading { Text("Заявок пока нет.").foregroundStyle(.secondary).padding(.vertical, 30).frame(maxWidth: .infinity) }
                 }
-                .padding(18).businessCard(radius: 30)
+                .padding(18).businessCard(radius: 28)
+                DisclosureGroup("Служебные инструменты") {
+                    Button { showPush = true } label: { Label("Диагностика push", systemImage: "bell.badge") }.buttonStyle(BusinessActionStyle(primary: false))
+                    IgnavUsageCard(usage: store.ignavUsage, loading: store.loading)
+                }.padding(16).businessCard(radius: 22)
             }
             .businessAdaptiveReadableWidth()
             .padding(16)
@@ -169,9 +132,11 @@ struct OverviewView: View {
                     Button("Диагностика уведомлений") { showPush = true }
                     Button("Обновить") { Task { await store.reload() } }
                     Button("Выйти", role: .destructive) { Task { await auth.logout() } }
-                } label: { Image(systemName: "ellipsis.circle") }
+                } label: { Image(systemName: "ellipsis.circle").foregroundStyle(.white) }
             }
         }
+        .onChange(of: store.unreadChats, initial: true) { _, count in if store.hasLoadedChats { navigation.unreadChatCount = count } }
+        .onChange(of: store.hasLoadedChats) { _, loaded in if loaded { navigation.unreadChatCount = store.unreadChats } }
         .task {
             await store.reload()
             await store.reloadSecurityEvents()
@@ -182,6 +147,8 @@ struct OverviewView: View {
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("iumrah.business.bookingOperationsChanged"))) { _ in
             Task { await store.reload() }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .iumrahBusinessChatChanged)) { _ in Task { await store.reload() } }
+        .onReceive(NotificationCenter.default.publisher(for: .iumrahBusinessChatRead)) { _ in Task { await store.reload() } }
         .refreshable {
             await store.reload()
             await store.reloadSecurityEvents()
@@ -287,15 +254,15 @@ private struct IgnavUsageCard: View {
 }
 
 private struct StatCard: View {
-    let title: String; let value: Int; let subtitle: String; var attention = false
+    let title: String; let value: Int; let subtitle: String; var attention = false; var available = true
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             Text(title).font(.caption2.bold()).tracking(1.5).foregroundStyle(.secondary)
             Spacer(minLength: 10)
-            Text("\(value)").font(.system(size: 40, weight: .bold)).tracking(-2).foregroundStyle(attention ? BusinessDesign.accent : BusinessDesign.ink)
+            Text(available ? String(value) : "—").font(BusinessDesign.TypeStyle.hero).monospacedDigit().foregroundStyle(attention ? BusinessDesign.accent : BusinessDesign.ink)
             Text(subtitle).font(.caption).foregroundStyle(.secondary)
         }
-        .padding(18).frame(maxWidth: .infinity, minHeight: 130, alignment: .leading)
+        .padding(18).frame(maxWidth: .infinity, minHeight: 110, alignment: .leading)
         .background(attention ? BusinessDesign.softOrange : BusinessDesign.card, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).stroke(BusinessDesign.line))
     }

@@ -3,6 +3,10 @@ import SwiftUI
 @MainActor
 final class BusinessNavigationStore: ObservableObject {
     @Published var selection: BusinessWorkspaceSection = .overview
+    @Published var bookingFilterRequest: String?
+    @Published var unreadChatCount = 0
+    func openBookings(filter: String = "all") { bookingFilterRequest = filter; selection = .bookings }
+
 
     func navigate(to section: BusinessWorkspaceSection) {
         selection = section
@@ -125,6 +129,7 @@ private struct BusinessCompactTabView: View {
                 NavigationStack { ChatsView() }
                     .tag(BusinessWorkspaceSection.chats)
                     .tabItem { Label("Чаты", systemImage: "message.fill") }
+                    .badge(navigation.unreadChatCount)
                 NavigationStack { BusinessCatalogsView() }
                     .tag(BusinessWorkspaceSection.flights)
                     .tabItem { Label("Каталоги", systemImage: "square.stack") }

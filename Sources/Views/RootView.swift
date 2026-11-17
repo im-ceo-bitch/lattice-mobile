@@ -2,6 +2,7 @@ import SwiftUI
 
 struct RootView: View {
     @EnvironmentObject private var auth: AuthStore
+    @EnvironmentObject private var navigation: BusinessNavigationStore
     @EnvironmentObject private var appLock: BusinessAppLockStore
     @Environment(\.scenePhase) private var scenePhase
 
@@ -36,6 +37,9 @@ struct RootView: View {
                 Task { await auth.expireWeeklySessionIfNeeded() }
             } else if state == .signedOut {
                 appLock.didSignOut()
+                navigation.unreadChatCount = 0
+                navigation.bookingFilterRequest = nil
+                navigation.selection = .overview
                 BusinessNotificationRoute.pendingOffer = nil
                 BusinessNotificationRoute.pendingBooking = nil
                 BusinessNotificationRoute.pendingChat = nil

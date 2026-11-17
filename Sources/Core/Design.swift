@@ -11,6 +11,15 @@ enum BusinessDesign {
     // Central semantic palette. Light values intentionally preserve the
     // existing iumrah Business appearance; dark values are tuned for long
     // operational use at night with clear surface separation and contrast.
+    // Geometry follows the client iumrah Design Foundation. Business retains its own palette.
+    enum Space { static let xs: CGFloat = 8; static let sm: CGFloat = 12; static let md: CGFloat = 16; static let page: CGFloat = 18; static let lg: CGFloat = 22 }
+    enum Radius { static let control: CGFloat = 19; static let compact: CGFloat = 22; static let card: CGFloat = 28; static let hero: CGFloat = 34 }
+    enum Size { static let tap: CGFloat = 44; static let primary: CGFloat = 56 }
+    enum TypeStyle {
+        static let hero = Font.system(.largeTitle, design: .rounded, weight: .bold)
+        static let section = Font.system(.title2, design: .rounded, weight: .bold)
+        static let title = Font.system(.title3, design: .rounded, weight: .bold)
+    }
     static let header = Color.black
     static let headerInk = Color.white
     static let background = adaptive(
@@ -61,7 +70,7 @@ enum BusinessDesign {
 }
 
 struct BusinessCardModifier: ViewModifier {
-    var radius: CGFloat = 28
+    var radius: CGFloat = BusinessDesign.Radius.card
     func body(content: Content) -> some View {
         content
             .background(BusinessDesign.card)
@@ -100,7 +109,7 @@ struct BusinessBrandLogo: View {
 }
 
 extension View {
-    func businessCard(radius: CGFloat = 28) -> some View { modifier(BusinessCardModifier(radius: radius)) }
+    func businessCard(radius: CGFloat = BusinessDesign.Radius.card) -> some View { modifier(BusinessCardModifier(radius: radius)) }
 }
 
 
@@ -192,5 +201,71 @@ struct BusinessPageHeading: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+
+/// Primary action styling, independent from the color scheme of the navigation bar.
+struct BusinessActionStyle: ButtonStyle {
+    var primary = true
+    @Environment(\.isEnabled) private var enabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.headline)
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 16).padding(.vertical, 12)
+            .frame(maxWidth: .infinity, minHeight: primary ? BusinessDesign.Size.primary : BusinessDesign.Size.tap)
+            .foregroundStyle(primary ? BusinessDesign.onAccent : BusinessDesign.ink)
+            .background(primary ? BusinessDesign.accent : BusinessDesign.secondarySurface, in: RoundedRectangle(cornerRadius: BusinessDesign.Radius.control))
+            .opacity(enabled ? (configuration.isPressed ? 0.76 : 1) : 0.45)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: configuration.isPressed)
+    }
+}
+
+struct BusinessStageRail: View {
+    let titles: [String]
+    let symbols: [String]
+    let current: Int
+    let goBack: (Int) -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(titles.indices, id: \.self) { index in
+                if index > 0 { Capsule().fill(index <= current ? BusinessDesign.ink : BusinessDesign.line).frame(height: 2).accessibilityHidden(true) }
+                Button { goBack(index) } label: {
+                    Image(systemName: index < current ? "checkmark" : symbols[index])
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(index <= current ? BusinessDesign.onAccent : BusinessDesign.muted)
+                        .frame(width: 36, height: 36)
+                        .background(index <= current ? BusinessDesign.accent : BusinessDesign.secondarySurface, in: Circle())
+                        .frame(width: 44, height: 44).contentShape(Rectangle())
+                }.buttonStyle(.plain).disabled(index >= current)
+                    .accessibilityLabel(titles[index]).accessibilityAddTraits(index == current ? .isSelected : [])
+            }
+        }.animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: current)
+    }
+}
+
+struct BusinessChoiceRow: View {
+    let title: String
+    let subtitle: String
+    let symbol: String
+    let selected: Bool
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Image(systemName: symbol).font(.title2).frame(width: 36)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title).font(.headline)
+                Text(subtitle).font(.subheadline).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+            Image(systemName: selected ? "checkmark.circle.fill" : "circle").font(.title2)
+        }.foregroundStyle(BusinessDesign.ink).padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(BusinessDesign.card, in: RoundedRectangle(cornerRadius: BusinessDesign.Radius.compact))
+            .overlay { RoundedRectangle(cornerRadius: BusinessDesign.Radius.compact).strokeBorder(selected ? BusinessDesign.ink : BusinessDesign.line, lineWidth: selected ? 2 : 1) }
+            .accessibilityElement(children: .combine).accessibilityAddTraits(selected ? .isSelected : [])
     }
 }

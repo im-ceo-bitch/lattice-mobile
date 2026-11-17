@@ -140,7 +140,7 @@ struct TeamMemberEditorView: View {
     var body: some View {
         TeamMemberForm(member: $member, pendingPhotoData: $pendingPhotoData, ownerMode: member.isOwner)
             .navigationTitle(creating ? "Новый сотрудник" : "Сотрудник")
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
             .toolbar {
                 if creating { ToolbarItem(placement: .topBarLeading) { Button("Отмена") { dismiss() } } }
                 ToolbarItem(placement: .topBarTrailing) {

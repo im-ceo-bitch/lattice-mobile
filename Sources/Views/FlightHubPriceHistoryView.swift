@@ -181,7 +181,7 @@ struct FlightHubPriceHistoryView: View {
                 }
             }
             .navigationTitle("История цен")
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Закрыть") { dismiss() } } }
         }
         .task(id: flightKey) { await load() }

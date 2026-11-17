@@ -300,7 +300,7 @@ private struct BookingESIMEditorSheet: View {
             }
         }
         .navigationTitle(profile == nil ? "Добавить eSIM" : "Изменить eSIM")
-        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Отмена") { dismiss() }

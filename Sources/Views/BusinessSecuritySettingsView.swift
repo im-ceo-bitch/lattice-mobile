@@ -133,7 +133,7 @@ private struct BusinessPINEditView: View {
             if let error { Section { Text(error).foregroundStyle(.red) } }
         }
         .navigationTitle(replacing ? "Изменить PIN" : "Создать PIN")
-        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
         .toolbar {
             ToolbarItem(placement: .cancellationAction) { Button("Отмена") { dismiss() } }
             ToolbarItem(placement: .confirmationAction) {
@@ -167,7 +167,7 @@ private struct BusinessPINRemoveView: View {
             if let error { Section { Text(error).foregroundStyle(.red) } }
         }
         .navigationTitle("Удалить PIN")
-        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
         .toolbar {
             ToolbarItem(placement: .cancellationAction) { Button("Отмена") { dismiss() } }
             ToolbarItem(placement: .confirmationAction) {

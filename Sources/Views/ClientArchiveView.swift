@@ -206,7 +206,7 @@ private struct PilgrimDetailView: View {
         }
         .background(BusinessDesign.background)
         .navigationTitle(detail?.pilgrim.displayName ?? "Клиент")
-        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
         .task {
             detail = try? await APIClient.shared.pilgrimDetail(id: pilgrimID)
             loading = false

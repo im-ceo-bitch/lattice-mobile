@@ -34,6 +34,9 @@ private enum BookingListFilter: String, CaseIterable, Identifiable {
 
 struct BookingsView: View {
     @Environment(\.businessAdaptiveLayout) private var layout
+    @EnvironmentObject private var navigation: BusinessNavigationStore
+    @EnvironmentObject private var auth: AuthStore
+    @State private var create = false
 
     @State private var showOffers = false
     @State private var bookings: [BookingSummary] = []
@@ -75,6 +78,7 @@ struct BookingsView: View {
         }
         .toolbar {
             ToolbarItem(placement: .topBarLeading) { BusinessSidebarButton() }
+            ToolbarItem(placement: .topBarTrailing) { Button { create = true } label: { Image(systemName: "plus").foregroundStyle(.white) }.accessibilityLabel("Создать умру") }
             ToolbarItem(placement: .principal) {
                 BusinessBrandLogo(width: 150, foreground: .white).frame(height: 36)
             }
@@ -87,7 +91,10 @@ struct BookingsView: View {
                 }
             }
         }
-        .searchable(text: $search, prompt: "Имя, номер брони, iumrah ID")
+        .searchable(text: $search, prompt: showOffers ? "Package ID, отель или бронь" : "Имя, номер брони, iumrah ID")
+        .sheet(isPresented: $create, onDismiss: { Task { await load() } }) { NavigationStack { UmrahBuilderView(owner: auth.user?.login ?? "", preferOffer: showOffers) } }
+        .onAppear { applyFilterRequest() }
+        .onChange(of: navigation.bookingFilterRequest) { _, _ in applyFilterRequest() }
         .task { if BusinessNotificationRoute.pendingOffer != nil { showOffers = true }; await load(); openPendingBooking() }
         .onReceive(NotificationCenter.default.publisher(for: .iumrahBusinessBookingOpen)) { notification in
             showOffers = false
@@ -125,6 +132,11 @@ struct BookingsView: View {
         }
     }
 
+    private func applyFilterRequest() {
+        guard let raw = navigation.bookingFilterRequest else { return }
+        navigation.bookingFilterRequest = nil
+        search = ""; showOffers = false; filter = BookingListFilter(rawValue: raw) ?? .all
+    }
     private func openPendingBooking() {
         guard let id = pendingBookingID ?? BusinessNotificationRoute.pendingBooking,
               let booking = bookings.first(where: { $0.id == id }) else { return }
@@ -205,6 +217,7 @@ struct BookingsView: View {
                 BookingRow(booking: booking, showsChevron: showsChevron)
                     .contentShape(Rectangle())
                     .onTapGesture { selectedBooking = booking }
+                    .accessibilityAddTraits(.isButton)
                     .listRowInsets(EdgeInsets(top: 7, leading: 18, bottom: 7, trailing: 18))
                     .listRowBackground(
                         layout.supportsTwoPaneWorkspace && selectedBooking?.id == booking.id
@@ -249,7 +262,7 @@ struct BookingsView: View {
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(filter == item ? BusinessDesign.onPrimaryControl : BusinessDesign.ink)
                         .padding(.horizontal, 14)
-                        .frame(height: 40)
+                        .frame(minHeight: 44)
                         .background(filter == item ? BusinessDesign.primaryControl : BusinessDesign.secondarySurface, in: Capsule())
                     }
                     .buttonStyle(.plain)

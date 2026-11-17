@@ -140,7 +140,7 @@ struct BookingCheckoutAdminCard: View {
                 }
                 .background(Color.black.opacity(0.96))
                 .navigationTitle(preview.title)
-                .navigationBarTitleDisplayMode(.inline)
+                .navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Готово") { imagePreview = nil } } }
             }
         }

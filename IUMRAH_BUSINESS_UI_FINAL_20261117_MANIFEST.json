@@ -1,0 +1,248 @@
+{
+  "base": "lattice-mobile-main 5.zip + iumrah-business-sales-offers-20261117.zip",
+  "date": "2026-11-17",
+  "type": "cumulative-root-overlay",
+  "ui_changed_swift_files": [
+    "Sources/Core/Design.swift",
+    "Sources/Views/BookingCheckoutAdminCard.swift",
+    "Sources/Views/BookingDetailView.swift",
+    "Sources/Views/BookingESIMAdminCard.swift",
+    "Sources/Views/BookingItineraryEditor.swift",
+    "Sources/Views/BookingPricingEditorSheet.swift",
+    "Sources/Views/BookingsView.swift",
+    "Sources/Views/BusinessOffersView.swift",
+    "Sources/Views/BusinessSecuritySettingsView.swift",
+    "Sources/Views/BusinessTabView.swift",
+    "Sources/Views/ChatsView.swift",
+    "Sources/Views/ClientArchiveView.swift",
+    "Sources/Views/ESIMCenterView.swift",
+    "Sources/Views/EmployeesView.swift",
+    "Sources/Views/FlightHubPriceHistoryView.swift",
+    "Sources/Views/HotelAdminDetailView.swift",
+    "Sources/Views/HotelPriceMonitoringView.swift",
+    "Sources/Views/OverviewView.swift",
+    "Sources/Views/PaymentsView.swift",
+    "Sources/Views/PrimaryHotelsView.swift",
+    "Sources/Views/RootView.swift",
+    "Sources/Views/UmrahBuilderView.swift",
+    "Sources/Views/ZiyaratsView.swift"
+  ],
+  "files": [
+    {
+      "path": "Backend/HotelsWorker/src/index.js",
+      "sha256": "c28b9edb1c0235d9e3da5da81e5a10adc1099bd532fdff0a692baa7c3bde1981"
+    },
+    {
+      "path": "Backend/IumrahBackend/core/app/api/admin/bookings/route.js",
+      "sha256": "e40bebd6bb2d8306d9c759ae347aeee6753f890b0949092ac105acaa9bcc2109"
+    },
+    {
+      "path": "Backend/IumrahBackend/core/app/api/bookings/route.js",
+      "sha256": "8a1ed9529a4fb8c7a480f4766a93bfabc62249861d448cd8a89e91ae9b540aab"
+    },
+    {
+      "path": "Backend/IumrahBackend/core/lib/business-manual-booking.js",
+      "sha256": "19902b8179ab03aa7b9456aa7129d9827aa49f57cf4b6541fd129e1edafb4402"
+    },
+    {
+      "path": "Backend/IumrahBackend/core/lib/business-offer-page.js",
+      "sha256": "0ae295466fad3d47184dba76fa9c152c4b7ea51dfa714747a6d07b037706cd76"
+    },
+    {
+      "path": "Backend/IumrahBackend/core/lib/business-offers.js",
+      "sha256": "3fbabe77390676efd8064de9a8c758c770f2e0104039f85286bf94d3108431a0"
+    },
+    {
+      "path": "Backend/IumrahBackend/core/routes.js",
+      "sha256": "ae7506e4dd64a77e2933917443947d0c064fb6c7fb3ba5ca46658e6b930c4f86"
+    },
+    {
+      "path": "Backend/IumrahBackend/src/index.js",
+      "sha256": "6d1caa240e40617b41b23602ee9af559065367d536cae2c3f75567d1676346f0"
+    },
+    {
+      "path": "Backend/IumrahBackend/src/router.js",
+      "sha256": "c6a49d374b155ff3d7d55eec6ea8a71713ace46a2e7a39f356ed97b790e2ab95"
+    },
+    {
+      "path": "Backend/IumrahBackend/tests/core-runtime.test.mjs",
+      "sha256": "2db4318d115e88e536a97050c1efe733c5b643239510c7e619727f012b04a76d"
+    },
+    {
+      "path": "IUMRAH_BUSINESS_OPERATIONS_20261116.md",
+      "sha256": "271e12a7cab99eac7e4074383d95b43f84122bdf243a677b790d4b328a832c5f"
+    },
+    {
+      "path": "IUMRAH_BUSINESS_OPERATIONS_20261116_MANIFEST.json",
+      "sha256": "d470c9c2acdbceb70e1db340aada7273a7b52278f216e4dd0dbecd4529672e53"
+    },
+    {
+      "path": "IUMRAH_BUSINESS_SALES_OFFERS_20261117.md",
+      "sha256": "80d8bb43c00dd515792f18652480db0f6a5ea9df6138b9f18bafd3ffdc931d41"
+    },
+    {
+      "path": "IUMRAH_BUSINESS_SALES_OFFERS_20261117_MANIFEST.json",
+      "sha256": "a133c3b4cf77cde34d2463a58b7e5c77f15bf5bf8e25d16686ac1c8b14353939"
+    },
+    {
+      "path": "IUMRAH_BUSINESS_UI_FINAL_20261117.md",
+      "sha256": "b4f2e5840acd1dcbf1eddee741b1d74437fdc2dc97115cb223230360107c1ee5"
+    },
+    {
+      "path": "Sources/Core/BusinessAnimationPalette.swift",
+      "sha256": "f10c86e2738aeb6e3b41e151992415012eed885da753073eedb52e9b4be391bd"
+    },
+    {
+      "path": "Sources/Core/BusinessNotifications.swift",
+      "sha256": "e02a5a50fd3a7de6bda7aa71c0e857f83ef06fafaada0fa3c73c86bf5c7d9778"
+    },
+    {
+      "path": "Sources/Core/Design.swift",
+      "sha256": "b031f9c8aaa697c2a2befbb821d712cb15cb41f231124a91bf26de389492676b"
+    },
+    {
+      "path": "Sources/Core/IumrahOrbitV5.swift",
+      "sha256": "017e434eca181fd315b5871ffa6057ef935f6173e70226a8eeab2f9c404a7209"
+    },
+    {
+      "path": "Sources/Models/AdminModels.swift",
+      "sha256": "94c0dc3dd92253afd9a2c98946e95b4bdce10ad111bf71a84134141138e617c8"
+    },
+    {
+      "path": "Sources/Models/BusinessManualBookingReceipt.swift",
+      "sha256": "cf5825a14e4d529f9ed187539e76bd217b4ea5487ccdd6cf6e9dd223d160045a"
+    },
+    {
+      "path": "Sources/Models/UmrahPackageDraft.swift",
+      "sha256": "69af59374356c01994cf228b2f616c95b3b31ccb5cc088d5226930890dfd4b13"
+    },
+    {
+      "path": "Sources/Networking/APIClient+ManualBooking.swift",
+      "sha256": "d3fc317cea0d812a5b6b6124fc99532116cfdbd4aa5fa8bb15321cac8de049cc"
+    },
+    {
+      "path": "Sources/Networking/APIClient+Offers.swift",
+      "sha256": "7672ecd43708e7a1323d5da10c9c997940e2e50ffb2cfa02fa2d3c899a24886c"
+    },
+    {
+      "path": "Sources/Networking/APIClient.swift",
+      "sha256": "f7a5e3033e802f1c6e02faf70a0901e39caa1988b3f85a7aa427446e0e0799cf"
+    },
+    {
+      "path": "Sources/Views/BookingCheckoutAdminCard.swift",
+      "sha256": "43551dd7262c58f9bb3cfe91d297fb780e578f262a9f9ef0727243fd3dc9b104"
+    },
+    {
+      "path": "Sources/Views/BookingDetailView.swift",
+      "sha256": "33454497c30a29489d42cc298767459461ff730231f09f6dc270f6a580631367"
+    },
+    {
+      "path": "Sources/Views/BookingESIMAdminCard.swift",
+      "sha256": "08e843a806bec112756e82190e323087c47f4fc4c619ed479e55f47c10b9f262"
+    },
+    {
+      "path": "Sources/Views/BookingItineraryEditor.swift",
+      "sha256": "a4650ceb6342e563e1a5bb54762959138a413af75ab80adfcd1444d944b82eb2"
+    },
+    {
+      "path": "Sources/Views/BookingPricingEditorSheet.swift",
+      "sha256": "6fe0f497b2f0f75caf5b0c531b929af70a57adb264c51943a02335029a722356"
+    },
+    {
+      "path": "Sources/Views/BookingsView.swift",
+      "sha256": "3843c628a78af0a01e02f04f233d4be6ca65900822ec71efefd1a6bc8855f960"
+    },
+    {
+      "path": "Sources/Views/BusinessCatalogsView.swift",
+      "sha256": "d75b068992bcaf932640d7c3539285e8fcef529475e902bf4548527da807a6bc"
+    },
+    {
+      "path": "Sources/Views/BusinessOffersView.swift",
+      "sha256": "9e5f9e70308463d17f777b5228e7e850dfdc5702d8f397504bd5254778ed547f"
+    },
+    {
+      "path": "Sources/Views/BusinessPushDiagnosticsView.swift",
+      "sha256": "ad0946bbbf988c502d1a76efa7d83ccf7989e73b00b96adb24be51fde78a4e2b"
+    },
+    {
+      "path": "Sources/Views/BusinessSecuritySettingsView.swift",
+      "sha256": "e4f10f7e22e89d6b4830f6117aa9f7c9e6c3881ce44cb1abde16ccdcb2dbaf9a"
+    },
+    {
+      "path": "Sources/Views/BusinessSidebar.swift",
+      "sha256": "e9deddee0dbfe2aedd3e0978a7184c45f0588004da6ad9adebb72320f3896e5f"
+    },
+    {
+      "path": "Sources/Views/BusinessTabView.swift",
+      "sha256": "dd495a9765bdc0d46d9b49753ccb9685758aa438f29af7220904d19e17f0ddff"
+    },
+    {
+      "path": "Sources/Views/ChatsView.swift",
+      "sha256": "88fcd430f123c5882760cb6840fa7ac881d12e33aa9f75a98014c40dbf2840ce"
+    },
+    {
+      "path": "Sources/Views/ClientArchiveView.swift",
+      "sha256": "08fd79c3c69ffdcf641effec7679aabb7ff542e802076609f74622e4bafa5149"
+    },
+    {
+      "path": "Sources/Views/ESIMCenterView.swift",
+      "sha256": "37bc30abd12eea3ada22ba53ee678318bd8a37925a7ca151d06b49d4e4ee4bb9"
+    },
+    {
+      "path": "Sources/Views/EmployeesView.swift",
+      "sha256": "3607447fbed04dcef196c8691153042d2cd89e75c5156fc3842d6a6a34a851dc"
+    },
+    {
+      "path": "Sources/Views/FlightCurationView.swift",
+      "sha256": "65fe3a226d19f458ad4aa39657f87e95d6a888c6e39572bb6b706c627f6a14eb"
+    },
+    {
+      "path": "Sources/Views/FlightHubPriceHistoryView.swift",
+      "sha256": "c510a9861a8ef297b254e7e4817120b079ea7814d60954f8b76a0e57907ece31"
+    },
+    {
+      "path": "Sources/Views/HotelAdminDetailView.swift",
+      "sha256": "d8df0cff3300bc9b800b61492d7df1cd6c5e7d9ea0a3b89d32fd38599c71b45a"
+    },
+    {
+      "path": "Sources/Views/HotelPriceMonitoringView.swift",
+      "sha256": "a1ced012d5ad65ce23c36522ad7050c6484866a77988f34f36551568987b74e5"
+    },
+    {
+      "path": "Sources/Views/HotelsView.swift",
+      "sha256": "1aa040efe7accd0116e5982f6244545850b91a5cf6e1d6f4a4741d9a5cf86f93"
+    },
+    {
+      "path": "Sources/Views/OverviewView.swift",
+      "sha256": "2a9ec5ee75538afc171e12bd9ad78f8f74f7c4d6dca30afeac9d9ee7cddb3516"
+    },
+    {
+      "path": "Sources/Views/PaymentsView.swift",
+      "sha256": "3bc561597728cb1454acd43344b8f38afe1f6b033129b9e7abf456a6fd3ee5dc"
+    },
+    {
+      "path": "Sources/Views/PrimaryHotelsView.swift",
+      "sha256": "468d52864e1b2189298aceabde43976e88ac0ce8e0a87ec8348e20e2cea8f2ff"
+    },
+    {
+      "path": "Sources/Views/RootView.swift",
+      "sha256": "6a13166665eadca7224137f42a950fda158d33a510015e76576edf8059a751aa"
+    },
+    {
+      "path": "Sources/Views/UmrahBuilderView.swift",
+      "sha256": "542422d4b9f3bafd57734806d7ca25220495533e20a2e366c3ce11f2fb65d3c9"
+    },
+    {
+      "path": "Sources/Views/ZiyaratsView.swift",
+      "sha256": "51d120b9173960493cde1202bdf9f7ee15cedc830c9b66ac50ad7f2080623979"
+    },
+    {
+      "path": "Tests/Architecture/test_business_ui_final.py",
+      "sha256": "e1c8dccda9911a327101dd430625bf61aa206267935046b94de06f038c1bcd88"
+    },
+    {
+      "path": "Tests/run_umrah_draft_tests.py",
+      "sha256": "18e0f0dcb261052cf657c896da37f920efe1fc6cc928034021b5399a67cce7e3"
+    }
+  ]
+}
