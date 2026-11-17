@@ -130,41 +130,57 @@ function hotelItem(raw: Json): Json | null {
     latitude: num(raw.latitude ?? raw.location?.latitude), longitude: num(raw.longitude ?? raw.location?.longitude),
   };
 }
+// v2 invalidates the old 150-property snapshot without deleting it. It remains
+// a last-known-good fallback and is still valid for existing room selections.
+async function cachedCatalog(env: Env, city: string) {
+  return await read(env, `catalog:v2:${city}`) ?? await read(env, `catalog:v1:${city}`);
+}
 async function catalog(env: Env, city: 'makkah' | 'madinah') {
-  const key = `catalog:v1:${city}`;
+  const key = `catalog:v2:${city}`;
   const cached = await read(env, key);
   if (cached?.fresh) return { items: cached.data as Json[], stale: false };
+  const previous = cached ?? await read(env, `catalog:v1:${city}`);
   try {
-    let selected: Json[] = [];
+    const selected = new Map<string, Json>();
+    const limit = 200;
+    // Page through both supplier spellings, merging by property ID rather than
+    // choosing whichever first page happens to have more results.
     for (const name of supportedCities[city]) {
-      const p = new URLSearchParams({ countryCode: 'SA', cityName: name, limit: '350', offset: '0' });
-      const result = await provider(env, '/data/hotels', p);
-      const list = (Array.isArray(result.data) ? result.data : []).map(hotelItem).filter(Boolean) as Json[];
-      if (list.length > selected.length) selected = list;
-      if (selected.length >= 150) break;
+      const rawIDs = new Set<string>();
+      let offset = 0;
+      for (let page = 0; page < 50; page++) {
+        const p = new URLSearchParams({ countryCode: 'SA', cityName: name, limit: String(limit), offset: String(offset) });
+        const result = await provider(env, '/data/hotels', p);
+        if (!Array.isArray(result.data)) throw new Error('NUITEE_INVALID_CATALOG');
+        const raw = result.data as Json[];
+        if (!raw.length) break;
+        let advanced = false;
+        for (const record of raw) {
+          const id = text(record.id);
+          if (id && !rawIDs.has(id)) { rawIDs.add(id); advanced = true; }
+          const item = hotelItem(record);
+          if (item && !selected.has(item.id)) selected.set(item.id, item);
+        }
+        if (!advanced) break; // provider repeated a page; never loop or duplicate
+        offset += raw.length;
+        const total = num(result.total);
+        if (total !== null && total >= raw.length && offset >= total) break;
+        // Some responses omit total or clamp limit. Continue even on a short page.
+        if (page === 49) throw new Error('NUITEE_CATALOG_PAGE_LIMIT');
+      }
     }
-    // Explicit cap; exclude bare properties without a meaningful name. No fabricated entries.
-    // Keep different star classes visible even when the provider returns more
-    // luxury properties than the 150-card V1 limit.
-    selected.sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
-    const groups = [5, 4, 3, 2, 1].map(star => selected.filter(h =>
-      Math.max(1, Math.min(5, Math.round(h.stars ?? 0))) === star));
-    const balanced: Json[] = [];
-    for (const group of groups) balanced.push(...group.slice(0, 30));
-    const seen = new Set(balanced.map(h => h.id));
-    const remaining = selected.filter(h => !seen.has(h.id));
-    const items = [...balanced, ...remaining].slice(0, 150)
-      .sort((a, b) => (b.stars ?? 0) - (a.stars ?? 0) || (b.rating ?? 0) - (a.rating ?? 0));
+    const items = [...selected.values()].sort((a,b) => (b.stars ?? 0) - (a.stars ?? 0) || (b.rating ?? 0) - (a.rating ?? 0) || a.id.localeCompare(b.id));
     if (!items.length) throw new Error('NUITEE_CATALOG_EMPTY');
     await save(env, key, items, 7 * DAY);
     return { items, stale: false };
   } catch (e) {
-    if (cached) return { items: cached.data as Json[], stale: true };
+    if (previous) return { items: previous.data as Json[], stale: true };
     throw e;
   }
 }
 async function minimums(env: Env, city: 'makkah' | 'madinah', hotels: Json[], checkin: string, checkout: string, adults: number) {
-  const key = `minimum:v2:${city}:${checkin}:${checkout}:${adults}:UZ:USD`;
+  // Cache by exact ID set, not merely city/dates: page 2 must not reuse page 1 prices.
+  const key = `minimum:v2:${city}:${checkin}:${checkout}:${adults}:UZ:USD:${hotels.map(h => text(h.id)).sort().join(',')}`;
   const cached = await read(env, key);
   if (cached?.fresh) return { values: cached.data as Json[], stale: false, updatedAt: cached.updatedAt };
   try {
@@ -243,28 +259,44 @@ async function listing(url: URL, env: Env) {
   if (!stayDates(inDate, outDate)) return error('INVALID_DATES');
   const adults = Math.floor(Number(url.searchParams.get('adults') || 2));
   if (!Number.isInteger(adults) || adults < 1 || adults > 8) return error('INVALID_OCCUPANCY');
+  const paged = url.searchParams.has('offset') || url.searchParams.has('pageSize') || url.searchParams.has('stars') || url.searchParams.has('query') || url.searchParams.has('hotelIds');
+  const offset = Number(url.searchParams.get('offset') ?? 0);
+  const pageSize = Number(url.searchParams.get('pageSize') ?? 12);
+  const stars = Number(url.searchParams.get('stars') ?? 0);
+  if (paged && (!Number.isSafeInteger(offset) || offset < 0 || !Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100 || !Number.isInteger(stars) || stars < 0 || stars > 5)) return error('INVALID_HOTEL_PAGE');
+  const query = text(url.searchParams.get('query')).toLowerCase();
+  const hotelIds = url.searchParams.has('hotelIds') ? new Set((url.searchParams.get('hotelIds') ?? '').split(',').filter(Boolean)) : null;
   const c = await catalog(env, city);
-  let rates: Awaited<ReturnType<typeof minimums>> | undefined;
-  let rateError: string | null = null;
-  try {
-    if (url.searchParams.get('catalogOnly') !== '1') {
-      rates = await minimums(env, city, c.items, inDate, outDate, adults);
-      rateError = rates.rateError ?? null;
+  const filtered = c.items.filter(h => (!stars || Math.round(Number(h.stars ?? 0)) === stars) &&
+    (!hotelIds || hotelIds.has(h.id)) && (!query || `${h.name ?? ''} ${h.address ?? ''}`.toLowerCase().includes(query)));
+  const items = paged ? filtered.slice(offset, offset + pageSize) : filtered;
+  let rateError: string | null = null, pricesStale = false, pricesUpdatedAt: number | null = null;
+  const indexed = new Map<string, Json>();
+  const catalogOnly = url.searchParams.get('catalogOnly') === '1';
+  if (!catalogOnly) {
+    // Legacy full-city requests remain supported; never send an oversized batch.
+    for (let start = 0; start < items.length; start += 200) {
+      try {
+        const rates = await minimums(env, city, items.slice(start, start + 200), inDate, outDate, adults);
+        pricesStale ||= rates.stale;
+        pricesUpdatedAt = pricesUpdatedAt === null ? rates.updatedAt : Math.min(pricesUpdatedAt, rates.updatedAt);
+        rateError ||= rates.rateError ?? null;
+        for (const value of rates.values) indexed.set(value.hotelId, value);
+      } catch (e) { rateError ||= e instanceof Error ? e.message : 'RATES_UNAVAILABLE'; }
     }
   }
-  catch (e) { rateError = e instanceof Error ? e.message : 'RATES_UNAVAILABLE'; }
-  const indexed = new Map<string, Json>((rates?.values ?? []).map((x: Json): [string, Json] => [x.hotelId, x]));
   return output({ ok: true, provider: 'nuitee', sandbox: isSandbox(env),
     city, checkin: inDate, checkout: outDate, adults, priceType: 'room_total', currency: 'USD',
-    hotelCatalogStale: c.stale, pricesStale: Boolean(rates?.stale), pricesUpdatedAt: rates?.updatedAt ?? null, rateError,
-    hotels: c.items.map(h => ({ ...h, minimumRate: indexed.get(h.id) ?? null,
-      rateStatus: indexed.has(h.id) ? (rates?.stale ? 'cached' : 'available')
-        : rateError ? 'provider_error' : url.searchParams.get('catalogOnly') === '1' ? 'not_requested' : 'no_availability' })),
+    hotelCatalogStale: c.stale, pricesStale, pricesUpdatedAt, rateError,
+    ...(paged ? { total: filtered.length, nextOffset: offset + items.length < filtered.length ? offset + items.length : null } : {}),
+    hotels: items.map(h => ({ ...h, minimumRate: indexed.get(h.id) ?? null,
+      rateStatus: indexed.has(h.id) ? (pricesStale ? 'cached' : 'available')
+        : rateError ? 'provider_error' : catalogOnly ? 'not_requested' : 'no_availability' })),
   });
 }
 async function isListedHotel(env: Env, id: string): Promise<boolean> {
   for (const city of ['makkah', 'madinah']) {
-    const c = await read(env, `catalog:v1:${city}`);
+    const c = await cachedCatalog(env, city);
     if (Array.isArray(c?.data) && c.data.some((h: Json) => h.id === id)) return true;
   }
   return false;
@@ -459,9 +491,9 @@ export async function refreshNuiteeHotelCatalog(env: Env, refreshPrices = true):
       // Keep the original static expiry: photo enrichment must not prevent refresh.
       if (!result.stale) {
         await env.HOTELS_DB.prepare('UPDATE nuitee_hotel_cache SET payload = ?1 WHERE key = ?2')
-          .bind(JSON.stringify(result.items), `catalog:v1:${city}`).run();
+          .bind(JSON.stringify(result.items), `catalog:v2:${city}`).run();
       }
-      if (refreshPrices) await minimums(env, city, result.items, checkin, checkout, 2);
+      if (refreshPrices) await minimums(env, city, result.items.slice(0, 12), checkin, checkout, 2);
       await save(env, `scheduled:v2:${city}:${refreshPrices}`, true, 15 * 60);
     } catch {
       // The next scheduled run or an on-demand request will retry.
@@ -502,7 +534,7 @@ export async function resolveNuiteePackageHotels(env: Env, values: NuiteePackage
     if (rooms.length !== travelers.rooms || new Set(rooms.map(x => x.id)).size !== rooms.length) throw new Error("NUITEE_ROOM_SELECTION_INCOMPLETE");
     if (new Set(rooms.map(x => x.hotelId)).size !== 1 || new Set(rooms.map(x => x.checkin + ":" + x.checkout)).size !== 1) throw new Error("NUITEE_CITY_SELECTION_MISMATCH");
     if (rooms.reduce((n,r)=>n+Number(r.adults),0) !== travelers.adults || rooms.reduce((n,r)=>n+(Array.isArray(r.children)?r.children.length:0),0) !== travelers.children+travelers.infants) throw new Error("NUITEE_OCCUPANCY_MISMATCH");
-    const catalog = await read(env, `catalog:v1:${city}`);
+    const catalog = await cachedCatalog(env, city);
     const hotel = Array.isArray(catalog?.data) ? catalog!.data.find((h:Json)=>h.id===rooms[0].hotelId) : null;
     if (!hotel) throw new Error("HOTEL_NOT_IN_CATALOG");
     const stars = Math.round(Number(hotel.stars)); packageTierForStars(stars); highestStars = Math.max(highestStars, stars);

@@ -4,7 +4,7 @@ import { NextResponse } from "../../../runtime.js";
 import { isTripInput, } from "../../../lib/domain.js";
 import { cents, ensureBookingSchema, getBookingDb, getPassportBucket, hashBookingToken, makeBookingId, makeBookingToken, normalizeLanguage, } from "../../../lib/booking-store.js";
 import { consentStatements, deliverTelegramNotice, ensureTelegramBookingSchema, findValidConsent, queueTelegramNotice } from "../../../lib/telegram-booking.js";
-import { prepareCreationIntent, prepareGuestCreationIntent, ensureCreationOutbox, creationOutboxStatement } from "../../../lib/booking-notifications.js";
+import { prepareCreationIntent, ensureCreationOutbox, creationOutboxStatement } from "../../../lib/booking-notifications.js";
 export const dynamic = "force-dynamic";
 const plans = new Set(["economy", "standard", "comfort", "luxury"]);
 const services = new Set(["flight", "makkahHotel", "madinahHotel", "visa", "meals", "transfer", "accompaniment", "ziyaratMakkah", "ziyaratMadinah", "care", "haramainTrain", "esim"]);
@@ -96,12 +96,11 @@ function pilgrimProfile(value) {
     const firstName = string(value.firstName, 120);
     const lastName = string(value.lastName, 120);
     const phone = string(value.phone, 60);
-    const email = string(value.email, 180).toLowerCase();
     const telegram = string(value.telegram, 120);
     const whatsapp = string(value.whatsapp, 100);
     if (!firstName && !lastName && !phone && !telegram && !whatsapp)
         return undefined;
-    return { firstName, lastName, phone, email, telegram, whatsapp };
+    return { firstName, lastName, phone, telegram, whatsapp };
 }
 function selection(value) {
     if (!record(value))
@@ -207,7 +206,6 @@ export async function POST(request) {
     let rawConsent;
     let rawQuoteProof;
     let rawNotificationIntent;
-    let rawGuestRequestID;
     let form = null;
     try {
         if (multipart) {
@@ -227,7 +225,6 @@ export async function POST(request) {
             rawConsent = record(body) ? body.telegramConsentTicket : undefined;
             rawQuoteProof = record(body) ? body.quoteProof : undefined;
             rawNotificationIntent = record(body) ? body.notificationIntent : undefined;
-            rawGuestRequestID = record(body) ? body.guestRequestID : undefined;
         }
     }
     catch {
@@ -291,11 +288,6 @@ export async function POST(request) {
             if(multipart)return NextResponse.json({error:'NOTIFICATION_INTENT_UNSUPPORTED'},{status:400});
             try{await ensureCreationOutbox(db);intent=await prepareCreationIntent(requestEnv(),rawNotificationIntent,input,rawQuoteProof??rawBooking?.quoteProof,lang);}
             catch(error){return NextResponse.json({error:error?.checkoutError?error.message:'NOTIFICATION_SERVICE_UNAVAILABLE'},{status:error?.message==='NOTIFICATION_PROOF_INVALID'?400:503});}
-        }
-        if(rawGuestRequestID!=null){
-            if(multipart||rawNotificationIntent!=null)return NextResponse.json({error:'GUEST_REQUEST_INVALID'},{status:400});
-            try{await ensureCreationOutbox(db);intent=await prepareGuestCreationIntent(requestEnv(),rawGuestRequestID,input,rawQuoteProof??rawBooking?.quoteProof,lang);}
-            catch(error){const code=error?.checkoutError?error.message:'NOTIFICATION_SERVICE_UNAVAILABLE';return NextResponse.json({error:code},{status:code==='GUEST_RATE_LIMIT'?429:code==='GUEST_REQUEST_INVALID'?400:503});}
         }
         const id = intent?.id || makeBookingId(input.input.startDate.slice(0, 4));
         const accessToken = intent?.accessToken || makeBookingToken();

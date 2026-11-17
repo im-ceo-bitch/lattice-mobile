@@ -1,4 +1,3 @@
-import { careAdmin } from "../../IumrahBackend/core/telegram/care.js";
 import { normalizeClientPushToken, clientPushProvider, fcmConfigured, deliverClientPushRows, sendFCM } from './fcm.js';
 import { documentRequirements, readinessFor, validatedAmount, paymentSatisfied, serviceRequirements, operationalProgress, queueFor } from "./booking-foundation.js";
 import { accountIDFromChatKey, chatScope, chatScopeSQL, staffChatScope, chatScopeVersion, carePushTargets, persistCarePushResult } from "./care-identity.js";
@@ -135,10 +134,6 @@ async function handleAdmin(request, env, url, user, businessSession = null) {
     if (parts.length === 3 && parts[2] === 'retry' && request.method === 'POST') return retryImportJob(env, jobID);
     if (parts.length === 3 && parts[2] === 'cancel' && request.method === 'POST') return cancelImportJob(env, jobID);
     return methodNotAllowed();
-  }
-
-  if (parts[0] === 'telegram-care') {
-    return careAdmin(request, env, parts.slice(1));
   }
 
   if (parts[0] === 'chats') {

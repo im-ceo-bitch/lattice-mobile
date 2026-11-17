@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { handleNuiteeHotelRequest } from '../.runtime-dist/nuitee-hotels.js';
 function environment() {
-  const cache = new Map([['catalog:v1:makkah', {payload:JSON.stringify([{id:'lp123',name:'Hotel',city:'Makkah',previewImages:['https://example.com/photo.jpg']}]),updated_at:Date.now(),expires_at:Date.now()+600000}]]);
+  const cache = new Map([['catalog:v2:makkah', {payload:JSON.stringify([{id:'lp123',name:'Hotel',city:'Makkah',previewImages:['https://example.com/photo.jpg']}]),updated_at:Date.now(),expires_at:Date.now()+600000}]]);
   return {cache, NUITEE_API_KEY:'sand_fixture',HOTELS_DB:{prepare(sql){let args=[];return {
     bind(...v){args=v;return this;},async first(){return cache.get(args[0])??null;},async run(){
       if(sql.includes('INSERT INTO')) cache.set(args[0],{payload:args[1],updated_at:args[2],expires_at:args[3]});return {success:true};
@@ -48,10 +48,35 @@ test('stale exact-search prices are labelled and expire after six hours',async()
   }finally{globalThis.fetch=old;}
 });
 
-test('cold static catalog persists at most 150 real properties and photo URLs',async()=>{
+test('cold catalog merges supplier pages, invalidates the old cap and paginates filtered results',async()=>{
   const env=environment(),old=globalThis.fetch;env.cache.clear();let calls=0;
-  globalThis.fetch=async()=>{calls++;return Response.json({data:Array.from({length:180},(_,i)=>({id:`lp${i}`,name:`Hotel ${i}`,city:'Makkah',stars:5,main_photo:`https://example.com/${i}.jpg`}))});};
-  try{const first=await get(env,'&catalogOnly=1'),second=await get(env,'&catalogOnly=1');assert.equal(first.hotels.length,150);assert.equal(second.hotels.length,150);assert.equal(calls,1);assert.ok(first.hotels.every(h=>h.coverImageURL.startsWith('https://')));}
+  const rows=Array.from({length:237},(_,i)=>({id:`lp${i}`,name:`Hotel ${i}`,city:'Makkah',stars:i<200?5:4,main_photo:`https://example.com/${i}.jpg`}));
+  env.cache.set('catalog:v1:makkah',{payload:JSON.stringify(rows.slice(0,5)),updated_at:Date.now(),expires_at:Date.now()+600000});
+  globalThis.fetch=async(input)=>{calls++;const u=new URL(input);const offset=Number(u.searchParams.get('offset'));const limit=Number(u.searchParams.get('limit'));return Response.json({data:rows.slice(offset,offset+limit),total:rows.length});};
+  try {
+    const ids=[];
+    for(const offset of [0,12,24,36]){
+      const r=await get(env,`&catalogOnly=1&stars=4&pageSize=12&offset=${offset}`);
+      assert.equal(r.total,37);assert.equal(r.hotels.length,Math.min(12,37-offset));assert.equal(r.nextOffset,offset+12<37?offset+12:null);
+      assert.ok(r.hotels.every(h=>h.stars===4 && h.coverImageURL.startsWith('https://')));ids.push(...r.hotels.map(h=>h.id));
+    }
+    assert.equal(new Set(ids).size,37);assert.equal(calls,4); // both spellings, two pages each; no repeat requests
+    const all=await get(env,'&catalogOnly=1');assert.equal(all.hotels.length,237);
+  } finally{globalThis.fetch=old;}
+});
+test('supplier short pages and alternative city spelling do not silently hide hotels',async()=>{
+  const env=environment(),old=globalThis.fetch;env.cache.clear();const calls=[];
+  const first=Array.from({length:17},(_,i)=>({id:`lp${i}`,name:`Hotel ${i}`,stars:4}));
+  const second=[...first.slice(0,5),{id:'lpExtra',name:'Extra',stars:4}];
+  globalThis.fetch=async(input)=>{const u=new URL(input),name=u.searchParams.get('cityName'),offset=Number(u.searchParams.get('offset'));calls.push([name,offset]);return Response.json({data:(name==='Makkah'?first:second).slice(offset,offset+5)});};
+  try {const a=await get(env,'&catalogOnly=1&stars=4&pageSize=12&offset=0'),b=await get(env,'&catalogOnly=1&stars=4&pageSize=12&offset=12');assert.equal(a.total,18);assert.equal(a.nextOffset,12);assert.equal(b.hotels.length,6);assert.equal(b.nextOffset,null);assert.equal(new Set([...a.hotels,...b.hotels].map(h=>h.id)).size,18);assert.ok(calls.some(([name,offset])=>name==='Makkah'&&offset===5));}
+  finally{globalThis.fetch=old;}
+});
+test('prices are cached per page, not reused for other hotels',async()=>{
+  const env=environment(),old=globalThis.fetch;const rows=Array.from({length:25},(_,i)=>({id:`lp${i}`,name:`Hotel ${i}`,stars:4}));
+  env.cache.set('catalog:v2:makkah',{payload:JSON.stringify(rows),updated_at:Date.now(),expires_at:Date.now()+600000});
+  const calls=[];globalThis.fetch=async(_,init)=>{const ids=JSON.parse(init.body).hotelIds;calls.push(ids);return Response.json({data:ids.map(id=>({hotelId:id,price:250}))});};
+  try {for(const offset of [0,12,0]){const r=await get(env,`&stars=4&pageSize=12&offset=${offset}`);assert.equal(r.hotels.length,12);assert.ok(r.hotels.every(h=>h.minimumRate.hotelId===h.id));}assert.equal(calls.length,2);assert.equal(new Set(calls.flat()).size,24);}
   finally{globalThis.fetch=old;}
 });
 
