@@ -964,7 +964,7 @@ function clientNotificationCopy(localeRaw, type, value) {
 
 // Durable best-effort APNs/FCM queue: one row per booking/event/recipient. No personal
 // document titles or contact information is included in the notification text.
-const BOOKING_PUSH_TYPES=new Set(['booking_status','availability_delay','itinerary_update','umrah_certificate','certificate_update','payment_review','travel_document']);
+const BOOKING_PUSH_TYPES=new Set(['booking_created','booking_status','availability_delay','itinerary_update','umrah_certificate','certificate_update','payment_review','travel_document']);
 async function queueBookingPush(env,bookingID,status,eventType){
   if(!clientPushReady(env))return {ok:false,skipped:'PUSH_NOT_CONFIGURED'};
   const {rows}=await carePushTargets(env.HOTELS_DB,bookingID,CLIENT_APP_BUNDLE_ID);
@@ -998,8 +998,8 @@ export async function retryBookingPushOutbox(env,event=null){
         const device=rows.find(d=>d.device_token===row.device_token);
         if(!device)state='skipped'; // Revalidate current authorized targets before every retry.
         else{
-          const copy=clientNotificationCopy(device.locale,type==='booking_status'?'status':type,row.expected_status);
-          const payload={type,bookingID:row.booking_id,...(type==='booking_status'?{status:row.expected_status}:{}),...(scope.pilgrimID?{pilgrimID:pilgrimPublicID(scope.pilgrimID)}:{})};
+          const copy=type==='booking_created'?await initialBookingPushCopy(db,row.booking_id,device.locale):clientNotificationCopy(device.locale,type==='booking_status'?'status':type,row.expected_status);
+          const payload={type,bookingID:row.booking_id,...(['booking_status','booking_created'].includes(type)?{status:row.expected_status,destination:'booking',destinationBookingID:row.booking_id}:{}),...(scope.pilgrimID?{pilgrimID:pilgrimPublicID(scope.pilgrimID)}:{})};
           const provider=clientPushProvider(device.device_token);
           if(!provider){state='failed';error='INVALID_DEVICE_TOKEN';}
           else if(!clientPushReady(env,device.device_token)){error='PUSH_PROVIDER_NOT_CONFIGURED';}
@@ -1011,13 +1011,14 @@ export async function retryBookingPushOutbox(env,event=null){
           }else{
           const jwt=await apnsJWT(env);
           const base=device.environment==='development'?'https://api.sandbox.push.apple.com':'https://api.push.apple.com';
-          const response=await fetch(`${base}/3/device/${device.device_token}`,{method:'POST',headers:{authorization:`bearer ${jwt}`,'apns-topic':cleanText(device.app_bundle_id,220)||CLIENT_APP_BUNDLE_ID,'apns-push-type':'alert','apns-priority':'10','apns-id':row.id,'apns-collapse-id':row.id,'apns-expiration':String(Math.floor(Date.now()/1000)+3600),'content-type':'application/json'},body:JSON.stringify({aps:{alert:copy,sound:'default','thread-id':row.booking_id},type,bookingID:row.booking_id,...(type==='booking_status'?{status:row.expected_status}:{}),...(scope.pilgrimID?{pilgrimID:pilgrimPublicID(scope.pilgrimID)}:{})})});
+          const response=await fetch(`${base}/3/device/${device.device_token}`,{method:'POST',headers:{authorization:`bearer ${jwt}`,'apns-topic':cleanText(device.app_bundle_id,220)||CLIENT_APP_BUNDLE_ID,'apns-push-type':'alert','apns-priority':'10','apns-id':row.id,'apns-collapse-id':row.id,'apns-expiration':String(Math.floor(Date.now()/1000)+3600),'content-type':'application/json'},body:JSON.stringify({aps:{alert:copy,sound:'default','thread-id':row.booking_id},type,bookingID:row.booking_id,...(['booking_status','booking_created'].includes(type)?{status:row.expected_status,destination:'booking',destinationBookingID:row.booking_id}:{}),...(scope.pilgrimID?{pilgrimID:pilgrimPublicID(scope.pilgrimID)}:{})})});
           if(response.ok){state='sent';sent++;await persistCarePushResult(db,device,row.booking_id,{ok:true,response}).catch(()=>{});}
           else{const detail=await response.text().catch(()=>''),disable=response.status===410||/BadDeviceToken|Unregistered|DeviceTokenNotForTopic/i.test(detail);error=String(response.status);state=disable?'failed':(response.status===429||response.status===403||response.status>=500)?'pending':'failed';await persistCarePushResult(db,device,row.booking_id,{ok:false,response,disable,error}).catch(()=>{});}
           }
         }
       }
     }catch{error='transport_or_configuration';}
+    if(row.event_type==='booking_created'&&state==='sent')await db.prepare("UPDATE booking_initial_push_delivery SET result='accepted' WHERE booking_id=? AND device_token=?").bind(row.booking_id,row.device_token).run().catch(()=>{});
     const next=new Date(Date.now()+Math.min(60,5*2**Number(row.attempts||0))*60_000).toISOString();
     await db.prepare('UPDATE booking_push_delivery_v3 SET state=?,last_error=?,next_attempt_at=?,lease_token=NULL,lease_until=NULL WHERE id=? AND lease_token=?').bind(state,error||null,next,row.id,lease).run();
   }
@@ -4241,7 +4242,8 @@ async function syncBookingTrip(env, raw) {
     trip=await ensureBookingIdentity(env.HOTELS_DB,{bookingID,identity,status:tripStatusFromBooking(effectiveRaw),startDate,endDate,snapshot:JSON.stringify(effectiveRaw),now,tripID:`trip-${crypto.randomUUID()}`});
   } else {
     pilgrim = await env.HOTELS_DB.prepare('SELECT * FROM pilgrims WHERE id=?').bind(trip.pilgrim_id).first();
-    pilgrim = await updatePilgrimIdentityFields(env,pilgrim,identity);
+    const existingAccount=await env.HOTELS_DB.prepare('SELECT pilgrim_id FROM iumrah_accounts WHERE pilgrim_id=?').bind(trip.pilgrim_id).first();
+    if(!existingAccount)pilgrim = await updatePilgrimIdentityFields(env,pilgrim,identity);
     const previous = parseJSONObject(trip.booking_snapshot_json); const merged={...previous,...effectiveRaw};
     await env.HOTELS_DB.prepare(`UPDATE pilgrim_trips SET start_date=COALESCE(?,start_date),end_date=COALESCE(?,end_date),booking_snapshot_json=?,updated_at=? WHERE booking_id=?`)
       .bind(startDate,endDate,JSON.stringify(merged),now,bookingID).run();
@@ -6730,16 +6732,40 @@ async function handleClientOperations(request, env, parts) {
   return methodNotAllowed();
 }
 
-async function sendInitialBookingPush(env,bookingID,device,locale){
- if(!clientPushReady(env,device.device_token))return false;
- await env.HOTELS_DB.prepare(`CREATE TABLE IF NOT EXISTS booking_initial_push_delivery (booking_id TEXT NOT NULL,device_token TEXT NOT NULL,created_at TEXT NOT NULL,result TEXT NOT NULL,PRIMARY KEY(booking_id,device_token))`).run();
- const claim=await env.HOTELS_DB.prepare('INSERT OR IGNORE INTO booking_initial_push_delivery(booking_id,device_token,created_at,result) VALUES(?,?,?,?)').bind(bookingID,device.device_token,new Date().toISOString(),'sending').run();
- if(Number(claim.meta?.changes||0)!==1){const prior=await env.HOTELS_DB.prepare('SELECT result FROM booking_initial_push_delivery WHERE booking_id=? AND device_token=?').bind(bookingID,device.device_token).first();return prior?.result==='accepted';}
+async function initialBookingPushCopy(db,bookingID,locale){
+ const trip=await db.prepare('SELECT booking_number,start_date,end_date FROM pilgrim_trips WHERE booking_id=?').bind(bookingID).first();
+ const number=bookingPublicNumber(trip?.booking_number)||'';
  const lang=String(locale).toLowerCase();const copy=lang.startsWith('uz-cyrl')?['Брон яратилди','Мавжудлик текширилмоқда.']:lang.startsWith('uz')?['Bron yaratildi','Mavjudlik tekshirilmoqda.']:lang.startsWith('en')?['Booking created','Checking availability.']:['Бронирование создано','Проверяем наличие.'];
- const result=await sendClientPushRows(env,[device],copy[0],copy[1],{type:'booking_created',bookingID,status:'availability_check'},(target,delivery)=>persistCarePushResult(env.HOTELS_DB,target,bookingID,delivery).catch(()=>{})).catch(()=>null);
- const accepted=Number(result?.sent||0)>0;
- await env.HOTELS_DB.prepare('UPDATE booking_initial_push_delivery SET result=? WHERE booking_id=? AND device_token=?').bind(accepted?'accepted':'failed',bookingID,device.device_token).run();
- return accepted;
+ return {title:`${copy[0]} ${number}`.trim(),body:[copy[1],trip?.start_date&&trip?.end_date?`${trip.start_date} — ${trip.end_date}`:''].filter(Boolean).join(' ')};
+}
+async function sendInitialBookingPush(env,bookingID,device,locale){
+ const db=env.HOTELS_DB;
+ if(!device||!clientPushReady(env,device.device_token))return false;
+ await db.prepare(`CREATE TABLE IF NOT EXISTS booking_initial_push_delivery (booking_id TEXT NOT NULL,device_token TEXT NOT NULL,created_at TEXT NOT NULL,result TEXT NOT NULL,PRIMARY KEY(booking_id,device_token))`).run();
+ const now=new Date().toISOString();
+ const prior=await db.prepare('SELECT result FROM booking_initial_push_delivery WHERE booking_id=? AND device_token=?').bind(bookingID,device.device_token).first();
+ if(prior?.result==='accepted')return true;
+ if(prior?.result==='sending')return false; // legacy in-flight result cannot be safely replayed
+ const h=await sha256Hex(`booking-created:${bookingID}:${device.device_token}`);
+ const event=`${h.slice(0,8)}-${h.slice(8,12)}-4${h.slice(13,16)}-8${h.slice(17,20)}-${h.slice(20,32)}`;
+ await db.batch([
+   db.prepare("INSERT OR IGNORE INTO booking_initial_push_delivery(booking_id,device_token,created_at,result) VALUES(?,?,?,'queued')").bind(bookingID,device.device_token,now),
+   db.prepare("INSERT OR IGNORE INTO booking_push_delivery_v3(id,event_id,booking_id,event_type,expected_status,device_token,created_at,next_attempt_at,state,attempts) VALUES(?,?,?,'booking_created','availability_check',?,?,?,'pending',0)").bind(event,event,bookingID,device.device_token,now,now)
+ ]);
+ await retryBookingPushOutbox(env,event);
+ const row=await db.prepare('SELECT state FROM booking_push_delivery_v3 WHERE id=?').bind(event).first();
+ return row?.state==='sent';
+}
+// Internal call only: token came from OTP-authorized checkout, not a public request.
+export async function registerCreationPush(env,bookingID,deviceToken,environment,locale){
+ const token=normalizeClientPushToken(deviceToken);if(!token)return true;
+ const db=env.HOTELS_DB,trip=await db.prepare('SELECT status FROM pilgrim_trips WHERE booking_id=?').bind(bookingID).first();
+ if(!trip)return false;if(normalizedTripStatus(trip.status)!=='availability_check')return true;
+ const scope=await staffChatScope(db,bookingID);if(!scope)return false;
+ if(!scope.pilgrimID){const now=new Date().toISOString();await db.prepare(`INSERT INTO client_push_subscriptions(device_token,booking_id,environment,app_bundle_id,locale,enabled,created_at,updated_at,last_error) VALUES(?,?,?,?,?,1,?,?,NULL) ON CONFLICT(device_token,booking_id) DO NOTHING`).bind(token,bookingID,environment==='development'?'development':'production',CLIENT_APP_BUNDLE_ID,locale,now,now).run();}
+ const {rows}=await carePushTargets(db,bookingID,CLIENT_APP_BUNDLE_ID);
+ const target=rows.find(d=>d.device_token===token);if(!target)return false;
+ return sendInitialBookingPush(env,bookingID,target,locale);
 }
 async function registerClientPushDevice(request,env){
  const payload=await request.json().catch(()=>null);
@@ -6749,7 +6775,7 @@ async function registerClientPushDevice(request,env){
  if(!token)return json({ok:false,error:'INVALID_DEVICE_TOKEN'},400);
  const appBundleID=cleanText(payload?.appBundleID||payload?.appBundleId,220)||CLIENT_APP_BUNDLE_ID;
  if(appBundleID!==CLIENT_APP_BUNDLE_ID)return json({ok:false,error:'INVALID_APP_BUNDLE_ID'},400);
- const auth=payload?.notifyCreated===true?await requireBookingToken(request,env,bookingID,{syncTrip:false}):await requireClientBooking(request,env,bookingID,{syncTrip:false});
+ const auth=await requireClientBooking(request,env,bookingID,{syncTrip:false});
  if(!auth.ok)return auth.response;
  const environment=payload?.environment==='development'?'development':'production';
  const locale=cleanText(payload?.locale,32)||'ru';const now=new Date().toISOString();
@@ -6761,12 +6787,10 @@ async function registerClientPushDevice(request,env){
  // Android's current registration does not send notifyCreated. Only send the
  // first receipt while the booking is still awaiting availability, once per token.
  // Resolve current ownership again so a claimed booking never targets old guests.
- if((android||(!auth.pilgrim&&payload?.notifyCreated===true))&&normalizedTripStatus(auth.trip?.status||auth.booking?.status)==='availability_check'){
-   let device={device_token:token,environment,app_bundle_id:appBundleID};
-   if(android){
-     const targets=await carePushTargets(env.HOTELS_DB,bookingID,CLIENT_APP_BUNDLE_ID);
-     device=targets.rows.find(row=>row.device_token===token);
-   }
+ const hasCreationIntent=env.BOOKINGS_DB?await env.BOOKINGS_DB.prepare('SELECT booking_id FROM booking_creation_delivery_v1 WHERE booking_id=?').bind(bookingID).first().catch(()=>null):null;
+ if((android||payload?.notifyCreated===true||hasCreationIntent)&&normalizedTripStatus(auth.trip?.status||auth.booking?.status)==='availability_check'){
+   const targets=await carePushTargets(env.HOTELS_DB,bookingID,CLIENT_APP_BUNDLE_ID);
+   const device=targets.rows.find(row=>row.device_token===token);
    if(device)initialPushAccepted=await sendInitialBookingPush(env,bookingID,device,locale).catch(()=>false);
  }
  return json({ok:true,ready:clientPushReady(env,token),bookingID,appBundleID:CLIENT_APP_BUNDLE_ID,initialPushAccepted});
@@ -6863,7 +6887,18 @@ async function registerClientNotificationDevice(request, env) {
     now, now, now, account.tokenHash||null
   ).run();
 
-  if(account.authenticated && deviceToken) await env.HOTELS_DB.prepare('UPDATE client_push_subscriptions SET enabled=0 WHERE device_token=?').bind(deviceToken).run();
+  if(account.authenticated && deviceToken) {
+    await env.HOTELS_DB.prepare('UPDATE client_push_subscriptions SET enabled=0 WHERE device_token=?').bind(deviceToken).run();
+    // If checkout preceded APNs permission or the account session, replay the
+    // creation receipt to this currently authorized device exactly once.
+    if(env.BOOKINGS_DB){
+      const recent=await env.HOTELS_DB.prepare("SELECT booking_id FROM pilgrim_trips WHERE pilgrim_id=? AND status='availability_check' ORDER BY created_at DESC LIMIT 5").bind(pilgrimID).all();
+      for(const trip of recent.results||[]){
+        const intent=await env.BOOKINGS_DB.prepare('SELECT booking_id FROM booking_creation_delivery_v1 WHERE booking_id=? AND created_at>?').bind(trip.booking_id,new Date(Date.now()-7*86400000).toISOString()).first().catch(()=>null);
+        if(intent)await registerCreationPush(env,trip.booking_id,deviceToken,environment,locale).catch(()=>false);
+      }
+    }
+  }
   return json({ ok: true, ready: clientPushReady(env, deviceToken), installationID, appBundleID: CLIENT_APP_BUNDLE_ID, authenticated: !!authenticated, hasTrip: !!hasTrip });
 }
 
@@ -7147,10 +7182,19 @@ async function handleClientAccount(request,env,parts){
       .bind(`trip-${crypto.randomUUID()}`,bookingID,bookingNumber,canonicalID,tripStatusFromBooking(effectiveRaw),cleanText(effectiveRaw?.startDate,64),cleanText(effectiveRaw?.endDate,64),JSON.stringify(effectiveRaw),'{}',now,now).run();
   }else if(Number(trip.pilgrim_id)!==canonicalID){
     const oldID=Number(trip.pilgrim_id||0);
-    await env.HOTELS_DB.prepare('UPDATE pilgrim_trips SET pilgrim_id=?,updated_at=? WHERE booking_id=?').bind(canonicalID,now,bookingID).run();
+    const claimed=await env.HOTELS_DB.prepare('SELECT pilgrim_id FROM iumrah_accounts WHERE pilgrim_id=?').bind(oldID).first();
+    if(claimed)return json({ok:false,error:'BOOKING_ALREADY_CLAIMED'},409);
+    const p=boot.booking?.pilgrimProfile||{};
+    if(p.emailVerifiedAt||p.phoneVerifiedAt){
+      const email=p.emailVerifiedAt&&p.email?await env.HOTELS_DB.prepare('SELECT pilgrim_id FROM iumrah_client_account_emails WHERE email_normalized=? AND verified_at IS NOT NULL').bind(String(p.email).toLowerCase()).first():null;
+      const phone=p.phoneVerifiedAt&&p.phone?await env.HOTELS_DB.prepare('SELECT pilgrim_id FROM iumrah_client_account_phones WHERE phone_normalized=? AND verified_at IS NOT NULL').bind(p.phone).first():null;
+      if(Number(email?.pilgrim_id||0)!==canonicalID&&Number(phone?.pilgrim_id||0)!==canonicalID)return json({ok:false,error:'BOOKING_CONTACT_MISMATCH'},403);
+    }
+    const moved=await env.HOTELS_DB.prepare('UPDATE pilgrim_trips SET pilgrim_id=?,updated_at=? WHERE booking_id=? AND pilgrim_id=? AND NOT EXISTS(SELECT 1 FROM iumrah_accounts WHERE pilgrim_id=?)').bind(canonicalID,now,bookingID,oldID,oldID).run();
+    if(Number(moved.meta?.changes||0)!==1)return json({ok:false,error:'BOOKING_OWNERSHIP_CHANGED'},409);
     await recalcPilgrimStats(env,oldID);const orphan=await env.HOTELS_DB.prepare('SELECT COUNT(*) AS count FROM pilgrim_trips WHERE pilgrim_id=?').bind(oldID).first();const oldAccount=await env.HOTELS_DB.prepare('SELECT pilgrim_id FROM iumrah_accounts WHERE pilgrim_id=?').bind(oldID).first();if(oldID&&Number(orphan?.count||0)===0&&!oldAccount)await env.HOTELS_DB.prepare('DELETE FROM pilgrims WHERE id=?').bind(oldID).run().catch(()=>{});
   }
-  const identity=bookingIdentity(boot.booking);await updatePilgrimIdentityFields(env,auth.pilgrim,identity);await recalcPilgrimStats(env,canonicalID);
+  await recalcPilgrimStats(env,canonicalID);
   trip=await ensureTripLifecycleTimers(env,bookingID);
   await applyPendingPackagePricingReport(env, bookingID);
   return json({ok:true,pilgrimID:pilgrimPublicID(canonicalID),bookingNumber:Number(trip?.booking_number||0)||null,bookingDisplayNumber:bookingPublicNumber(trip?.booking_number)});

@@ -73,6 +73,9 @@ async function attach(request:Request,bookingID:string,db:D1Like,env:Env):Promis
   const existing=await bookingGrantRead<{id:string;payload_json:string}>(env.BOOKINGS_DB,'SELECT id,payload_json FROM bookings WHERE id=?1 AND access_token_hash=?2 LIMIT 1',bookingID,await digest(bookingToken));
   if(!existing)return json({ok:false,error:'BOOKING_AUTH_INVALID'},401);
   const now=new Date().toISOString(),locale=mailLocale(body?.locale);
+  await db.prepare(`UPDATE iumrah_guest_booking_email_challenges SET consumed_at=COALESCE(consumed_at,?1),booking_id=?2 WHERE verification_token_hash=?3 AND proof_expires_at>?1 AND (consumed_at IS NULL OR booking_id=?2)`).bind(now,bookingID,hashed).run();
+  const claim=await db.prepare('SELECT booking_id FROM iumrah_guest_booking_email_challenges WHERE verification_token_hash=?').bind(hashed).first<{booking_id:string}>();
+  if(claim?.booking_id!==bookingID)return json({ok:false,error:'PROOF_EXPIRED_OR_INVALID'},400);
   const payload=JSON.parse(existing.payload_json||'{}') as Record<string,unknown>;
   const profile=payload.pilgrimProfile&&typeof payload.pilgrimProfile==='object'?payload.pilgrimProfile as Record<string,unknown>:{};
   payload.pilgrimProfile={...profile,email:proof.email,emailVerifiedAt:now};

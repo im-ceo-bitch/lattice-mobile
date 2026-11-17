@@ -1,3 +1,4 @@
+import { bookingGrantRead } from "./booking-grants";
 import { sendBookingSMSStatus } from "./booking-sms";
 import type { D1Like } from "./d1";
 import type { Env } from "./env";
@@ -158,13 +159,16 @@ async function attach(request: Request, id: string, db: D1Like, env: Env): Promi
       (proof.consumed_at && proof.booking_id !== id)) {
     return json({ ok: false, error: "PROOF_EXPIRED_OR_INVALID" }, 400);
   }
+  // Authenticate booking before claiming a proof. Claim before writing contact to
+  // prevent concurrent requests attaching a single proof to two bookings.
+  const bookingToken=String(request.headers.get('x-booking-token')||'').trim();
+  if(bookingToken.length<24||bookingToken.length>128||!await bookingGrantRead(env.BOOKINGS_DB,'SELECT id, payload_json FROM bookings WHERE id=? AND access_token_hash=?',id,await sha256(bookingToken)))return json({ok:false,error:'BOOKING_NOT_FOUND'},404);
+  const now=new Date().toISOString(), hashed=await sha256(token);
+  await db.prepare(`UPDATE iumrah_guest_booking_phone_challenges SET consumed_at=COALESCE(consumed_at,?1),booking_id=?2 WHERE verification_token_hash=?3 AND proof_expires_at>?1 AND (consumed_at IS NULL OR booking_id=?2)`).bind(now,id,hashed).run();
+  const claim=await db.prepare('SELECT booking_id FROM iumrah_guest_booking_phone_challenges WHERE verification_token_hash=?').bind(hashed).first<{booking_id:string}>();
+  if(claim?.booking_id!==id)return json({ok:false,error:'PROOF_EXPIRED_OR_INVALID'},400);
   const updated = await attachVerifiedBookingPhone(request, id, proof.phone, env);
   if (updated.status !== 200) return updated;
-  await db.prepare(
-    `UPDATE iumrah_guest_booking_phone_challenges
-     SET consumed_at=COALESCE(consumed_at,?1),booking_id=COALESCE(booking_id,?2)
-     WHERE verification_token_hash=?3 AND (booking_id IS NULL OR booking_id=?2)`,
-  ).bind(new Date().toISOString(), id, await sha256(token)).run();
   const smsNotification = await sendBookingSMSStatus(env,id).catch(()=>"unknown");
   return json({ ok: true, verified: true, phone: proof.phone, smsNotification });
 }

@@ -3164,6 +3164,54 @@ async function friendsDashboard(request: Request, env: Env, db: D1Like) {
   });
 }
 
+// Guest checkout already verified the contact. Only a proof bound to this exact
+// booking, plus its access token, can authorize a profile session. A raw contact
+// field never grants access to any account.
+async function exchangeBookingProfile(request:Request,env:Env,db:D1Like){
+  const body=await request.json().catch(()=>null) as {bookingID?:unknown;verificationToken?:unknown;channel?:unknown;device?:unknown}|null;
+  const context=await bookingActivationContext(request,env,db,body?.bookingID);
+  const proof=String(body?.verificationToken||''), channel=String(body?.channel||'');
+  if(!/^[a-f0-9]{64}$/.test(proof)||!['email','sms'].includes(channel)||!env.BOOKINGS_DB)throw new RouteError('BOOKING_PROOF_INVALID',403);
+  const device=parseDevice(body?.device),now=new Date().toISOString();
+  const field=channel==='email'?'email':'phone',table=channel==='email'?'iumrah_guest_booking_email_challenges':'iumrah_guest_booking_phone_challenges';
+  const verified=await db.prepare(`SELECT ${field} AS contact FROM ${table} WHERE verification_token_hash=? AND booking_id=? AND consumed_at IS NOT NULL AND verified_at IS NOT NULL AND proof_expires_at>?`).bind(await sha256Hex(proof),context.bookingID,now).first<{contact:string}>();
+  const booking=await env.BOOKINGS_DB.prepare('SELECT payload_json FROM bookings WHERE id=?').bind(context.bookingID).first<{payload_json:string}>();
+  const p=booking?JSON.parse(booking.payload_json).pilgrimProfile:null;
+  if(!verified||!p||p[field]!==verified.contact||!p[field+'VerifiedAt'])throw new RouteError('BOOKING_PROOF_INVALID',403);
+  const contacts=channel==='email'?'iumrah_client_account_emails':'iumrah_client_account_phones';
+  const normalized=field+'_normalized',display=field+'_display';
+  const findOwner=()=>db.prepare(`SELECT pilgrim_id FROM ${contacts} WHERE ${normalized}=? AND verified_at IS NOT NULL`).bind(verified.contact).first<{pilgrim_id:number}>();
+  let owner=await findOwner();
+  const existingAccount=await accountRow(db,context.pilgrimID);
+  // A claimed trip may not be used to sign in as another account or to add a
+  // new login identity to an existing account without its own authorization.
+  if(existingAccount&&Number(owner?.pilgrim_id||0)!==context.pilgrimID)throw new RouteError('BOOKING_PROFILE_CONFLICT',409);
+  if(!owner){
+    await db.prepare(`INSERT OR IGNORE INTO ${contacts}(pilgrim_id,${normalized},${display},verified_at,updated_at) VALUES(?,?,?,?,?)`).bind(context.pilgrimID,verified.contact,verified.contact,now,now).run();
+    owner=await findOwner();
+  }
+  const pilgrimID=Number(owner?.pilgrim_id||0);
+  if(!pilgrimID)throw new RouteError('BOOKING_PROFILE_CONFLICT',409);
+  if(pilgrimID!==context.pilgrimID&&existingAccount)throw new RouteError('BOOKING_PROFILE_CONFLICT',409);
+  let pilgrim=await accountRow(db,pilgrimID);
+  if(!pilgrim){
+    // Existing provisional pilgrim ID is retained. A random, inaccessible
+    // password hash satisfies the legacy schema; no credential is sent or reset.
+    if(pilgrimID!==context.pilgrimID)throw new RouteError('BOOKING_PROFILE_PENDING',409);
+    const salt=randomToken(18),digest=await passwordDigest(randomToken(48),salt,PASSWORD_ITERATIONS);
+    await db.prepare(`INSERT OR IGNORE INTO iumrah_accounts(pilgrim_id,password_salt,password_hash,password_iterations,activated_at,password_updated_at) VALUES(?,?,?,?,?,?)`).bind(pilgrimID,salt,digest,PASSWORD_ITERATIONS,now,now).run();
+    await db.prepare(`UPDATE pilgrims SET ${field}=?,updated_at=? WHERE id=?`).bind(verified.contact,now,pilgrimID).run();
+    pilgrim=await accountRow(db,pilgrimID);
+  }
+  if(!pilgrim)throw new RouteError('BOOKING_PROFILE_PENDING',409);
+  const session=await createAccountSession(db,pilgrimID);
+  let sessionID:string;
+  try{sessionID=await bindCurrentSession(db,{pilgrimID,pilgrim,tokenHash:session.tokenHash},device,request);}catch(e){await db.prepare('UPDATE iumrah_account_sessions SET revoked_at=? WHERE token_hash=?').bind(now,session.tokenHash).run();throw e;}
+  await db.prepare('UPDATE iumrah_accounts SET last_login_at=? WHERE pilgrim_id=?').bind(now,pilgrimID).run();
+  await audit(db,pilgrimID,'booking_contact_sign_in',sessionID,sessionID);
+  return json({ok:true,account:accountProfile(pilgrim),session:{token:session.token,expiresAt:session.expiresAt}});
+}
+
 export async function handleClientAccountSecurity(request: Request, env: Env, url: URL) {
   if (!env.HOTELS_DB) return json({ ok: false, error: "HOTELS_DB_NOT_CONFIGURED" }, 503);
   const db = env.HOTELS_DB;
@@ -3183,6 +3231,7 @@ export async function handleClientAccountSecurity(request: Request, env: Env, ur
         .bind(new Date().toISOString(), auth.tokenHash, auth.pilgrimID).run();
       return json({ ok: true });
     }
+    if (request.method === "POST" && url.pathname === "/api/package/client/account/booking-session") return await exchangeBookingProfile(request,env,db);
     if (request.method === "POST" && url.pathname === "/api/package/client/account/activate") {
       return await activateWithBookingPassword(request, env, db);
     }

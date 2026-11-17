@@ -7932,6 +7932,282 @@
             "pk": 0
           }
         ]
+      },
+      {
+        "name": "booking_sms_delivery",
+        "sql": "CREATE TABLE IF NOT EXISTS booking_sms_delivery (booking_id TEXT NOT NULL,status TEXT NOT NULL,phone TEXT NOT NULL,result TEXT NOT NULL,provider_id TEXT,updated_at TEXT NOT NULL,PRIMARY KEY(booking_id,status,phone))",
+        "columns": [
+          {
+            "name": "booking_id",
+            "type": "TEXT",
+            "notnull": true,
+            "default": null,
+            "pk": 1
+          },
+          {
+            "name": "status",
+            "type": "TEXT",
+            "notnull": true,
+            "default": null,
+            "pk": 2
+          },
+          {
+            "name": "phone",
+            "type": "TEXT",
+            "notnull": true,
+            "default": null,
+            "pk": 3
+          },
+          {
+            "name": "result",
+            "type": "TEXT",
+            "notnull": true,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "name": "provider_id",
+            "type": "TEXT",
+            "notnull": false,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "name": "updated_at",
+            "type": "TEXT",
+            "notnull": true,
+            "default": null,
+            "pk": 0
+          }
+        ]
+      },
+      {
+        "name": "booking_sms_jobs_v2",
+        "sql": "CREATE TABLE IF NOT EXISTS booking_sms_jobs_v2 (booking_id TEXT NOT NULL,status TEXT NOT NULL,phone TEXT NOT NULL,message TEXT NOT NULL,request_id TEXT NOT NULL,created_at TEXT NOT NULL,next_attempt_at TEXT NOT NULL,attempts INTEGER NOT NULL DEFAULT 0,lease_until TEXT,lease_token TEXT,state TEXT NOT NULL DEFAULT 'pending',provider_id TEXT,last_error TEXT,PRIMARY KEY(booking_id,status,phone))",
+        "columns": [
+          {
+            "name": "booking_id",
+            "type": "TEXT",
+            "notnull": true,
+            "default": null,
+            "pk": 1
+          },
+          {
+            "name": "status",
+            "type": "TEXT",
+            "notnull": true,
+            "default": null,
+            "pk": 2
+          },
+          {
+            "name": "phone",
+            "type": "TEXT",
+            "notnull": true,
+            "default": null,
+            "pk": 3
+          },
+          {
+            "name": "message",
+            "type": "TEXT",
+            "notnull": true,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "name": "request_id",
+            "type": "TEXT",
+            "notnull": true,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "name": "created_at",
+            "type": "TEXT",
+            "notnull": true,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "name": "next_attempt_at",
+            "type": "TEXT",
+            "notnull": true,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "name": "attempts",
+            "type": "INTEGER",
+            "notnull": true,
+            "default": "0",
+            "pk": 0
+          },
+          {
+            "name": "lease_until",
+            "type": "TEXT",
+            "notnull": false,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "name": "lease_token",
+            "type": "TEXT",
+            "notnull": false,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "name": "state",
+            "type": "TEXT",
+            "notnull": true,
+            "default": "'pending'",
+            "pk": 0
+          },
+          {
+            "name": "provider_id",
+            "type": "TEXT",
+            "notnull": false,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "name": "last_error",
+            "type": "TEXT",
+            "notnull": false,
+            "default": null,
+            "pk": 0
+          }
+        ]
+      },
+      {
+        "name": "booking_initial_push_delivery",
+        "sql": "CREATE TABLE IF NOT EXISTS booking_initial_push_delivery (booking_id TEXT NOT NULL,device_token TEXT NOT NULL,created_at TEXT NOT NULL,result TEXT NOT NULL,PRIMARY KEY(booking_id,device_token))",
+        "columns": [
+          {
+            "name": "booking_id",
+            "type": "TEXT",
+            "notnull": true,
+            "default": null,
+            "pk": 1
+          },
+          {
+            "name": "device_token",
+            "type": "TEXT",
+            "notnull": true,
+            "default": null,
+            "pk": 2
+          },
+          {
+            "name": "created_at",
+            "type": "TEXT",
+            "notnull": true,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "name": "result",
+            "type": "TEXT",
+            "notnull": true,
+            "default": null,
+            "pk": 0
+          }
+        ]
+      },
+      {
+        "name": "booking_push_delivery_v3",
+        "sql": "CREATE TABLE IF NOT EXISTS booking_push_delivery_v3(\n id TEXT PRIMARY KEY,event_id TEXT NOT NULL,booking_id TEXT NOT NULL,event_type TEXT NOT NULL,expected_status TEXT,device_token TEXT NOT NULL,created_at TEXT NOT NULL,next_attempt_at TEXT NOT NULL,state TEXT NOT NULL,attempts INTEGER NOT NULL DEFAULT 0,lease_token TEXT,lease_until TEXT,last_error TEXT\n)",
+        "columns": [
+          {
+            "name": "id",
+            "type": "TEXT",
+            "notnull": false,
+            "default": null,
+            "pk": 1
+          },
+          {
+            "name": "event_id",
+            "type": "TEXT",
+            "notnull": true,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "name": "booking_id",
+            "type": "TEXT",
+            "notnull": true,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "name": "event_type",
+            "type": "TEXT",
+            "notnull": true,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "name": "expected_status",
+            "type": "TEXT",
+            "notnull": false,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "name": "device_token",
+            "type": "TEXT",
+            "notnull": true,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "name": "created_at",
+            "type": "TEXT",
+            "notnull": true,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "name": "next_attempt_at",
+            "type": "TEXT",
+            "notnull": true,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "name": "state",
+            "type": "TEXT",
+            "notnull": true,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "name": "attempts",
+            "type": "INTEGER",
+            "notnull": true,
+            "default": "0",
+            "pk": 0
+          },
+          {
+            "name": "lease_token",
+            "type": "TEXT",
+            "notnull": false,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "name": "lease_until",
+            "type": "TEXT",
+            "notnull": false,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "name": "last_error",
+            "type": "TEXT",
+            "notnull": false,
+            "default": null,
+            "pk": 0
+          }
+        ]
       }
     ],
     "indexes": [
@@ -8394,6 +8670,18 @@
       {
         "name": "idx_iumrah_referrals_referrer",
         "sql": "CREATE INDEX IF NOT EXISTS idx_iumrah_referrals_referrer ON iumrah_referrals(referrer_id,created_at)"
+      },
+      {
+        "name": "idx_booking_sms_due_v2",
+        "sql": "CREATE INDEX IF NOT EXISTS idx_booking_sms_due_v2 ON booking_sms_jobs_v2(state,next_attempt_at)"
+      },
+      {
+        "name": "booking_push_delivery_v3_due",
+        "sql": "CREATE INDEX IF NOT EXISTS booking_push_delivery_v3_due ON booking_push_delivery_v3(state,next_attempt_at)"
+      },
+      {
+        "name": "booking_push_delivery_v3_event",
+        "sql": "CREATE INDEX IF NOT EXISTS booking_push_delivery_v3_event ON booking_push_delivery_v3(event_id)"
       }
     ]
   },
@@ -9211,6 +9499,110 @@
             "pk": 0
           }
         ]
+      },
+      {
+        "name": "booking_creation_delivery_v1",
+        "sql": "CREATE TABLE IF NOT EXISTS booking_creation_delivery_v1 (\n booking_id TEXT PRIMARY KEY, request_hash TEXT NOT NULL UNIQUE, channel TEXT NOT NULL,\n locale TEXT NOT NULL, device_token TEXT, environment TEXT NOT NULL,\n contact_done INTEGER NOT NULL DEFAULT 0, push_done INTEGER NOT NULL DEFAULT 0,\n attempts INTEGER NOT NULL DEFAULT 0, next_attempt_at TEXT NOT NULL, lease_token TEXT,\n lease_until TEXT, created_at TEXT NOT NULL, last_error TEXT)",
+        "columns": [
+          {
+            "name": "booking_id",
+            "type": "TEXT",
+            "notnull": false,
+            "default": null,
+            "pk": 1
+          },
+          {
+            "name": "request_hash",
+            "type": "TEXT",
+            "notnull": true,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "name": "channel",
+            "type": "TEXT",
+            "notnull": true,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "name": "locale",
+            "type": "TEXT",
+            "notnull": true,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "name": "device_token",
+            "type": "TEXT",
+            "notnull": false,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "name": "environment",
+            "type": "TEXT",
+            "notnull": true,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "name": "contact_done",
+            "type": "INTEGER",
+            "notnull": true,
+            "default": "0",
+            "pk": 0
+          },
+          {
+            "name": "push_done",
+            "type": "INTEGER",
+            "notnull": true,
+            "default": "0",
+            "pk": 0
+          },
+          {
+            "name": "attempts",
+            "type": "INTEGER",
+            "notnull": true,
+            "default": "0",
+            "pk": 0
+          },
+          {
+            "name": "next_attempt_at",
+            "type": "TEXT",
+            "notnull": true,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "name": "lease_token",
+            "type": "TEXT",
+            "notnull": false,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "name": "lease_until",
+            "type": "TEXT",
+            "notnull": false,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "name": "created_at",
+            "type": "TEXT",
+            "notnull": true,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "name": "last_error",
+            "type": "TEXT",
+            "notnull": false,
+            "default": null,
+            "pk": 0
+          }
+        ]
       }
     ],
     "indexes": [
@@ -9257,6 +9649,10 @@
       {
         "name": "idx_booking_telegram_links_booking",
         "sql": "CREATE INDEX IF NOT EXISTS idx_booking_telegram_links_booking ON booking_telegram_links(booking_id, expires_at)"
+      },
+      {
+        "name": "idx_creation_delivery_due",
+        "sql": "CREATE INDEX IF NOT EXISTS idx_creation_delivery_due ON booking_creation_delivery_v1(next_attempt_at,lease_until)"
       }
     ]
   }

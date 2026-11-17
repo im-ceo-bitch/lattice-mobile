@@ -1,9 +1,10 @@
 // Ported from iumrah-web-main 5.zip: app/api/bookings/route.ts
-import { requestEnv, backendFetch } from "../../../runtime.js";
+import { getCloudflareContext, requestEnv, backendFetch } from "../../../runtime.js";
 import { NextResponse } from "../../../runtime.js";
 import { isTripInput, } from "../../../lib/domain.js";
 import { cents, ensureBookingSchema, getBookingDb, getPassportBucket, hashBookingToken, makeBookingId, makeBookingToken, normalizeLanguage, } from "../../../lib/booking-store.js";
 import { consentStatements, deliverTelegramNotice, ensureTelegramBookingSchema, findValidConsent, queueTelegramNotice } from "../../../lib/telegram-booking.js";
+import { prepareCreationIntent, ensureCreationOutbox, creationOutboxStatement } from "../../../lib/booking-notifications.js";
 export const dynamic = "force-dynamic";
 const plans = new Set(["economy", "standard", "comfort", "luxury"]);
 const services = new Set(["flight", "makkahHotel", "madinahHotel", "visa", "meals", "transfer", "accompaniment", "ziyaratMakkah", "ziyaratMadinah", "care", "haramainTrain", "esim"]);
@@ -204,6 +205,7 @@ export async function POST(request) {
     let rawLang;
     let rawConsent;
     let rawQuoteProof;
+    let rawNotificationIntent;
     let form = null;
     try {
         if (multipart) {
@@ -222,6 +224,7 @@ export async function POST(request) {
             rawLang = record(body) ? body.lang : undefined;
             rawConsent = record(body) ? body.telegramConsentTicket : undefined;
             rawQuoteProof = record(body) ? body.quoteProof : undefined;
+            rawNotificationIntent = record(body) ? body.notificationIntent : undefined;
         }
     }
     catch {
@@ -263,6 +266,7 @@ export async function POST(request) {
     if (multipart && !bucket)
         return NextResponse.json({ error: "DOCUMENT_STORAGE_NOT_CONFIGURED" }, { status: 503 });
     const uploadedKeys = [];
+    let committed = false;
     try {
         await ensureBookingSchema(db);
         const consentTicket = typeof rawConsent === "string" ? rawConsent : "";
@@ -278,10 +282,27 @@ export async function POST(request) {
             }
         }
         const now = new Date().toISOString();
-        const id = makeBookingId(input.input.startDate.slice(0, 4));
-        const accessToken = makeBookingToken();
-        const accessTokenHash = await hashBookingToken(accessToken);
         const lang = normalizeLanguage(rawLang);
+        let intent=null;
+        if(rawNotificationIntent!=null){
+            if(multipart)return NextResponse.json({error:'NOTIFICATION_INTENT_UNSUPPORTED'},{status:400});
+            try{await ensureCreationOutbox(db);intent=await prepareCreationIntent(requestEnv(),rawNotificationIntent,input,rawQuoteProof??rawBooking?.quoteProof,lang);}
+            catch(error){return NextResponse.json({error:error?.checkoutError?error.message:'NOTIFICATION_SERVICE_UNAVAILABLE'},{status:error?.message==='NOTIFICATION_PROOF_INVALID'?400:503});}
+        }
+        const id = intent?.id || makeBookingId(input.input.startDate.slice(0, 4));
+        const accessToken = intent?.accessToken || makeBookingToken();
+        const accessTokenHash = await hashBookingToken(accessToken);
+        if(intent){
+            const existing=await db.prepare('SELECT b.payload_json,b.status,b.access_token_hash,n.request_hash FROM bookings b JOIN booking_creation_delivery_v1 n ON n.booking_id=b.id WHERE b.id=?').bind(id).first();
+            if(existing){
+                if(existing.request_hash!==intent.requestHash||existing.access_token_hash!==accessTokenHash)return NextResponse.json({error:'BOOKING_REQUEST_CONFLICT'},{status:409});
+                const booking={...JSON.parse(existing.payload_json),id,status:existing.status};
+                let trip=null;try{trip=await requestEnv().IUMRAH_MATERIALIZE_BOOKING_IDENTITY?.(booking);}catch{}
+                const task=requestEnv().IUMRAH_BOOKING_CREATION_NOTIFY?.(id);if(task)getCloudflareContext().ctx?.waitUntil?.(task.catch(()=>{}));
+                return NextResponse.json({booking,accessToken,trip,identityReady:!!trip,telegramNotification:'not_requested'},{status:trip?200:202,headers:{'Cache-Control':'no-store'}});
+            }
+            input.pilgrimProfile=intent.profile;
+        }
         const status = "AVAILABILITY_CHECK";
         const booking = { ...input, id, status, createdAt: now, updatedAt: now };
         const documentRows = [];
@@ -299,9 +320,11 @@ export async function POST(request) {
                 .bind(id, accessTokenHash, status, now, now, lang, input.planId, cents(input.totalUsd), cents(input.perPilgrimUsd), travelerCount, input.input.travelers.rooms, input.route.originCode, input.route.outboundDestination, input.route.returnOrigin, input.input.startDate, input.input.endDate, input.flight, input.hotelNames.makkah, input.hotelNames.madinah, JSON.stringify(booking)),
             db.prepare("INSERT INTO booking_events (booking_id, status, actor_type, actor_id, note, created_at) VALUES (?, ?, 'system', 'booking-api', ?, ?)").bind(id, status, input.travelerDetails ? "Traveller and passport details submitted; availability confirmation started." : "Booking submitted; availability confirmation started.", now),
             ...documentRows.map((doc) => db.prepare("INSERT INTO booking_documents (booking_id, traveler_index, kind, r2_key, file_name, content_type, size_bytes, created_at) VALUES (?, ?, 'passport', ?, ?, ?, ?, ?)").bind(id, doc.travelerIndex, doc.key, doc.fileName, doc.contentType, doc.size, now)),
+            ...(intent ? [creationOutboxStatement(db,intent,now)] : []),
             ...(verifiedConsent ? consentStatements(db, id, verifiedConsent.ticketHash, now) : []),
         ];
         await db.batch(statements);
+        committed = true;
         // Delivery failures must never roll back a successfully committed booking.
         let telegramNotification = "not_requested";
         if (verifiedConsent) {
@@ -322,11 +345,16 @@ export async function POST(request) {
             const materialize=requestEnv().IUMRAH_MATERIALIZE_BOOKING_IDENTITY;
             if(typeof materialize==='function')trip=await materialize(booking);
         } catch (error) { console.error('BOOKING_IDENTITY_PENDING',id,String(error?.message||error).slice(0,200)); }
+        if(intent && typeof requestEnv().IUMRAH_BOOKING_CREATION_NOTIFY==='function'){
+            const task=requestEnv().IUMRAH_BOOKING_CREATION_NOTIFY(id).catch(()=>console.warn('BOOKING_CREATION_NOTIFY_PENDING'));
+            const ctx=getCloudflareContext().ctx;
+            if(ctx?.waitUntil)ctx.waitUntil(task);else await task;
+        }
         const identityReady=Boolean(trip?.bookingID===id && Number(trip?.bookingNumber)>0 && /^\d{8}$/.test(String(trip?.pilgrimID||'')));
         return NextResponse.json({ booking, accessToken, trip:identityReady?trip:null, identityReady, telegramNotification, telegramConsentExpired: Boolean(consentTicket && !verifiedConsent) }, { status: identityReady?201:202, headers: { "Cache-Control": "no-store" } });
     }
     catch (error) {
-        if (bucket)
+        if (bucket && !committed)
             await Promise.allSettled(uploadedKeys.map((key) => bucket.delete(key)));
         console.error("booking-create-failed", error);
         return NextResponse.json({ error: "BOOKING_CREATE_FAILED" }, { status: 500, headers: { "Cache-Control": "no-store" } });

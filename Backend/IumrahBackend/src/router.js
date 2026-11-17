@@ -53,7 +53,7 @@ const json = (value, status = 200) => new Response(JSON.stringify(value), {
   status,
   headers: {'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff'}
 });
-export function createBackendRouter({hotels, flights, packages, core, requestAeroDataBox, aeroDataBoxConfiguration, verifyBookingQuote, sendBookingEmailStatus, retryBookingStatusEmails, materializeBookingIdentity, syncReferralForBooking, bookingRewardsAmounts, sendStaffPush, sendBookingSMSStatus, retryBookingPushOutbox}) {
+export function createBackendRouter({hotels, flights, packages, core, requestAeroDataBox, aeroDataBoxConfiguration, verifyBookingQuote, sendBookingEmailStatus, retryBookingStatusEmails, materializeBookingIdentity, syncReferralForBooking, bookingRewardsAmounts, sendStaffPush, sendBookingSMSStatus, retryBookingPushOutbox, retryBookingSMSStatuses, dispatchCreationNotifications}) {
   if (typeof hotels?.fetch !== 'function' || typeof flights?.fetch !== 'function') throw Error('BACKEND_HANDLERS_REQUIRED');
   const router = {
     async fetch(request, env, ctx) {
@@ -68,7 +68,7 @@ export function createBackendRouter({hotels, flights, packages, core, requestAer
       const ready = coreReady(env,core);
       // The operator activates this only after verifying D1/R2 parity and freezing old writes.
       const dispatch = (req) => router.fetch(req,env,ctx);
-      const routedEnv = core ? {...sharedEnv,IUMRAH_BOOKING_SMS_NOTIFY: sendBookingSMSStatus ? (id)=>sendBookingSMSStatus(sharedEnv,id) : undefined, IUMRAH_OFFER_PUSH: sendStaffPush ? (title,body,data)=>sendStaffPush(sharedEnv,title,body,data) : undefined, IUMRAH_BOOKING_REWARDS: bookingRewardsAmounts ? (id)=>bookingRewardsAmounts(sharedEnv,id) : undefined,IUMRAH_BOOKING_EMAIL_NOTIFY: sendBookingEmailStatus ? (id)=>sendBookingEmailStatus(sharedEnv,id) : undefined, IUMRAH_TELEGRAM_NOTIFY: (id,status)=>runCore(sharedEnv,ctx,dispatch,()=>notifyTelegramStatus(sharedEnv,id,status)), IUMRAH_MATERIALIZE_BOOKING_IDENTITY: materializeBookingIdentity ? (booking)=>materializeBookingIdentity(sharedEnv,booking) : undefined, IUMRAH_VERIFY_BOOKING_QUOTE: verifyBookingQuote ? (booking,proof)=>verifyBookingQuote(booking,proof,env) : undefined, IUMRAH_CORE_FETCH: (input,init)=>dispatch(new Request(input,init)), AUTH_SESSION_URL:'https://iumrah-backend.helloiumrah.workers.dev/api/auth/staff/session', BOOKINGS_ADMIN_URL:'https://iumrah-backend.helloiumrah.workers.dev/api/admin/bookings', BOOKINGS_PUBLIC_URL:'https://iumrah-backend.helloiumrah.workers.dev/api/bookings'} : sharedEnv;
+      const routedEnv = core ? {...sharedEnv,IUMRAH_BOOKING_CREATION_NOTIFY: dispatchCreationNotifications ? (id)=>dispatchCreationNotifications(sharedEnv,id) : undefined, IUMRAH_BOOKING_SMS_NOTIFY: sendBookingSMSStatus ? (id)=>sendBookingSMSStatus(sharedEnv,id) : undefined, IUMRAH_OFFER_PUSH: sendStaffPush ? (title,body,data)=>sendStaffPush(sharedEnv,title,body,data) : undefined, IUMRAH_BOOKING_REWARDS: bookingRewardsAmounts ? (id)=>bookingRewardsAmounts(sharedEnv,id) : undefined,IUMRAH_BOOKING_EMAIL_NOTIFY: sendBookingEmailStatus ? (id)=>sendBookingEmailStatus(sharedEnv,id) : undefined, IUMRAH_TELEGRAM_NOTIFY: (id,status)=>runCore(sharedEnv,ctx,dispatch,()=>notifyTelegramStatus(sharedEnv,id,status)), IUMRAH_MATERIALIZE_BOOKING_IDENTITY: materializeBookingIdentity ? (booking)=>materializeBookingIdentity(sharedEnv,booking) : undefined, IUMRAH_VERIFY_BOOKING_QUOTE: verifyBookingQuote ? (booking,proof)=>verifyBookingQuote(booking,proof,env) : undefined, IUMRAH_CORE_FETCH: (input,init)=>dispatch(new Request(input,init)), AUTH_SESSION_URL:'https://iumrah-backend.helloiumrah.workers.dev/api/auth/staff/session', BOOKINGS_ADMIN_URL:'https://iumrah-backend.helloiumrah.workers.dev/api/admin/bookings', BOOKINGS_PUBLIC_URL:'https://iumrah-backend.helloiumrah.workers.dev/api/bookings'} : sharedEnv;
       const reconcile = async (response) => {
         if (response.ok && syncReferralForBooking && ['PATCH','DELETE'].includes(request.method)) {
           const match = pathname.match(/^\/api\/admin\/(?:bookings|hotels\/operations\/bookings)\/([^/]+)$/);
@@ -117,6 +117,8 @@ export function createBackendRouter({hotels, flights, packages, core, requestAer
         if (!Number.isFinite(date.getTime())) return;
         const h=date.getUTCHours(),m=date.getUTCMinutes();
         const jobs=[];
+        if(coreReady(env,core)&&dispatchCreationNotifications)jobs.push(()=>dispatchCreationNotifications(env));
+        if(coreReady(env,core)&&env.DEVSMS_API_TOKEN&&retryBookingSMSStatuses)jobs.push(()=>retryBookingSMSStatuses(env));
         if(retryBookingPushOutbox&&(env.APNS_PRIVATE_KEY||fcmConfigured(env)))jobs.push(()=>retryBookingPushOutbox(env));
         if (h===1 && m===15) jobs.push(()=>flights.scheduled?.(controller,env,ctx));
         if (h===3 && m===0) jobs.push(()=>hotels.scheduled?.(controller,env,ctx));
