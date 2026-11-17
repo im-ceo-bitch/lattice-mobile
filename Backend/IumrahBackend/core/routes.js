@@ -1,3 +1,4 @@
+import { readNativeOffer, acceptNativeOffer, nativeOfferPage } from "./lib/business-offer-native.js";
 import { offerPage, readOffer, acceptOffer, listOffers, createOffer, offerDetail, updateOffer, staffAcceptOffer } from "./lib/business-offers.js";
 import { sharePage, shareRead, manualBookingInfo, rotateManualShare } from "./lib/business-manual-booking.js";
 import * as r0 from "./app/api/account/apple/sign-in/route.js";
@@ -50,6 +51,9 @@ import * as telegramWebhook from "./app/api/telegram/webhook/route.js";
 import { startStaffRecovery, finishStaffRecovery } from "./lib/staff-recovery.js";
 import {nativeMini,nativeTelegramSetup} from "./lib/telegram-native.js";
 export const routes = [
+  {pattern:/^\/api\/bookings\/offers\/([a-f0-9]{64})\/accept$/,keys:["token"],handlers:{POST:acceptNativeOffer}},
+  {pattern:/^\/api\/bookings\/offers\/([a-f0-9]{64})$/,keys:["token"],handlers:{GET:readNativeOffer}},
+  {pattern:/^\/offer\/([a-f0-9]{64})$/,keys:["token"],handlers:{GET:nativeOfferPage}},
   { pattern: /^\/api\/offers$/, keys: [], handlers: { GET: offerPage, POST: readOffer } },
   { pattern: /^\/api\/offers\/accept$/, keys: [], handlers: { POST: acceptOffer } },
   { pattern: /^\/api\/admin\/offers$/, keys: [], handlers: { GET: listOffers, POST: createOffer } },

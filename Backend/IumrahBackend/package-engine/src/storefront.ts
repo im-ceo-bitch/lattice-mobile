@@ -239,6 +239,10 @@ export function appleAppSiteAssociation(): Response {
       details: [{
         appIDs: ["HVT4U96286.com.iumrah.app", "2DQ678JTNG.com.iumrah.app"],
         components: [
+          { "/": "/api/offers", "?": { "preview": "1" }, exclude: true, comment: "Staff web preview" },
+          { "/": "/api/offers", comment: "Open existing Business offer links" },
+          { "/": "/offer/*", comment: "Open Business offers in iumrah" },
+          { "/": "/flights/package/*", comment: "Open package snapshots" },
           { "/": "/ref/*", comment: "Verified referral registration links" },
           { "/": "/h/*", comment: "Open public iumrah hotel links in the iOS app without exposing supplier identifiers." },
           { "/": "/hotel/*", comment: "Backward compatibility for hotel links shared by older beta builds." },

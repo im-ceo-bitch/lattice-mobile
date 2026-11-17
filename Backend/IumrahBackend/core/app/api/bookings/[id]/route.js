@@ -78,7 +78,10 @@ export async function PATCH(request, { params }) {
         if (!nextProfile)
             return NextResponse.json({ error: "PROFILE_INVALID" }, { status: 400, headers: { "Cache-Control": "no-store" } });
         const payload = JSON.parse(result.row.payload_json);
-        payload.pilgrimProfile = nextProfile;
+        const previousProfile = payload.pilgrimProfile && typeof payload.pilgrimProfile === 'object' ? payload.pilgrimProfile : {};
+        payload.pilgrimProfile = {...previousProfile,...nextProfile};
+        if(previousProfile.phoneVerifiedAt){payload.pilgrimProfile.phone=previousProfile.phone;payload.pilgrimProfile.phoneVerifiedAt=previousProfile.phoneVerifiedAt;}
+        if(previousProfile.emailVerifiedAt){payload.pilgrimProfile.email=previousProfile.email;payload.pilgrimProfile.emailVerifiedAt=previousProfile.emailVerifiedAt;}
         const now = new Date().toISOString();
         await result.db.batch([
             result.db.prepare("UPDATE bookings SET payload_json = ?, updated_at = ? WHERE id = ? AND access_token_hash = ?")

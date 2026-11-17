@@ -1,3 +1,4 @@
+import { sendBookingSMSStatus } from "./booking-sms";
 import type { D1Like } from "./d1";
 import type { Env } from "./env";
 import { attachVerifiedBookingPhone } from "./booking-control";
@@ -164,7 +165,8 @@ async function attach(request: Request, id: string, db: D1Like, env: Env): Promi
      SET consumed_at=COALESCE(consumed_at,?1),booking_id=COALESCE(booking_id,?2)
      WHERE verification_token_hash=?3 AND (booking_id IS NULL OR booking_id=?2)`,
   ).bind(new Date().toISOString(), id, await sha256(token)).run();
-  return json({ ok: true, verified: true, phone: proof.phone });
+  const smsNotification = await sendBookingSMSStatus(env,id).catch(()=>"unknown");
+  return json({ ok: true, verified: true, phone: proof.phone, smsNotification });
 }
 
 export async function handleGuestBookingPhone(request: Request, env: Env, url: URL): Promise<Response> {

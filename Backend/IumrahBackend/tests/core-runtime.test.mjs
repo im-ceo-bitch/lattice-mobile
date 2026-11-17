@@ -110,3 +110,34 @@ test('Sales & Offers: authorized creation, preview, revision, immutable quote, c
  assert.ok(outcomes.every(r=>r.status===201));const [a,b]=await Promise.all(outcomes.map(r=>r.json()));assert.equal(a.bookingID,b.bookingID);assert.equal(sql.prepare('SELECT COUNT(*) n FROM bookings').get().n,before+3);assert.equal(pushes.filter(p=>p.offerID===third.id&&p.type==='booking_created').length,1);
  const page=await go('/api/offers');assert.match(page.headers.get('content-security-policy'),/frame-ancestors 'none'/);const html=await page.text();assert.doesNotThrow(()=>new Function(html.match(/<script nonce="[^"]+">([\s\S]*)<\/script>/)[1]));
 });
+
+test('merged native offers use existing Sales schema, revision, verified contact and stable link; retry does not leak booking token',async()=>{
+ const login=await go('/api/auth/staff/login','POST',{login:'operator',password:'test-password'});
+ const auth={cookie:login.headers.get('set-cookie').split(';')[0],'x-iumrah-business-session':'fixture-device'};
+ const booking={planId:'standard',totalUsd:1,perPilgrimUsd:1,input:{from:'TAS',originCode:'TAS',startDate:'2032-03-01',endDate:'2032-03-08',flexibleDays:0,hotelPreference:'4',includeMadinah:false,travelers:{adults:2,children:0,infants:0,rooms:1},privateData:'secret'},route:{originCode:'TAS',outboundDestination:'JED',returnOrigin:'JED'},stay:{totalDays:8,totalNights:7,makkahCheckIn:'2032-03-01',makkahCheckOut:'2032-03-08',makkahNights:7},customization:{},hotelNames:{makkah:'Example'},flight:'HY 335',selection:{flightId:'f',makkahHotelId:'h',madinahHotelId:null},selectionDetails:{flight:{id:'f',airline:'HY',outboundOrigin:'TAS',outboundDestination:'JED',outboundDate:'2032-03-01',outboundDepartureTime:'2032-03-01T01:00:00Z',returnOrigin:'JED',returnDestination:'TAS',returnDate:'2032-03-08'},makkahHotel:{id:'h',name:'Example',stars:4,checkIn:'2032-03-01',checkOut:'2032-03-08'}}};
+ const cost={flight:800,makkah:600,madinah:0,transfer:300,ziyarat:0,visa:0,guide:0,other:0,commission:5};
+ const payload={booking,cost,requestSecret:'b1'.repeat(32),hours:24,lang:'uz',editorDraft:'{}'};
+ const before=sql.prepare('SELECT COUNT(*) n FROM bookings').get().n;
+ const made=await go('/api/admin/offers','POST',payload,auth);assert.equal(made.status,201,await made.clone().text());const offer=await made.json();
+ const token=new URL(offer.shareURL).hash.slice(1),base='/api/bookings/offers/'+token;
+ const read=await (await go(base)).json();assert.equal(read.packageID,offer.id);assert.equal(read.revision,1);assert.equal(read.status,'available');assert.equal(read.package.totalUsd,1785);assert.equal(read.package.input.arrivalAirportCode,'JED');assert.ok(!JSON.stringify(read).includes('privateData'));assert.ok(!JSON.stringify(read).includes('commission'));assert.equal(sql.prepare('SELECT COUNT(*) n FROM bookings').get().n,before);
+ const page=await go('/offer/'+token);assert.equal(page.status,200);const html=await page.text();assert.match(html,/iumrahapp:\/\/offer\//);assert.match(html,/apps\.apple\.com\/app\/id6759577859/);assert.doesNotThrow(()=>new Function(html.match(/<script nonce="[^"]+">([\s\S]*)<\/script>/)[1]));
+ const proof='b2'.repeat(32),hash=Buffer.from(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(proof))).toString('hex');
+ const emailProof='b3'.repeat(32),emailHash=Buffer.from(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(emailProof))).toString('hex');
+ const hotelDB={prepare(query){return {bind(...args){return {async first(){if(query.includes('iumrah_guest_booking_phone_challenges')&&args[0]===hash)return {contact:'+998901234567',proof_expires_at:'2099-01-01',consumed_at:null};if(query.includes('iumrah_guest_booking_email_challenges')&&args[0]===emailHash)return {contact:'example@example.com',proof_expires_at:'2099-01-01',consumed_at:null};return null;}};}};}};
+ const live={...env,HOTELS_DB:hotelDB},accept={revision:1,firstName:'Guest',lastName:'Name',channel:'sms',verificationToken:proof,requestSecret:'b4'.repeat(32)};
+ assert.equal((await go(base+'/accept','POST',{...accept,revision:0},{},live)).status,409);
+ assert.equal((await go(base+'/accept','POST',{...accept,verificationToken:'00'.repeat(32)},{},live)).status,400);
+ const confirmed=await go(base+'/accept','POST',accept,{},live);assert.equal(confirmed.status,201,await confirmed.clone().text());const result=await confirmed.json();assert.equal(result.booking.totalUsd,1785);assert.equal(result.booking.offerPackageID,offer.id);assert.equal(result.booking.pilgrimProfile.whatsapp,'');assert.ok(result.accessToken);
+ assert.equal((await (await go(base+'/accept','POST',accept,{},live)).json()).accessToken,result.accessToken);
+ assert.equal((await go(base+'/accept','POST',{...accept,requestSecret:'b5'.repeat(32)},{},live)).status,409);
+ assert.equal((await go('/api/bookings/'+result.booking.id,'GET',undefined,{'x-booking-token':result.accessToken})).status,200);
+ assert.equal((await (await go(base)).json()).status,'accepted');
+ const publicOld=await (await go('/api/offers','POST',{token})).json();assert.equal(publicOld.converted,true);assert.ok(!JSON.stringify(publicOld).includes(result.accessToken));assert.ok(!JSON.stringify(publicOld).includes('+998901234567'));
+ const privateInfo=await (await go('/api/admin/bookings/'+result.booking.id+'/manual','GET',undefined,auth)).json();assert.equal(privateInfo.cost.commission,5);
+ assert.equal(sql.prepare('SELECT COUNT(*) n FROM bookings').get().n,before+1);
+ const second=await (await go('/api/admin/offers','POST',{...payload,requestSecret:'b6'.repeat(32)},auth)).json(),secondBase='/api/bookings/offers/'+new URL(second.shareURL).hash.slice(1);
+ assert.equal((await go(secondBase+'/accept','POST',accept,{},live)).status,409); // same OTP cannot create another offer booking
+ const emailResponse=await go(secondBase+'/accept','POST',{...accept,channel:'email',verificationToken:emailProof,requestSecret:'b7'.repeat(32)},{},live);assert.equal(emailResponse.status,201,await emailResponse.clone().text());
+ assert.equal((await emailResponse.json()).booking.pilgrimProfile.email,'example@example.com');assert.equal(sql.prepare('SELECT COUNT(*) n FROM bookings').get().n,before+2);
+});

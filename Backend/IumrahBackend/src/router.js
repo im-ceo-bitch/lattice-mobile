@@ -5,7 +5,7 @@ import { publicServices } from './public-services.js';
 // iumrah Backend — single entry point, no duplicated hotel or flight business logic.
 // Narrow, explicit routing prevents the backend from swallowing unrelated website APIs.
 const publicCoreReads = new Set(['/api/airports','/api/storefront/hotels','/api/storefront/primary-hotel','/api/storefront/hotel-detail','/api/storefront/hotel-rooms','/api/storefront/flight-recommendations','/api/flights/data']);
-const corePrefixes = ['/api/offers','/api/admin/offers','/api/account','/api/bookings','/api/admin/bookings','/api/admin/chats','/api/auth/staff','/api/chat','/api/telegram','/api/internal/telegram','/api/storefront','/api/airports','/api/flights/data','/api/generate','/api/reprice','/api/seo'];
+const corePrefixes = ['/offer','/api/offers','/api/admin/offers','/api/account','/api/bookings','/api/admin/bookings','/api/admin/chats','/api/auth/staff','/api/chat','/api/telegram','/api/internal/telegram','/api/storefront','/api/airports','/api/flights/data','/api/generate','/api/reprice','/api/seo'];
 const hotelPrefixes = [
   '/api/admin/hotels', '/api/catalog/hotels',
   '/api/admin/ziyarats', '/api/catalog/ziyarats', '/flights-feed',
@@ -52,7 +52,7 @@ const json = (value, status = 200) => new Response(JSON.stringify(value), {
   status,
   headers: {'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff'}
 });
-export function createBackendRouter({hotels, flights, packages, core, requestAeroDataBox, aeroDataBoxConfiguration, verifyBookingQuote, sendBookingEmailStatus, retryBookingStatusEmails, materializeBookingIdentity, syncReferralForBooking, bookingRewardsAmounts, sendStaffPush}) {
+export function createBackendRouter({hotels, flights, packages, core, requestAeroDataBox, aeroDataBoxConfiguration, verifyBookingQuote, sendBookingEmailStatus, retryBookingStatusEmails, materializeBookingIdentity, syncReferralForBooking, bookingRewardsAmounts, sendStaffPush, sendBookingSMSStatus}) {
   if (typeof hotels?.fetch !== 'function' || typeof flights?.fetch !== 'function') throw Error('BACKEND_HANDLERS_REQUIRED');
   const router = {
     async fetch(request, env, ctx) {
@@ -67,7 +67,7 @@ export function createBackendRouter({hotels, flights, packages, core, requestAer
       const ready = coreReady(env,core);
       // The operator activates this only after verifying D1/R2 parity and freezing old writes.
       const dispatch = (req) => router.fetch(req,env,ctx);
-      const routedEnv = core ? {...sharedEnv,IUMRAH_OFFER_PUSH: sendStaffPush ? (title,body,data)=>sendStaffPush(sharedEnv,title,body,data) : undefined, IUMRAH_BOOKING_REWARDS: bookingRewardsAmounts ? (id)=>bookingRewardsAmounts(sharedEnv,id) : undefined,IUMRAH_BOOKING_EMAIL_NOTIFY: sendBookingEmailStatus ? (id)=>sendBookingEmailStatus(sharedEnv,id) : undefined, IUMRAH_TELEGRAM_NOTIFY: (id,status)=>runCore(sharedEnv,ctx,dispatch,()=>notifyTelegramStatus(sharedEnv,id,status)), IUMRAH_MATERIALIZE_BOOKING_IDENTITY: materializeBookingIdentity ? (booking)=>materializeBookingIdentity(sharedEnv,booking) : undefined, IUMRAH_VERIFY_BOOKING_QUOTE: verifyBookingQuote ? (booking,proof)=>verifyBookingQuote(booking,proof,env) : undefined, IUMRAH_CORE_FETCH: (input,init)=>dispatch(new Request(input,init)), AUTH_SESSION_URL:'https://iumrah-backend.helloiumrah.workers.dev/api/auth/staff/session', BOOKINGS_ADMIN_URL:'https://iumrah-backend.helloiumrah.workers.dev/api/admin/bookings', BOOKINGS_PUBLIC_URL:'https://iumrah-backend.helloiumrah.workers.dev/api/bookings'} : sharedEnv;
+      const routedEnv = core ? {...sharedEnv,IUMRAH_BOOKING_SMS_NOTIFY: sendBookingSMSStatus ? (id)=>sendBookingSMSStatus(sharedEnv,id) : undefined, IUMRAH_OFFER_PUSH: sendStaffPush ? (title,body,data)=>sendStaffPush(sharedEnv,title,body,data) : undefined, IUMRAH_BOOKING_REWARDS: bookingRewardsAmounts ? (id)=>bookingRewardsAmounts(sharedEnv,id) : undefined,IUMRAH_BOOKING_EMAIL_NOTIFY: sendBookingEmailStatus ? (id)=>sendBookingEmailStatus(sharedEnv,id) : undefined, IUMRAH_TELEGRAM_NOTIFY: (id,status)=>runCore(sharedEnv,ctx,dispatch,()=>notifyTelegramStatus(sharedEnv,id,status)), IUMRAH_MATERIALIZE_BOOKING_IDENTITY: materializeBookingIdentity ? (booking)=>materializeBookingIdentity(sharedEnv,booking) : undefined, IUMRAH_VERIFY_BOOKING_QUOTE: verifyBookingQuote ? (booking,proof)=>verifyBookingQuote(booking,proof,env) : undefined, IUMRAH_CORE_FETCH: (input,init)=>dispatch(new Request(input,init)), AUTH_SESSION_URL:'https://iumrah-backend.helloiumrah.workers.dev/api/auth/staff/session', BOOKINGS_ADMIN_URL:'https://iumrah-backend.helloiumrah.workers.dev/api/admin/bookings', BOOKINGS_PUBLIC_URL:'https://iumrah-backend.helloiumrah.workers.dev/api/bookings'} : sharedEnv;
       const reconcile = async (response) => {
         if (response.ok && syncReferralForBooking && ['PATCH','DELETE'].includes(request.method)) {
           const match = pathname.match(/^\/api\/admin\/(?:bookings|hotels\/operations\/bookings)\/([^/]+)$/);

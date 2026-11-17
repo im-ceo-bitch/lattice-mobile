@@ -6047,6 +6047,7 @@ async function updateOperationsBooking(request, env, bookingID, user) {
     await sendClientStatusPush(env, bookingID, nextStatus).catch(error => console.warn('CLIENT_STATUS_PUSH_FAILED', bookingID, error));
     if (typeof env.IUMRAH_TELEGRAM_NOTIFY === 'function') await env.IUMRAH_TELEGRAM_NOTIFY(bookingID,sourceStatusFromTripStatus(nextStatus)).catch(()=>console.warn('TELEGRAM_STATUS_NOTICE_FAILED'));
     if (typeof env.IUMRAH_BOOKING_EMAIL_NOTIFY === 'function') await env.IUMRAH_BOOKING_EMAIL_NOTIFY(bookingID).catch(()=>console.warn('BOOKING_STATUS_EMAIL_FAILED'));
+    if (typeof env.IUMRAH_BOOKING_SMS_NOTIFY === 'function') await env.IUMRAH_BOOKING_SMS_NOTIFY(bookingID).catch(()=>console.warn('BOOKING_STATUS_SMS_FAILED'));
   }
 
   return operationsBookingDetail(request, env, bookingID);
@@ -6253,10 +6254,21 @@ async function handleClientOperations(request, env, parts) {
   return methodNotAllowed();
 }
 
+async function sendInitialBookingPush(env,bookingID,device,locale){
+ if(!apnsConfigured(env))return false;
+ await env.HOTELS_DB.prepare(`CREATE TABLE IF NOT EXISTS booking_initial_push_delivery (booking_id TEXT NOT NULL,device_token TEXT NOT NULL,created_at TEXT NOT NULL,result TEXT NOT NULL,PRIMARY KEY(booking_id,device_token))`).run();
+ const claim=await env.HOTELS_DB.prepare('INSERT OR IGNORE INTO booking_initial_push_delivery(booking_id,device_token,created_at,result) VALUES(?,?,?,?)').bind(bookingID,device.device_token,new Date().toISOString(),'sending').run();
+ if(Number(claim.meta?.changes||0)!==1){const prior=await env.HOTELS_DB.prepare('SELECT result FROM booking_initial_push_delivery WHERE booking_id=? AND device_token=?').bind(bookingID,device.device_token).first();return prior?.result==='accepted';}
+ const lang=String(locale).toLowerCase();const copy=lang.startsWith('uz-cyrl')?['Брон яратилди','Мавжудлик текширилмоқда.']:lang.startsWith('uz')?['Bron yaratildi','Mavjudlik tekshirilmoqda.']:lang.startsWith('en')?['Booking created','Checking availability.']:['Бронирование создано','Проверяем наличие.'];
+ const result=await sendAPNsToRows(env,[device],copy[0],copy[1],{type:'booking_created',bookingID,status:'availability_check'},async()=>{},CLIENT_APP_BUNDLE_ID).catch(()=>null);
+ const accepted=Number(result?.sent||0)>0;
+ await env.HOTELS_DB.prepare('UPDATE booking_initial_push_delivery SET result=? WHERE booking_id=? AND device_token=?').bind(accepted?'accepted':'failed',bookingID,device.device_token).run();
+ return accepted;
+}
 async function registerClientPushDevice(request,env){
  const payload=await request.json().catch(()=>null);const bookingID=cleanText(payload?.bookingID||payload?.bookingId,180);const token=cleanText(payload?.deviceToken,256)?.toLowerCase();if(!bookingID)return json({ok:false,error:'BOOKING_ID_REQUIRED'},400);if(!token||!/^[0-9a-f]{32,256}$/.test(token))return json({ok:false,error:'INVALID_DEVICE_TOKEN'},400);
- const auth=await requireClientBooking(request,env,bookingID,{syncTrip:false});if(!auth.ok)return auth.response;if(auth.pilgrim)return json({ok:true,ready:apnsConfigured(env),bookingID,appBundleID:CLIENT_APP_BUNDLE_ID});const environment=payload?.environment==='development'?'development':'production';const appBundleID=cleanText(payload?.appBundleID||payload?.appBundleId,220)||CLIENT_APP_BUNDLE_ID;if(appBundleID!==CLIENT_APP_BUNDLE_ID)return json({ok:false,error:'INVALID_APP_BUNDLE_ID'},400);const locale=cleanText(payload?.locale,32)||'ru';const now=new Date().toISOString();
- await env.HOTELS_DB.prepare(`INSERT INTO client_push_subscriptions(device_token,booking_id,environment,app_bundle_id,locale,enabled,created_at,updated_at,last_error) VALUES(?,?,?,?,?,1,?,?,NULL) ON CONFLICT(device_token,booking_id) DO UPDATE SET environment=excluded.environment,app_bundle_id=excluded.app_bundle_id,locale=excluded.locale,enabled=1,updated_at=excluded.updated_at,last_error=NULL`).bind(token,bookingID,environment,appBundleID,locale,now,now).run();return json({ok:true,ready:apnsConfigured(env),bookingID,appBundleID:CLIENT_APP_BUNDLE_ID});
+ const auth=payload?.notifyCreated===true?await requireBookingToken(request,env,bookingID,{syncTrip:false}):await requireClientBooking(request,env,bookingID,{syncTrip:false});if(!auth.ok)return auth.response;if(auth.pilgrim)return json({ok:true,ready:apnsConfigured(env),bookingID,appBundleID:CLIENT_APP_BUNDLE_ID});const environment=payload?.environment==='development'?'development':'production';const appBundleID=cleanText(payload?.appBundleID||payload?.appBundleId,220)||CLIENT_APP_BUNDLE_ID;if(appBundleID!==CLIENT_APP_BUNDLE_ID)return json({ok:false,error:'INVALID_APP_BUNDLE_ID'},400);const locale=cleanText(payload?.locale,32)||'ru';const now=new Date().toISOString();
+ await env.HOTELS_DB.prepare(`INSERT INTO client_push_subscriptions(device_token,booking_id,environment,app_bundle_id,locale,enabled,created_at,updated_at,last_error) VALUES(?,?,?,?,?,1,?,?,NULL) ON CONFLICT(device_token,booking_id) DO UPDATE SET environment=excluded.environment,app_bundle_id=excluded.app_bundle_id,locale=excluded.locale,enabled=1,updated_at=excluded.updated_at,last_error=NULL`).bind(token,bookingID,environment,appBundleID,locale,now,now).run();let initialPushAccepted=false;if(payload?.notifyCreated===true&&normalizedTripStatus(auth.trip?.status||auth.booking?.status)==='availability_check'){initialPushAccepted=await sendInitialBookingPush(env,bookingID,{device_token:token,environment,app_bundle_id:appBundleID},locale).catch(()=>false);}return json({ok:true,ready:apnsConfigured(env),bookingID,appBundleID:CLIENT_APP_BUNDLE_ID,initialPushAccepted});
 }
 
 
