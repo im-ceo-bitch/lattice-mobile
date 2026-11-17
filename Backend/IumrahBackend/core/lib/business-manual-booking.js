@@ -16,7 +16,10 @@ export function manualTotals(cost, count) {
   if (!names.every(k=>typeof cost[k]==='number' && Number.isFinite(cost[k]) && cost[k]>=0 && cost[k]<=250000)) return null;
   if(cost.flight<=0||cost.makkah<=0||typeof cost.commission!=='number'||!Number.isFinite(cost.commission)||cost.commission<0||cost.commission>100) return null;
   const subtotal=names.reduce((n,k)=>n+cents(cost[k]),0);
-  const total=subtotal+Math.round(subtotal*cost.commission/100);
+  // Optional for pre-Configurator-2 clients and historical proposals.
+  const discount=cost.discount===undefined?0:cost.discount;
+  if(typeof discount!=='number'||!Number.isFinite(discount)||discount<0||discount>250000)return null;
+  const total=subtotal+Math.round(subtotal*cost.commission/100)-cents(discount);
   return total>0&&total<=25000000?{totalUsd:total/100,perPilgrimUsd:Math.round(total/count)/100}:null;
 }
 export function safeDetails(d) {

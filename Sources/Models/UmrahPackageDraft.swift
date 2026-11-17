@@ -61,17 +61,49 @@ struct UmrahPackageDraft: Codable, Equatable {
     var submissionMode: String? = nil
     var offerHours: Int? = nil
     var offerReceipt: BusinessOffer? = nil
+    // Optional UI state keeps old drafts and saved offers decodable.
+    var builderStage: Int? = nil
+    var builderFlightPhase: Int? = nil
+    var builderHotelPhase: Int? = nil
+    var builderOrigin: String? = nil
+    var builderFinishAsOffer: Bool? = nil
+    var discount: String? = nil
     var flightFares: [String: Double]? = nil
     var selectedFareKeys: [String: String]? = nil
     var selectedFareKinds: [String: String]? = nil
     var costSubtotal: Double? {
         guard let base = total,
               let visa = Self.amount(visaPrice ?? "0"), let guide = Self.amount(guidePrice ?? "0"), let other = Self.amount(otherPrice ?? "0") else { return nil }
-        return base + visa + guide + other
+        // Match server rounding: each cost line is rounded to cents independently.
+        guard [visa, guide, other].allSatisfy({ $0 <= 250000 }) else { return nil }
+        return (base * 100 + [visa, guide, other].map { ($0 * 100).rounded() }.reduce(0, +)).rounded() / 100
+    }
+    var commissionAmount: Double? {
+        guard let subtotal = costSubtotal, let rate = Self.amount(commission ?? "0"), rate <= 100 else { return nil }
+        return (subtotal * 100 * rate / 100).rounded() / 100
     }
     var saleTotal: Double? {
-        guard let subtotal = costSubtotal, let rate = Self.amount(commission ?? "0"), rate <= 100 else { return nil }
-        return (subtotal * (1 + rate / 100) * 100).rounded() / 100
+        guard let subtotal = costSubtotal, let fee = commissionAmount,
+              let discount = Self.amount(discount ?? "0") else { return nil }
+        let result = (subtotal * 100).rounded() + (fee * 100).rounded() - (discount * 100).rounded()
+        guard discount <= 250000, result > 0, result <= 25_000_000 else { return nil }
+        return result / 100
+    }
+    var suggestedFlightPrice: Double? {
+        guard let out = flightFares?["out"], let back = flightFares?["back"],
+              let outKey = selectedFareKeys?["out"], let backKey = selectedFareKeys?["back"],
+              out > 0, back > 0 else { return nil }
+        if outKey == backKey, selectedFareKinds?["out"] == "round_trip", selectedFareKinds?["back"] == "round_trip" { return out }
+        if outKey != backKey, selectedFareKinds?["out"] == "one_way", selectedFareKinds?["back"] == "one_way" { return out + back }
+        return nil
+    }
+    var parameterIssue: String? { (1...6).contains(travelers) ? nil : "Укажите от 1 до 6 паломников." }
+    func stayIssue(_ stay: Stay) -> String? {
+        guard !stay.id.isEmpty, !stay.room.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              (1...6).contains(stay.rooms), stay.nights > 0 else { return "Выберите отель, номер и даты проживания." }
+        guard (Self.amount(stay.price) ?? 0) > 0 else { return "Укажите стоимость всех номеров за весь срок." }
+        guard let arrival, let departure, stay.checkIn >= Self.stayCalendar.startOfDay(for: arrival), stay.checkOut <= Self.stayCalendar.startOfDay(for: departure) else { return "Даты проживания должны быть в пределах поездки." }
+        return nil
     }
     var bookingIssue: String? {
         if clientName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (lastName ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "Укажите имя и фамилию." }
@@ -102,7 +134,8 @@ struct UmrahPackageDraft: Codable, Equatable {
             guard let price = Self.amount(medina.price), price > 0 else { return nil }
             medinaPrice = price
         } else { medinaPrice = 0 }
-        return flight * Double(travelers) + hotel + medinaPrice + transfer + visits
+        guard [flight * Double(travelers), hotel, medinaPrice, transfer, visits].allSatisfy({ $0 <= 250000 }) else { return nil }
+        return [flight * Double(travelers), hotel, medinaPrice, transfer, visits].map { ($0 * 100).rounded() }.reduce(0, +) / 100
     }
     var arrival: Date? { Self.date(outbound?.legs.last?.arrivalAt) }
     var departure: Date? { Self.date(inbound?.legs.first?.departureAt) }
@@ -113,6 +146,17 @@ struct UmrahPackageDraft: Codable, Equatable {
         formatter.formatOptions.insert(.withFractionalSeconds)
         return formatter.date(from: raw)
     }
+    func builderIssue(at stage: Int) -> String? {
+        switch stage {
+        case 0: return parameterIssue
+        case 1: return issue(at: 0)
+        case 2: return issue(at: 1)
+        case 3: return issue(at: 2)
+        case 4: return saleTotal == nil ? "Проверьте стоимость, комиссию и скидку." : nil
+        default: return nil
+        }
+    }
+    var firstIncompleteBuilderStage: Int { (0..<5).first { builderIssue(at: $0) != nil } ?? 5 }
     func issue(at step: Int) -> String? {
         if step == 0 {
             guard (1...6).contains(travelers) else { return "Укажите от 1 до 6 паломников." }
@@ -147,6 +191,7 @@ struct UmrahPackageDraft: Codable, Equatable {
             if includeMedina && sorted[0].checkOut != sorted[1].checkIn { return "Между отелями не должно быть пропусков или пересекающихся ночей." }
         }
         if step == 2 {
+            guard [visaPrice, guidePrice, otherPrice].allSatisfy({ Self.amount($0 ?? "0") != nil }) else { return "Проверьте стоимость виз, гида и дополнительных услуг." }
             guard Self.amount(transferPrice) != nil, (!(ziyaratMakkah || (includeMedina && ziyaratMedina)) || Self.amount(ziyaratPrice) != nil) else { return "Проверьте стоимость трансфера и зияратов." }
             if vehicle == "Chevrolet Malibu" && travelers > 3 { return "Для Malibu максимум 3 паломника. Выберите другое авто." }
             if travelers > 6 { return "Для более 6 паломников требуется несколько автомобилей. Уменьшите группу или согласуйте отдельный трансфер." }

@@ -44,3 +44,23 @@ for invalid in ["-1", "nan", "inf", "", "oops"] {
     expect(UmrahPackageDraft.amount(invalid) == nil, "Invalid money blocked: \(invalid)")
 }
 print("Umrah draft behavioral checks passed")
+
+var v2 = UmrahPackageDraft()
+expect(v2.firstIncompleteBuilderStage == 1, "Empty builder stops at flights")
+v2.flightFares = ["out": 350, "back": 350]; v2.selectedFareKeys = ["out":"a", "back":"a"]; v2.selectedFareKinds = ["out":"round_trip", "back":"round_trip"]
+expect(v2.suggestedFlightPrice == 350, "Round trip counted once")
+v2.selectedFareKeys = ["out":"a", "back":"b"]
+expect(v2.suggestedFlightPrice == nil, "Different round trips must not be summed")
+v2.selectedFareKinds = ["out":"one_way", "back":"one_way"]
+expect(v2.suggestedFlightPrice == 700, "Independent one-way tariffs can be summed")
+v2.flightPrice = "500"; v2.makkah.price = "1100"; v2.medina.price = "500"; v2.transferPrice = "400"; v2.visaPrice = "200"; v2.guidePrice = "100"; v2.discount = "800"
+expect(v2.costSubtotal == 3300 && v2.saleTotal == 2500, "Group discount is applied once")
+v2.discount = "3300"; expect(v2.saleTotal == nil, "Nonpositive price blocked")
+v2.discount = "800"; v2.builderStage = 4; v2.builderFlightPhase = 2; v2.builderHotelPhase = 1
+let v2Decoded = try JSONDecoder().decode(UmrahPackageDraft.self, from: JSONEncoder().encode(v2))
+expect(v2Decoded == v2, "Stage and substage preserved")
+var legacyV2 = try JSONSerialization.jsonObject(with: JSONEncoder().encode(v2)) as! [String:Any]
+for key in ["builderStage","builderFlightPhase","builderHotelPhase","builderOrigin","builderFinishAsOffer","discount"] { legacyV2.removeValue(forKey: key) }
+let legacyDraft = try JSONDecoder().decode(UmrahPackageDraft.self, from: JSONSerialization.data(withJSONObject: legacyV2))
+expect(legacyDraft.builderStage == nil && legacyDraft.saleTotal == 3300, "Historical drafts compatible")
+print("Configurator 2 draft checks passed")

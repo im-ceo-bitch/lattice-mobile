@@ -64,8 +64,8 @@ struct BookingDetailView: View {
     private func manualCostCard(_ costs: [String: Double]) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Себестоимость менеджера").font(.headline)
-            ForEach(["flight","makkah","madinah","transfer","ziyarat","visa","guide","other","commission"], id: \.self) { key in
-                HStack { Text(["flight":"Перелёт","makkah":"Мекка","madinah":"Медина","transfer":"Трансфер","ziyarat":"Зияраты","visa":"Визы","guide":"Гид","other":"Прочее","commission":"Комиссия, %"][key] ?? key); Spacer(); Text((costs[key] ?? 0).formatted(.number.precision(.fractionLength(0...2)))) }
+            ForEach(["flight","makkah","madinah","transfer","ziyarat","visa","guide","other","commission","discount"], id: \.self) { key in
+                HStack { Text(["flight":"Перелёт","makkah":"Мекка","madinah":"Медина","transfer":"Трансфер","ziyarat":"Зияраты","visa":"Визы","guide":"Гид","other":"Прочее","commission":"Комиссия, %","discount":"Скидка, USD"][key] ?? key); Spacer(); Text((costs[key] ?? 0).formatted(.number.precision(.fractionLength(0...2)))) }
             }
             Text("Внутренние данные · USD. Не показываются в ссылке клиента.").font(.caption).foregroundStyle(.secondary)
         }.padding(18).businessCard(radius: 22)

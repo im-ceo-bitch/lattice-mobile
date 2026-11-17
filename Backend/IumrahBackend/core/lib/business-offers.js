@@ -41,7 +41,7 @@ export function validateOffer(raw){
   const i=b.input;b.input={from:i.from,originCode:i.originCode||b.route.originCode,arrivalAirportCode:i.arrivalAirportCode||b.route.outboundDestination,startDate:i.startDate,endDate:i.endDate,flexibleDays:i.flexibleDays,hotelPreference:i.hotelPreference,includeMadinah:i.includeMadinah,travelers:{adults:t.adults,children:t.children,infants:t.infants,rooms:t.rooms}};
   // Strip quote/evidence amounts; only the actual selling price is client-visible.
   delete b.pilgrimProfile;delete b.travelerDetails;delete b.generatorTrace;
-  const cost=Object.fromEntries(['flight','makkah','madinah','transfer','ziyarat','visa','guide','other','commission'].map(k=>[k,raw.cost[k]]));
+  const cost=Object.fromEntries(['flight','makkah','madinah','transfer','ziyarat','visa','guide','other','commission','discount'].map(k=>[k,k==='discount'?(raw.cost[k]??0):raw.cost[k]]));
   const draft=typeof raw.editorDraft==='string'&&raw.editorDraft.length<=80000?raw.editorDraft:'';
   const expiresAt=new Date(Math.min(Date.now()+hours*3600000,Date.parse(f.outboundDepartureTime))).toISOString();
   return {snapshot:{...b,...total,manualDetails:safeDetails(raw.manualDetails)},cost,draft,lang:lang(raw.lang),count,expiresAt};

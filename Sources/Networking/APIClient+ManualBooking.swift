@@ -25,7 +25,7 @@ extension APIClient {
         func amount(_ value: String?) -> Double { UmrahPackageDraft.amount(value ?? "0") ?? 0 }
         let flightID = outbound.id + ":" + inbound.id
         let plan = ["Economy":"economy", "Standard":"standard", "Comfort":"comfort", "Premium":"luxury"][draft.comfort] ?? "standard"
-        let cost: [String: Double] = ["flight":amount(draft.flightPrice)*Double(draft.travelers),"makkah":amount(draft.makkah.price),"madinah":draft.includeMedina ? amount(draft.medina.price) : 0,"transfer":amount(draft.transferPrice),"ziyarat":draft.ziyaratMakkah || (draft.includeMedina && draft.ziyaratMedina) ? amount(draft.ziyaratPrice) : 0,"visa":amount(draft.visaPrice),"guide":amount(draft.guidePrice),"other":amount(draft.otherPrice),"commission":amount(draft.commission)]
+        let cost: [String: Double] = ["flight":amount(draft.flightPrice)*Double(draft.travelers),"makkah":amount(draft.makkah.price),"madinah":draft.includeMedina ? amount(draft.medina.price) : 0,"transfer":amount(draft.transferPrice),"ziyarat":draft.ziyaratMakkah || (draft.includeMedina && draft.ziyaratMedina) ? amount(draft.ziyaratPrice) : 0,"visa":amount(draft.visaPrice),"guide":amount(draft.guidePrice),"other":amount(draft.otherPrice),"commission":amount(draft.commission),"discount":amount(draft.discount)]
         let flight: [String: Any] = ["id":flightID,"airline": [first.airline, back.airline].reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }.joined(separator: " / "), "outboundOrigin":first.origin,"outboundDestination":last.destination,"outboundDate":day(UmrahPackageDraft.date(first.departureAt) ?? arrival),"returnOrigin":back.origin,"returnDestination":end.destination,"returnDate":day(departure),"outboundDepartureTime":first.departureAt,"outboundArrivalTime":last.arrivalAt,"returnDepartureTime":back.departureAt,"returnArrivalTime":end.arrivalAt,"outboundStops":max(0,outbound.legs.count-1),"returnStops":max(0,inbound.legs.count-1)]
         func hotel(_ stay: UmrahPackageDraft.Stay, city: String) -> [String: Any] { ["id":stay.id,"name":stay.name,"city":city,"stars":stay.stars ?? 3,"checkIn":day(stay.checkIn),"checkOut":day(stay.checkOut),"imageUrl":stay.imageURL ?? ""] }
         var services = ["flight","makkahHotel","transfer"]
@@ -38,7 +38,7 @@ extension APIClient {
         let medinaHotel: Any = draft.includeMedina ? hotel(draft.medina, city: "madinah") as Any : NSNull()
         let nights = draft.makkah.nights + (draft.includeMedina ? draft.medina.nights : 0)
         let booking: [String: Any] = [
-            "planId":plan,"totalUsd":total,"perPilgrimUsd":total/Double(draft.travelers),
+            "planId":plan,"totalUsd":total,"perPilgrimUsd":(total*100/Double(draft.travelers)).rounded()/100,
             "input":["from":first.origin,"originCode":first.origin,"arrivalAirportCode":last.destination,"startDate":day(arrival),"endDate":day(departure),"flexibleDays":0,"hotelPreference":String(min(5,max(1,draft.makkah.stars ?? 3))),"includeMadinah":draft.includeMedina,"travelers":["adults":draft.travelers,"children":0,"infants":0,"rooms":draft.makkah.rooms]],
             "route":["originCode":first.origin,"outboundDestination":last.destination,"returnOrigin":back.origin],
             "stay":["totalDays":nights+1,"totalNights":nights,"makkahCheckIn":day(draft.makkah.checkIn),"makkahCheckOut":day(draft.makkah.checkOut),"makkahNights":draft.makkah.nights,"madinahCheckIn":draft.includeMedina ? day(draft.medina.checkIn) as Any : NSNull(),"madinahCheckOut":draft.includeMedina ? day(draft.medina.checkOut) as Any : NSNull(),"madinahNights":draft.includeMedina ? draft.medina.nights : 0],
@@ -54,6 +54,7 @@ extension APIClient {
         var editor = draft
         editor.clientName = ""; editor.lastName = nil; editor.phone = ""; editor.email = nil; editor.telegram = ""; editor.notes = ""; editor.sendEmail = nil
         editor.requestSecret = nil; editor.receipt = nil; editor.offerReceipt = nil; editor.submissionMode = nil
+        editor.builderStage = nil; editor.builderFlightPhase = nil; editor.builderHotelPhase = nil; editor.builderFinishAsOffer = nil
         let editorDraft = String(decoding: try JSONEncoder().encode(editor), as: UTF8.self)
         var payload: [String: Any] = ["booking":booking,"manualDetails":details,"cost":cost,"requestSecret":draft.requestSecret ?? "","lang":draft.language ?? "ru","email":draft.email ?? "","sendEmail":draft.sendEmail ?? false,"hours":draft.offerHours ?? 24,"editorDraft":editorDraft]
         if let mode = draft.submissionMode { payload["mode"] = mode }
