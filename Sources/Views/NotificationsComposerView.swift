@@ -66,7 +66,15 @@ struct NotificationsComposerView: View {
             .padding(.bottom, 44)
         }
         .background(BusinessDesign.background.ignoresSafeArea())
-        .toolbar(.hidden, for: .navigationBar)
+        .navigationTitle("Уведомления")
+        .navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
+        .toolbar {
+            if !usesPersistentSidebar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Закрыть") { dismiss() }.foregroundStyle(BusinessDesign.headerInk)
+                }
+            }
+        }
         .task { await reload() }
         .refreshable { await reload() }
         .confirmationDialog(
@@ -100,20 +108,7 @@ struct NotificationsComposerView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .center) {
-            BusinessPageHeading(title: "Уведомления", subtitle: "iumrah Signal · системное сообщение клиентам")
-            Spacer()
-            if !usesPersistentSidebar {
-                Button { dismiss() } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 15, weight: .bold))
-                        .frame(width: 44, height: 44)
-                        .businessGlass(in: Circle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Закрыть")
-            }
-        }
+        BusinessPageHeading(title: "Уведомления", subtitle: "iumrah Signal · системное сообщение клиентам")
     }
 
     private var signalPreview: some View {

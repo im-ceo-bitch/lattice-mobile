@@ -60,9 +60,9 @@ struct EmployeesView: View {
         .businessNavigationSurface()
         .toolbar {
             if !usesPersistentSidebar {
-                ToolbarItem(placement: .topBarLeading) { Button("Закрыть") { dismiss() } }
+                ToolbarItem(placement: .topBarLeading) { Button("Закрыть") { dismiss() }.foregroundStyle(BusinessDesign.headerInk) }
             }
-            ToolbarItem(placement: .topBarTrailing) { Button { showAdd = true } label: { Image(systemName: "plus") } }
+            ToolbarItem(placement: .topBarTrailing) { Button { showAdd = true } label: { Image(systemName: "plus") }.foregroundStyle(BusinessDesign.headerInk) }
         }
         .sheet(isPresented: $showAdd) {
             NavigationStack {
@@ -142,7 +142,7 @@ struct TeamMemberEditorView: View {
             .navigationTitle(creating ? "Новый сотрудник" : "Сотрудник")
             .navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
             .toolbar {
-                if creating { ToolbarItem(placement: .topBarLeading) { Button("Отмена") { dismiss() } } }
+                if creating { ToolbarItem(placement: .topBarLeading) { Button("Отмена") { dismiss() }.foregroundStyle(BusinessDesign.headerInk) } }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(saving ? "Сохраняю…" : "Сохранить") { Task { await save() } }
                         .fontWeight(.semibold).disabled(saving)

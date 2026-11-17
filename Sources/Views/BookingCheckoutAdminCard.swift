@@ -177,7 +177,7 @@ struct BookingCheckoutAdminCard: View {
                 .background(Color.black.opacity(0.96))
                 .navigationTitle(preview.title)
                 .navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
-                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Готово") { imagePreview = nil } } }
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Готово") { imagePreview = nil }.foregroundStyle(BusinessDesign.headerInk) } }
             }
         }
         .sheet(item: $reviewReceipt) { receipt in
@@ -197,8 +197,8 @@ struct BookingCheckoutAdminCard: View {
                     }.disabled(saving || (reviewDecision == "approved" ? (Double(reviewAmount.replacingOccurrences(of: ",", with: ".")) ?? 0) <= 0 : reviewReason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
                     if let error { Text(error).foregroundStyle(.red) }
                 }
-                .navigationTitle("Проверка оплаты")
-                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Закрыть") { reviewReceipt = nil } } }
+                .navigationTitle("Проверка оплаты").navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
+                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Закрыть") { reviewReceipt = nil }.foregroundStyle(BusinessDesign.headerInk) } }
             }
         }
         .sheet(item: $editingDocument) { doc in
@@ -213,15 +213,15 @@ struct BookingCheckoutAdminCard: View {
                     Button("Отозвать у клиента", role: .destructive) { Task { await setPublication(doc, state: "revoked", slots: Array(editingSlots)) } }.disabled(saving)
                     if let error { Text(error).foregroundStyle(.red) }
                 }
-                .navigationTitle(doc.title)
-                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Закрыть") { editingDocument = nil } } }
+                .navigationTitle(doc.title).navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
+                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Закрыть") { editingDocument = nil }.foregroundStyle(BusinessDesign.headerInk) } }
             }
         }
         .sheet(item: $documentPreview, onDismiss: { BusinessDocumentPreview.cleanup() }) { file in
             NavigationStack {
                 BusinessDocumentQuickLook(url: file.url)
-                    .navigationTitle(file.title).navigationBarTitleDisplayMode(.inline)
-                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Готово") { documentPreview = nil } } }
+                    .navigationTitle(file.title).navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
+                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Готово") { documentPreview = nil }.foregroundStyle(BusinessDesign.headerInk) } }
             }
         }
         .sheet(item: $stagedDocument, onDismiss: { BusinessDocumentPreview.cleanup() }) { file in
@@ -244,9 +244,9 @@ struct BookingCheckoutAdminCard: View {
                         Button(saving ? "Публикуем…" : replaceDocument == nil ? "Опубликовать документ" : "Опубликовать замену") { Task { await uploadDocument(file.url) } }
                             .buttonStyle(BusinessActionStyle(primary: true)).disabled(saving || ((checkout?.documentRequirements ?? []).contains { $0.kind == documentKind } && documentSlots.isEmpty))
                     }.padding(16)
-                }.navigationTitle("Проверка файла").navigationBarTitleDisplayMode(.inline)
+                }.navigationTitle("Проверка файла").navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
                     .interactiveDismissDisabled(saving)
-                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Отмена") { stagedDocument = nil }.disabled(saving) } }
+                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Отмена") { stagedDocument = nil }.foregroundStyle(BusinessDesign.headerInk).disabled(saving) } }
             }
         }
         .fileImporter(
@@ -500,7 +500,7 @@ struct BookingCheckoutAdminCard: View {
         return VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 8) {
                 HStack { Label("Центр документов", systemImage: "folder.fill").font(.headline); Spacer(); if !items.isEmpty { Text("\(ready)/\(items.count)").font(.title2.bold().monospacedDigit()) } }
-                if !items.isEmpty { ProgressView(value: Double(ready), total: Double(items.count)).tint(.blue) }
+                if !items.isEmpty { ProgressView(value: Double(ready), total: Double(items.count)).tint(BusinessDesign.securityBlue) }
                 Text(items.isEmpty ? "Обязательные позиции пока не определены." : ready == items.count ? "Все обязательные документы опубликованы. Остальные условия готовности проверяются отдельно." : "Осталось подготовить: \(items.count-ready). Общий PDF может покрывать несколько позиций.").font(.caption).foregroundStyle(.white.opacity(0.75))
             }.foregroundStyle(.white).padding(16).frame(maxWidth: .infinity, alignment: .leading).background(Color.black, in: RoundedRectangle(cornerRadius: 18))
             requirementGroup("Перелёты", kind: "ticket", icon: "airplane", items: items, documents: published)
@@ -563,8 +563,8 @@ struct BookingCheckoutAdminCard: View {
                                 Button("Ожидается") { Task { await updateRequirement(item, state: "pending") } }
                                 Button("На оформлении") { Task { await updateRequirement(item, state: "preparing") } }
                                 Button("Требует исправления") { Task { await updateRequirement(item, state: "needs_correction") } }
-                            } label: { Image(systemName: "ellipsis.circle").font(.title3).foregroundStyle(.blue) }.disabled(saving)
-                            Button { prepareSlot(item); showDocumentImporter = true } label: { Image(systemName: "plus.circle.fill").font(.title2).foregroundStyle(.blue) }
+                            } label: { Image(systemName: "ellipsis.circle").font(.title3).foregroundStyle(BusinessDesign.ink).frame(width: 44, height: 44) }.disabled(saving)
+                            Button { prepareSlot(item); showDocumentImporter = true } label: { Image(systemName: "plus.circle.fill").font(.title2).foregroundStyle(BusinessDesign.ink).frame(width: 44, height: 44) }
                                 .buttonStyle(.plain).disabled(saving).accessibilityLabel("Загрузить: \(item.label)")
                         }
                     }
@@ -595,7 +595,7 @@ struct BookingCheckoutAdminCard: View {
                 Menu {
                     Button("Изменить привязку / публикацию") { editingSlots = Set(document.slots ?? []); editingDocument = document }
                     if !revoked { Button("Заменить документ") { prepareReplacement(document); showDocumentImporter = true } }
-                } label: { Image(systemName: "ellipsis.circle").font(.title2).foregroundStyle(.blue) }.disabled(saving)
+                } label: { Image(systemName: "ellipsis.circle").font(.title2).foregroundStyle(BusinessDesign.ink).frame(width: 44, height: 44) }.disabled(saving)
             }
         }.padding(10).background(BusinessDesign.tertiarySurface, in: RoundedRectangle(cornerRadius: 12))
     }

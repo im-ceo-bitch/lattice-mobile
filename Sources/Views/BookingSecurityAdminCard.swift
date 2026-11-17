@@ -335,7 +335,7 @@ struct BookingSecurityAdminCard: View {
         case "confirmed": return .green
         case "rejected": return .red
         case "needs_resubmission": return .orange
-        case "submitted", "under_review": return .blue
+        case "submitted", "under_review": return BusinessDesign.securityBlue
         default: return .secondary
         }
     }

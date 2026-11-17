@@ -60,10 +60,10 @@ struct HotelImportSessionView: View {
             }
             .background(BusinessDesign.background)
             .navigationTitle(coordinator.showSource ? (coordinator.currentProvider?.rawValue ?? "Источник") : "Импорт по ссылке")
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button { dismiss() } label: { Image(systemName: "xmark") }
+                    Button { dismiss() } label: { Image(systemName: "xmark") }.foregroundStyle(BusinessDesign.headerInk)
                 }
                 if coordinator.showSource {
                     ToolbarItemGroup(placement: .topBarTrailing) {

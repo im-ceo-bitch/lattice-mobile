@@ -776,12 +776,13 @@ private struct AddHotelView: View {
             .contentMargins(.horizontal, 18, for: .scrollContent)
             .background(BusinessDesign.background)
             .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    BusinessBrandLogo(width: 118)
+                    BusinessBrandLogo(width: 118, foreground: BusinessDesign.headerInk)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Закрыть") { dismiss() }
+                    Button("Закрыть") { dismiss() }.foregroundStyle(BusinessDesign.headerInk)
                 }
             }
             .fullScreenCover(item: $importRequest) { request in

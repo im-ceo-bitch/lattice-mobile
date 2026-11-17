@@ -21,6 +21,7 @@ struct BookingDetailView: View {
     @State private var restartingPriceLock = false
     @State private var loadGeneration = UUID()
     @State private var workspace = 0
+    @State private var showAdvanced = false
     @State private var manualInfo: BusinessManualBookingInfo?
     @State private var shareURL: URL?
     @State private var shareError: String?
@@ -81,9 +82,12 @@ struct BookingDetailView: View {
             if let detail {
                 VStack(alignment: .leading, spacing: 16) {
                     hero(detail)
-                    Picker("Раздел", selection: $workspace) {
-                        Text("Обзор").tag(0); Text("Поездка").tag(1); Text("Документы").tag(2); Text("Финансы").tag(3)
-                    }.pickerStyle(.segmented)
+                    workspacePicker
+                    if hasUnsavedOperations && workspace != 0 {
+                        Button { workspace = 0; showAdvanced = true } label: {
+                            Label("Есть несохранённые изменения · Вернуться к управлению", systemImage: "exclamationmark.circle")
+                        }.buttonStyle(BusinessActionStyle(primary: false))
+                    }
                     switch workspace {
                     case 1:
                         BusinessBookingItineraryEditor(bookingID: bookingID, startDate: detail.booking.startDate, endDate: detail.booking.endDate, executionEnabled: detail.operation?.tripStatus == .inTrip)
@@ -96,9 +100,11 @@ struct BookingDetailView: View {
                         guideCard(detail)
                         BookingESIMAdminCard(bookingID: bookingID, esims: detail.esims ?? []) { Task { await load() } }
                     case 2:
+                        sectionTitle("Паломники и документы", subtitle: "Проверка личности, готовность и публикация файлов.")
                         BookingSecurityAdminCard(bookingID: bookingID, security: detail.security) { Task { await load() } }
                         BookingCheckoutAdminCard(bookingID: bookingID, status: detail.operation?.tripStatus ?? .availabilityCheck, checkout: detail.checkout) { Task { await load() } }
                     case 3:
+                        sectionTitle("Финансы поездки", subtitle: "Реквизиты, поступления, возвраты и внутренние расчёты.")
                         BookingCheckoutAdminCard(bookingID: bookingID, status: detail.operation?.tripStatus ?? .availabilityCheck, checkout: detail.checkout, financesOnly: true) { Task { await load() } }
                         if let center = detail.operationsCenter, let review = detail.checkout?.paymentReview { historicalPaymentCard(center, review: review) }
                         if let cancellation = detail.operationsCenter?.cancellation { cancellationCard(cancellation) }
@@ -107,7 +113,13 @@ struct BookingDetailView: View {
                         if let cost = manualInfo?.cost { manualCostCard(cost) }
                     default:
                         if let center = detail.operationsCenter { operationsCenterCard(center, detail: detail) }
-                        operationsCard(detail)
+                        if let operation = detail.operation, !operation.tripStatus.isCompleted {
+                            VStack(alignment: .leading, spacing: 10) {
+                                Label("Срок текущего этапа", systemImage: "clock").font(BusinessDesign.TypeStyle.title)
+                                lifecycleTimerCard(operation)
+                                if operation.tripStatus == .availabilityCheck { availabilityExpectation(operation) }
+                            }.padding(BusinessDesign.Space.md).businessCard()
+                        }
                         if let feedback = detail.operationsCenter?.feedback { travelFeedbackCard(feedback) }
                         if detail.operation?.tripStatus == .completed, let center = detail.operationsCenter { certificatesCard(center, detail: detail) }
                         NavigationLink { ChatConversationView(booking: detail.booking) } label: {
@@ -115,6 +127,13 @@ struct BookingDetailView: View {
                         }.buttonStyle(.plain)
                         if manualInfo?.manual == true { shareCard }
                         tripCard(detail.booking)
+                        DisclosureGroup(isExpanded: $showAdvanced) {
+                            operationsCard(detail)
+                        } label: {
+                            HStack {
+                                                    if hasUnsavedOperations { Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.orange).accessibilityLabel("Есть несохранённые изменения") }
+                            }.frame(minHeight: BusinessDesign.Size.tap, alignment: .leading)
+                        }.tint(BusinessDesign.ink).padding(BusinessDesign.Space.sm).businessCard()
                     }
                 }
                 .businessAdaptiveDetailWidth()
@@ -225,6 +244,34 @@ struct BookingDetailView: View {
         } message: { Text(errorMessage ?? "") }
     }
 
+    private var workspacePicker: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: BusinessDesign.Space.xs) {
+                ForEach(0..<4, id: \.self) { workspaceButton($0) }
+            }.fixedSize(horizontal: true, vertical: false).frame(maxWidth: .infinity)
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: BusinessDesign.Space.xs) {
+                ForEach(0..<4, id: \.self) { workspaceButton($0) }
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Разделы бронирования")
+    }
+
+    private func workspaceButton(_ index: Int) -> some View {
+        let titles = ["Обзор", "Поездка", "Документы", "Финансы"]
+        let symbols = ["list.bullet.rectangle", "airplane", "doc.text", "creditcard"]
+        return Button { workspace = index } label: {
+            VStack(spacing: 6) {
+                Image(systemName: symbols[index]).font(.body.weight(.semibold))
+                Text(titles[index]).font(.caption.weight(.semibold)).fixedSize(horizontal: true, vertical: false)
+            }
+            .frame(maxWidth: .infinity, minHeight: 52)
+            .padding(.horizontal, 8)
+            .foregroundStyle(workspace == index ? BusinessDesign.onAccent : BusinessDesign.ink)
+            .background(workspace == index ? BusinessDesign.accent : BusinessDesign.secondarySurface, in: RoundedRectangle(cornerRadius: BusinessDesign.Radius.control))
+        }.buttonStyle(.plain).accessibilityAddTraits(workspace == index ? .isSelected : [])
+    }
+
     private func sectionTitle(_ title: String, subtitle: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title).font(.title2.bold())
@@ -260,12 +307,19 @@ struct BookingDetailView: View {
                 Text(detail.booking.totalUsd, format: .currency(code: "USD").precision(.fractionLength(0)))
                     .font(BusinessDesign.TypeStyle.hero).monospacedDigit()
             }
-            HStack(spacing: 8) {
-                statusBadge(status)
-                Label("\(detail.booking.travelerCount)", systemImage: "person.2.fill")
-                Label("\(detail.booking.rooms)", systemImage: "bed.double.fill")
+            if let actual = detail.operation?.tripStatus {
+                statusBadge(actual)
+                    .font(.subheadline.weight(.semibold))
+                BusinessBookingProgress(status: actual)
+            } else {
+                Label("Операционный статус недоступен", systemImage: "info.circle").font(.caption).foregroundStyle(.secondary)
             }
-            .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            Label("\(detail.booking.startDate) — \(detail.booking.endDate)", systemImage: "calendar")
+                .font(.subheadline).foregroundStyle(.secondary)
+            HStack(spacing: 12) {
+                Label("\(detail.booking.travelerCount) чел.", systemImage: "person.2.fill")
+                Label("\(detail.booking.rooms) ном.", systemImage: "bed.double.fill")
+            }.font(.caption.weight(.semibold)).foregroundStyle(.secondary)
         }
         .padding(18).businessCard(radius: 28)
     }
@@ -313,7 +367,7 @@ struct BookingDetailView: View {
     private func travelFeedbackCard(_ feedback: BusinessTravelFeedback) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Label("Отзыв паломника", systemImage: "star").font(.headline)
-            HStack { ForEach(1...5, id: \.self) { value in Image(systemName: value <= feedback.rating ? "star.fill" : "star").foregroundStyle(.blue) }; Spacer(); Text("\(feedback.rating)/5").font(.title2.bold()) }
+            HStack { ForEach(1...5, id: \.self) { value in Image(systemName: value <= feedback.rating ? "star.fill" : "star").foregroundStyle(BusinessDesign.ink) }; Spacer(); Text("\(feedback.rating)/5").font(.title2.bold()) }
             if !feedback.comment.isEmpty { Text(feedback.comment).font(.subheadline).textSelection(.enabled) }
             Text(feedback.createdAt).font(.caption).foregroundStyle(.secondary)
         }.frame(maxWidth: .infinity, alignment: .leading).padding(18).businessCard(radius: 22)
@@ -380,11 +434,11 @@ struct BookingDetailView: View {
             }
             if !actual.isCompleted {
                 Text(actual == .inTrip ? "Исполнение услуг" : "Проверка компонентов").font(.headline)
-                ProgressView(value: Double(actual == .inTrip ? center.services.filter { $0.execution == "completed" }.count : confirmed), total: Double(max(1,center.services.count))).tint(.blue)
+                ProgressView(value: Double(actual == .inTrip ? center.services.filter { $0.execution == "completed" }.count : confirmed), total: Double(max(1,center.services.count))).tint(BusinessDesign.securityBlue)
                 ForEach(center.services) { service in
                     Button { editingService = service } label: {
                         HStack(alignment: .center) {
-                            Image(systemName: (actual == .inTrip ? service.execution == "completed" : service.availability == "confirmed") ? "checkmark.circle.fill" : "circle.dashed").foregroundStyle(.blue)
+                            Image(systemName: (actual == .inTrip ? service.execution == "completed" : service.availability == "confirmed") ? "checkmark.circle.fill" : "circle.dashed").foregroundStyle((actual == .inTrip ? service.execution == "completed" : service.availability == "confirmed") ? BusinessDesign.securityBlue : BusinessDesign.muted)
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(service.label).font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
                                 Text(actual == .inTrip ? service.executionTitle : service.availabilityTitle).font(.caption).foregroundStyle(.secondary)
@@ -484,11 +538,6 @@ struct BookingDetailView: View {
                     .background(BusinessDesign.secondarySurface, in: RoundedRectangle(cornerRadius: 17, style: .continuous))
                 }
                 .buttonStyle(.plain)
-            }
-
-            lifecycleTimerCard(detail.operation)
-            if let operation = detail.operation, operation.tripStatus == .availabilityCheck {
-                availabilityExpectation(operation)
             }
 
             Label(statusGuidance, systemImage: "lightbulb.fill")
@@ -1388,8 +1437,9 @@ private struct FlightEditorSheet: View {
             }
             .background(BusinessDesign.background)
             .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) { Button("Закрыть") { dismiss() } }
+                ToolbarItem(placement: .topBarLeading) { Button("Закрыть") { dismiss() }.foregroundStyle(BusinessDesign.headerInk) }
             }
             .onAppear { prepare() }
         }
@@ -1497,7 +1547,7 @@ private struct HotelAssignmentPicker: View {
                 }
             }
             .listStyle(.plain).navigationTitle("Отель · \(city)").navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
-            .toolbar { ToolbarItem(placement: .topBarLeading) { Button("Закрыть") { dismiss() } } }
+            .toolbar { ToolbarItem(placement: .topBarLeading) { Button("Закрыть") { dismiss() }.foregroundStyle(BusinessDesign.headerInk) } }
             .overlay { if loading { ProgressView() } }
             .task { await load() }
         }
@@ -1554,7 +1604,7 @@ private struct GuideAssignmentPicker: View {
             }
         }
         .listStyle(.plain).navigationTitle("Выбрать гида").navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
-        .toolbar { ToolbarItem(placement: .topBarLeading) { Button("Закрыть") { dismiss() } } }
+        .toolbar { ToolbarItem(placement: .topBarLeading) { Button("Закрыть") { dismiss() }.foregroundStyle(BusinessDesign.headerInk) } }
         .overlay { if loading { ProgressView() } }
         .task { await load() }
     }
@@ -1601,8 +1651,8 @@ private struct ServiceOperationEditor: View {
             Section("Подтверждение поставщика") { TextField("PNR / номер ваучера / контакт", text: $reference); TextField("Причина / внутренняя заметка", text: $note, axis: .vertical) }
             if let error { Text(error).foregroundStyle(.red) }
             Button(busy ? "Сохраняем…" : "Сохранить") { Task { await save() } }.disabled(busy)
-        }.navigationTitle(service.label).onAppear { availability = service.availability; execution = service.execution; reference = service.reference; note = service.note }
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Закрыть") { dismiss() }.disabled(busy) } }
+        }.navigationTitle(service.label).navigationBarTitleDisplayMode(.inline).businessNavigationSurface().onAppear { availability = service.availability; execution = service.execution; reference = service.reference; note = service.note }
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Закрыть") { dismiss() }.foregroundStyle(BusinessDesign.headerInk).disabled(busy) } }
     }
     @MainActor private func save() async {
         busy = true; defer { busy = false }
@@ -1622,9 +1672,9 @@ private struct OperationsManagerPicker: View {
             ForEach(members.filter { $0.active && ["owner","manager","operations"].contains($0.roleKind) }) { member in
                 Button(member.displayName) { Task { await select(member.id) } }.disabled(busy)
             }
-        }.navigationTitle("Ответственный менеджер").task {
+        }.navigationTitle("Ответственный менеджер").navigationBarTitleDisplayMode(.inline).businessNavigationSurface().task {
             do { members = try await APIClient.shared.businessTeam() } catch { self.error = error.localizedDescription }
-        }.toolbar { ToolbarItem(placement: .cancellationAction) { Button("Закрыть") { dismiss() }.disabled(busy) } }
+        }.toolbar { ToolbarItem(placement: .cancellationAction) { Button("Закрыть") { dismiss() }.foregroundStyle(BusinessDesign.headerInk).disabled(busy) } }
     }
     @MainActor private func select(_ id: String) async {
         busy = true; defer { busy = false }
@@ -1649,7 +1699,7 @@ private struct OperationsRefundEditor: View {
             Toggle("Подтверждаю фактическое перечисление средств", isOn: $confirmed)
             if let error { Text(error).foregroundStyle(.red) }
             Button("Зафиксировать возврат") { Task { await save() } }.disabled(busy || !confirmed || reference.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (value ?? 0) <= 0 || (value ?? 0) > Double(availableCents)/100)
-        }.navigationTitle("Возврат").toolbar { ToolbarItem(placement: .cancellationAction) { Button("Закрыть") { dismiss() }.disabled(busy) } }
+        }.navigationTitle("Возврат").navigationBarTitleDisplayMode(.inline).businessNavigationSurface().toolbar { ToolbarItem(placement: .cancellationAction) { Button("Закрыть") { dismiss() }.foregroundStyle(BusinessDesign.headerInk).disabled(busy) } }
     }
     @MainActor private func save() async {
         guard let value else { return }; busy = true; defer { busy = false }
@@ -1681,7 +1731,7 @@ private struct TravelFinanceCloseEditor: View {
             }
             if let failure { Text(failure).foregroundStyle(.red) }
             Button(saving ? "Сохранение…" : "Подтвердить закрытие") { Task { await save() } }.disabled(saving || !confirmed || reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || expenseValue == nil || (expenseValue ?? -1) < 0)
-        }.navigationTitle("Закрытие финансов").navigationBarTitleDisplayMode(.inline).toolbar { ToolbarItem(placement: .cancellationAction) { Button("Закрыть") { dismiss() }.disabled(saving) } }
+        }.navigationTitle("Закрытие финансов").navigationBarTitleDisplayMode(.inline).businessNavigationSurface().toolbar { ToolbarItem(placement: .cancellationAction) { Button("Закрыть") { dismiss() }.foregroundStyle(BusinessDesign.headerInk).disabled(saving) } }
     }
     @MainActor private func save() async {
         guard let expenseValue, !saving, confirmed else { return }; saving = true; failure = nil; defer { saving = false }
@@ -1711,7 +1761,7 @@ private struct HistoricalPaymentEditor: View {
             }
             if let failure { Text(failure).foregroundStyle(.red) }
             Button("Зафиксировать сверку") { Task { await save() } }.disabled(busy || !confirmed || reference.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || value == nil || (value ?? -1) < 0 || (value ?? 0) > maximum || (!cancelled && abs((value ?? -1)-maximum) > 0.001))
-        }.navigationTitle("Сверка платежей").toolbar { ToolbarItem(placement: .cancellationAction) { Button("Закрыть") { dismiss() }.disabled(busy) } }
+        }.navigationTitle("Сверка платежей").navigationBarTitleDisplayMode(.inline).businessNavigationSurface().toolbar { ToolbarItem(placement: .cancellationAction) { Button("Закрыть") { dismiss() }.foregroundStyle(BusinessDesign.headerInk).disabled(busy) } }
     }
     @MainActor private func save() async {
         guard let value else { return }; busy = true; defer { busy = false }
@@ -1735,7 +1785,7 @@ private struct CertificateCorrectionEditor: View {
             }
             if let failure { Text(failure).foregroundStyle(.red) }
             Button(action == "revoke" ? "Отозвать сертификат" : "Заменить сертификат", role: action == "revoke" ? .destructive : nil) { Task { await save() } }.disabled(busy || !confirmed || reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (action == "correct" && name.split(whereSeparator: { $0.isWhitespace }).count < 2))
-        }.navigationTitle("Управление сертификатом").onAppear { name = certificate.name }.toolbar { ToolbarItem(placement: .cancellationAction) { Button("Закрыть") { dismiss() }.disabled(busy) } }
+        }.navigationTitle("Управление сертификатом").navigationBarTitleDisplayMode(.inline).businessNavigationSurface().onAppear { name = certificate.name }.toolbar { ToolbarItem(placement: .cancellationAction) { Button("Закрыть") { dismiss() }.foregroundStyle(BusinessDesign.headerInk).disabled(busy) } }
     }
     @MainActor private func save() async {
         busy = true; defer { busy = false }

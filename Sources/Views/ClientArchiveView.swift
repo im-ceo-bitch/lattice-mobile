@@ -28,7 +28,7 @@ struct ClientArchiveView: View {
         .searchable(text: $search, prompt: "Имя, телефон или ID")
         .toolbar {
             if !usesPersistentSidebar {
-                ToolbarItem(placement: .topBarLeading) { Button("Закрыть") { dismiss() } }
+                ToolbarItem(placement: .topBarLeading) { Button("Закрыть") { dismiss() }.foregroundStyle(BusinessDesign.headerInk) }
             }
         }
         .overlay { if loading { ProgressView() } }

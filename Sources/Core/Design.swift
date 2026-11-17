@@ -22,6 +22,11 @@ enum BusinessDesign {
     }
     static let header = Color.black
     static let headerInk = Color.white
+    // Security Blue is reserved for selection and security; not a primary CTA fill.
+    private static func rgb(_ hex: UInt32) -> UIColor {
+        UIColor(red: CGFloat((hex >> 16) & 255) / 255, green: CGFloat((hex >> 8) & 255) / 255, blue: CGFloat(hex & 255) / 255, alpha: 1)
+    }
+    static let securityBlue = adaptive(light: rgb(BusinessAnimationPalette.selectionLight), dark: rgb(BusinessAnimationPalette.selectionDark))
     static let background = adaptive(
         light: .white,
         dark: .black
@@ -228,23 +233,35 @@ struct BusinessStageRail: View {
     let titles: [String]
     let symbols: [String]
     let current: Int
+    let maximumReachable: Int
     let goBack: (Int) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
-        HStack(spacing: 4) {
+        // Six 44pt controls fit a 320pt window with standard page margins.
+        // Connectors occupy the background, not additional horizontal space.
+        HStack(spacing: 0) {
             ForEach(titles.indices, id: \.self) { index in
-                if index > 0 { Capsule().fill(index <= current ? BusinessDesign.ink : BusinessDesign.line).frame(height: 2).accessibilityHidden(true) }
                 Button { goBack(index) } label: {
                     Image(systemName: index < current ? "checkmark" : symbols[index])
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(index <= current ? BusinessDesign.onAccent : BusinessDesign.muted)
                         .frame(width: 36, height: 36)
                         .background(index <= current ? BusinessDesign.accent : BusinessDesign.secondarySurface, in: Circle())
-                        .frame(width: 44, height: 44).contentShape(Rectangle())
-                }.buttonStyle(.plain).disabled(index >= current)
-                    .accessibilityLabel(titles[index]).accessibilityAddTraits(index == current ? .isSelected : [])
+                        .overlay { if index == current { Circle().strokeBorder(BusinessDesign.securityBlue, lineWidth: 2) } }
+                        .frame(minWidth: BusinessDesign.Size.tap, maxWidth: .infinity, minHeight: BusinessDesign.Size.tap)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(index == current || index > max(current, maximumReachable))
+                .accessibilityLabel("Шаг \(index + 1): \(titles[index])")
+                .accessibilityAddTraits(index == current ? .isSelected : [])
             }
-        }.animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: current)
+        }
+        .background {
+            Capsule().fill(BusinessDesign.line).frame(height: 2)
+                .padding(.horizontal, BusinessDesign.Size.tap / 2).accessibilityHidden(true)
+        }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: current)
     }
 }
 
@@ -262,6 +279,7 @@ struct BusinessChoiceRow: View {
             }
             Spacer(minLength: 0)
             Image(systemName: selected ? "checkmark.circle.fill" : "circle").font(.title2)
+                .foregroundStyle(selected ? BusinessDesign.securityBlue : BusinessDesign.muted)
         }.foregroundStyle(BusinessDesign.ink).padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(BusinessDesign.card, in: RoundedRectangle(cornerRadius: BusinessDesign.Radius.compact))

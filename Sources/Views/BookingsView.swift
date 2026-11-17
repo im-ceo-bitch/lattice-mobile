@@ -41,9 +41,11 @@ struct BookingsView: View {
     @State private var showOffers = false
     @State private var bookings: [BookingSummary] = []
     @State private var loading = true
+    @State private var hasLoadedBookings = false
     @State private var error: String?
     @State private var filter: BookingListFilter = .all
     @State private var taskFilter: String?
+    @State private var expandQueue = false
     @State private var mineOnly = false
     @State private var myMemberID: String?
     @State private var search = ""
@@ -208,7 +210,7 @@ struct BookingsView: View {
                     .listRowBackground(Color.clear)
             }
 
-            if filteredBookings.isEmpty && !loading {
+            if filteredBookings.isEmpty && hasLoadedBookings && !loading {
                 ContentUnavailableView("Бронирований нет", systemImage: "suitcase.rolling", description: Text("В этой категории сейчас нет поездок."))
                     .frame(maxWidth: .infinity)
                     .listRowSeparator(.hidden)
@@ -216,16 +218,16 @@ struct BookingsView: View {
             }
 
             ForEach(filteredBookings) { booking in
-                VStack(alignment: .leading, spacing: 4) {
+                Button { selectedBooking = booking } label: {
+                  VStack(alignment: .leading, spacing: 4) {
                     BookingRow(booking: booking, showsChevron: showsChevron)
                     if let task = booking.operationTasks?.min(by: { $0.priority < $1.priority }) {
                         Label(task.title, systemImage: task.priority == 0 ? "exclamationmark.circle" : "clock")
-                            .font(.caption.weight(.semibold)).foregroundStyle(task.priority == 0 ? Color.orange : Color.blue)
+                            .font(.caption.weight(.semibold)).foregroundStyle(task.priority == 0 ? Color.orange : BusinessDesign.muted)
                     }
-                }
-                    .contentShape(Rectangle())
-                    .onTapGesture { selectedBooking = booking }
-                    .accessibilityAddTraits(.isButton)
+                  }.contentShape(Rectangle())
+                }.buttonStyle(.plain)
+                    .accessibilityAddTraits(layout.supportsTwoPaneWorkspace && selectedBooking?.id == booking.id ? .isSelected : [])
                     .listRowInsets(EdgeInsets(top: 7, leading: 18, bottom: 7, trailing: 18))
                     .listRowBackground(
                         layout.supportsTwoPaneWorkspace && selectedBooking?.id == booking.id
@@ -242,18 +244,22 @@ struct BookingsView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack { Text("Требуют внимания").font(.headline); Spacer(); if taskFilter != nil { Button("Все задачи") { taskFilter = nil; filter = .all } } }
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
-                ForEach(["availability","receipt","payment","documents","departure","trip","cancellation","refund","finance_close","unassigned"], id: \.self) { key in
+                ForEach(expandQueue ? ["availability","receipt","payment","documents","departure","trip","cancellation","refund","finance_close","unassigned"] : ["availability","receipt","payment","documents"], id: \.self) { key in
                     let count = bookings.filter { (!mineOnly || (myMemberID != nil && $0.managerID == myMemberID)) && ($0.operationTasks ?? []).contains { $0.key == key } }.count
                     Button { taskFilter = taskFilter == key ? nil : key; filter = .all; search = "" } label: {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("\(count)").font(.title2.bold()).monospacedDigit()
+                            Text(hasLoadedBookings ? "\(count)" : "—").font(.title2.bold()).monospacedDigit()
                             Text(BookingOperationTask(key: key, priority: 0, dueAt: nil).title).font(.caption).lineLimit(2)
-                        }.frame(maxWidth: .infinity, alignment: .leading).padding(10)
-                            .foregroundStyle(taskFilter == key ? Color.white : Color.primary)
-                            .background(taskFilter == key ? Color.blue : BusinessDesign.secondarySurface, in: RoundedRectangle(cornerRadius: 13))
-                    }.buttonStyle(.plain)
+                        }.frame(maxWidth: .infinity, minHeight: 52, alignment: .leading).padding(10)
+                            .foregroundStyle(taskFilter == key ? BusinessDesign.onAccent : BusinessDesign.ink)
+                            .background(taskFilter == key ? BusinessDesign.accent : BusinessDesign.secondarySurface, in: RoundedRectangle(cornerRadius: 13))
+                    }.buttonStyle(.plain).accessibilityAddTraits(taskFilter == key ? .isSelected : [])
                 }
             }
+            Button {
+                expandQueue.toggle()
+                if !expandQueue, let taskFilter, !["availability", "receipt", "payment", "documents"].contains(taskFilter) { self.taskFilter = nil }
+            } label: { Label(expandQueue ? "Свернуть задачи" : "Все категории задач", systemImage: expandQueue ? "chevron.up" : "chevron.down") }.buttonStyle(BusinessActionStyle(primary: false))
             Toggle("Только мои бронирования", isOn: $mineOnly).font(.caption).disabled(myMemberID == nil)
         }.padding(12).businessCard(radius: 18)
     }
@@ -312,6 +318,7 @@ struct BookingsView: View {
             let incoming = try await APIClient.shared.bookings()
             guard !Task.isCancelled, loadGeneration == generation else { return }
             bookings = incoming
+            hasLoadedBookings = true
             if layout.supportsTwoPaneWorkspace {
                 if let selectedBooking,
                    bookings.contains(where: { $0.id == selectedBooking.id }) {

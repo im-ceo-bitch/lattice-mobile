@@ -12,5 +12,5 @@ model = (root / 'Sources/Models/UmrahPackageDraft.swift').read_text().split('@Ma
 model = model.replace('import Combine\n', '').replace('import CryptoKit\n', '')
 with tempfile.TemporaryDirectory() as directory:
     target = Path(directory) / 'main.swift'
-    target.write_text((root / 'Sources/Models/FlightCurationModels.swift').read_text() + '\n' + (root / 'Sources/Models/BusinessManualBookingReceipt.swift').read_text() + '\n' + model + '\n' + (root / 'Tests/UmrahPackageDraftTests.swift').read_text())
+    target.write_text((root / 'Sources/Models/FlightCurationModels.swift').read_text() + '\n' + (root / 'Sources/Models/BusinessManualBookingReceipt.swift').read_text() + '\n' + model + '\n' + (root / 'Sources/Core/BusinessConfiguratorPricePreview.swift').read_text() + '\n' + (root / 'Tests/UmrahPackageDraftTests.swift').read_text())
     subprocess.run([swift, str(target)], check=True)

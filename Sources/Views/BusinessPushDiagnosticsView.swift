@@ -29,7 +29,7 @@ struct BusinessPushDiagnosticsView: View {
                 Text("Регистрация и наличие ключа APNs не подтверждают фактическую доставку на iPhone.").font(.caption).foregroundStyle(.secondary)
             }
         }.navigationTitle("Push-уведомления").navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
-            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Готово") { dismiss() } } }
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Готово") { dismiss() }.foregroundStyle(BusinessDesign.headerInk) } }
             .task { await refresh(register: false) }
     }
     @MainActor private func testPush() async {

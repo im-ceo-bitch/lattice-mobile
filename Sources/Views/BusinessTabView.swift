@@ -184,7 +184,7 @@ private struct BusinessWorkspaceView: View {
                 }
             }
             .listStyle(.sidebar)
-            .navigationTitle("iumrah Business")
+            .navigationTitle("iumrah Business").navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
             .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 300)
         } detail: {
             BusinessAdaptivePaneHost {

@@ -39,7 +39,7 @@ struct HotelReviewView: View {
         .scrollIndicators(.hidden)
         .background(BusinessDesign.background)
         .navigationTitle("Проверка отеля")
-        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
         .alert("Возможный дубль", isPresented: $showPossibleDuplicateAlert) {
             Button("Отмена", role: .cancel) {}
             Button("Всё равно сохранить") {

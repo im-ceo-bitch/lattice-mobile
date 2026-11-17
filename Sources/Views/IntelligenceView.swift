@@ -516,7 +516,7 @@ private struct IntelligenceJourneyView: View {
             .padding(16)
         }
         .background(BusinessDesign.background)
-        .navigationTitle("Путь пользователя")
+        .navigationTitle("Путь пользователя").navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
         .task {
             do { events = try await APIClient.shared.intelligenceJourney(sessionID: sessionId).events }
             catch { self.error = error.localizedDescription }

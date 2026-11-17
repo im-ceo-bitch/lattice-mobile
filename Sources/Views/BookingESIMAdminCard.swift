@@ -303,7 +303,7 @@ private struct BookingESIMEditorSheet: View {
         .navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button("Отмена") { dismiss() }
+                Button("Отмена") { dismiss() }.foregroundStyle(BusinessDesign.headerInk)
             }
             ToolbarItem(placement: .confirmationAction) {
                 if saving { ProgressView().controlSize(.small) }

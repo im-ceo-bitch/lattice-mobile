@@ -370,7 +370,7 @@ private struct NewChatBookingPicker: View {
                 }
             }
         }
-        .navigationTitle("Новый чат")
+        .navigationTitle("Новый чат").navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
     }
 }
 

@@ -58,9 +58,10 @@ struct PrimaryHotelsView: View {
         }
         .background(BusinessDesign.background)
         .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
-                if tabMode { BusinessSidebarButton() } else { Button("Закрыть") { dismiss() } }
+                if tabMode { BusinessSidebarButton() } else { Button("Закрыть") { dismiss() }.foregroundStyle(BusinessDesign.headerInk) }
             }
         }
         .overlay { if loading { ProgressView() } }
@@ -283,7 +284,7 @@ private struct PrimaryHotelManualPriceSheet: View {
             .background(BusinessDesign.background)
             .navigationTitle("Цена Primary Hotel")
             .navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
-            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Закрыть") { dismiss() } } }
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Закрыть") { dismiss() }.foregroundStyle(BusinessDesign.headerInk) } }
         }
         .presentationDetents([.medium])
     }

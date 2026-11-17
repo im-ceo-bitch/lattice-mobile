@@ -43,7 +43,7 @@ struct BusinessSessionsView: View {
         .toolbar {
             if !usesPersistentSidebar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("Закрыть") { dismiss() }
+                    Button("Закрыть") { dismiss() }.foregroundStyle(BusinessDesign.headerInk)
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
@@ -177,14 +177,14 @@ struct BusinessSessionsView: View {
         VStack(spacing: 16) {
             ZStack {
                 Circle()
-                    .fill(Color.blue.opacity(0.10))
+                    .fill(BusinessDesign.securityBlue.opacity(0.10))
                     .frame(width: 108, height: 108)
                 Circle()
                     .stroke(BusinessDesign.line, lineWidth: 1)
                     .frame(width: 92, height: 92)
                 Image(systemName: "laptopcomputer.and.iphone")
                     .font(.system(size: 43, weight: .medium))
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(BusinessDesign.securityBlue)
             }
             .businessGlass(in: Circle())
 
@@ -340,8 +340,8 @@ private struct SessionCard: View {
                                 .tracking(0.5)
                                 .padding(.horizontal, 7)
                                 .frame(height: 20)
-                                .foregroundStyle(.blue)
-                                .background(Color.blue.opacity(0.10), in: Capsule())
+                                .foregroundStyle(BusinessDesign.securityBlue)
+                                .background(BusinessDesign.securityBlue.opacity(0.10), in: Capsule())
                         }
                     }
                     Text(session.softwareLine)
@@ -360,7 +360,7 @@ private struct SessionCard: View {
                 Button(action: onApprove) {
                     Label("Подтвердить моё устройство", systemImage: "checkmark.shield.fill")
                         .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(BusinessDesign.securityBlue)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .buttonStyle(.plain)

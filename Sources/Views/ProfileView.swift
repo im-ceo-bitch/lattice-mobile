@@ -27,7 +27,7 @@ struct ProfileView: View {
         .businessNavigationSurface()
         .toolbar {
             if !usesPersistentSidebar {
-                ToolbarItem(placement: .topBarLeading) { Button("Закрыть") { dismiss() } }
+                ToolbarItem(placement: .topBarLeading) { Button("Закрыть") { dismiss() }.foregroundStyle(BusinessDesign.headerInk) }
             }
             ToolbarItem(placement: .topBarTrailing) {
                 NavigationLink { BusinessSecuritySettingsView() } label: {

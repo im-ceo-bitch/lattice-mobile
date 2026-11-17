@@ -51,6 +51,7 @@ struct OverviewView: View {
     @StateObject private var store = OverviewStore()
     @State private var showUmrahBuilder = false
     @State private var showPush = false
+    @State private var showConcierge = false
     @AppStorage("iumrah.business.security.dismissedEvent") private var dismissedSecurityEvent = ""
 
     var checking: Int { store.bookings.filter { operationalStatus($0) == .availabilityCheck }.count }
@@ -88,6 +89,16 @@ struct OverviewView: View {
                     Button { showUmrahBuilder = true } label: { Label("Создать умру", systemImage: "plus") }.buttonStyle(BusinessActionStyle())
                 }.padding(18).businessCard(radius: BusinessDesign.Radius.hero)
 
+                Button { showConcierge = true } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "bubble.left.and.bubble.right").font(.title2).frame(width: 44, height: 44).background(BusinessDesign.secondarySurface, in: RoundedRectangle(cornerRadius: 15))
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("iumrah Concierge").font(.headline)
+                            Text("Входящие заявки на индивидуальный расчёт").font(.caption).foregroundStyle(BusinessDesign.muted)
+                        }
+                        Spacer(); Image(systemName: "chevron.right").foregroundStyle(BusinessDesign.muted)
+                    }.foregroundStyle(BusinessDesign.ink).padding(BusinessDesign.Space.md).businessCard()
+                }.buttonStyle(.plain)
                 BusinessPageHeading(title: "Требуют внимания", subtitle: store.hasLoadedBookings ? "Операционные задачи" : "Данные бронирований ещё не загружены")
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: layout.supportsDenseDashboard ? 4 : 2), spacing: 10) {
                     Button { navigation.openBookings(filter: "availability") } label: { StatCard(title: "НАЛИЧИЕ", value: checking, subtitle: "проверить", attention: true, available: store.hasLoadedBookings) }.buttonStyle(.plain)
@@ -122,6 +133,8 @@ struct OverviewView: View {
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .businessNavigationSurface()
+        .safeAreaInset(edge: .top, spacing: 0) { BusinessWorldMapHeader() }
+        .sheet(isPresented: $showConcierge) { NavigationStack { ConciergeRequestsView() } }
         .sheet(isPresented: $showPush) { NavigationStack { BusinessPushDiagnosticsView() } }
         .sheet(isPresented: $showUmrahBuilder) { NavigationStack { UmrahBuilderView(owner: auth.user?.login ?? "") } }
         .toolbar {

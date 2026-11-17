@@ -1,0 +1,177 @@
+{
+  "base_archive": "lattice-mobile-main 6.zip",
+  "base_commit": "668cd1cd961ecf7bfbb2947f169a804a75fdb14e",
+  "scope": "Cumulative Design Consistency Blocks 1 and 2",
+  "verification": {
+    "architecture_tests": 24,
+    "swift_files_parsed": 88,
+    "draft_checks": "pass",
+    "xcode_build": "not run"
+  },
+  "files": [
+    {
+      "path": "IUMRAH_BUSINESS_DESIGN_CONSISTENCY_20261117.md",
+      "sha256": "5fb86aa40df9c90cc01789c0fb568decb9dfef1db5d91547af14189bb692634c"
+    },
+    {
+      "path": "Sources/Core/BusinessAnimationPalette.swift",
+      "sha256": "a398b29ee5f472838c856ada1fb8a520e72909eea0949eedc1669e14025de7b4"
+    },
+    {
+      "path": "Sources/Core/BusinessBookingProgress.swift",
+      "sha256": "deaa75815d0174add081abb84c2389968005ead7b31612183972431a08244809"
+    },
+    {
+      "path": "Sources/Core/BusinessConfiguratorPricePreview.swift",
+      "sha256": "9cd1550ba4cdcbb24b42eda2d5567f5dbf56235a56ca36f8214da7c5f2a1f6cb"
+    },
+    {
+      "path": "Sources/Core/BusinessWorldMapHeader.swift",
+      "sha256": "2f1adbb22735282dccd4ec68af37ef27019db1fe15c121d9625eb0642c445086"
+    },
+    {
+      "path": "Sources/Core/Design.swift",
+      "sha256": "02137cfadb2483fa825d0065f655c0a2231037c3bc5589efc6a51291ac7d1033"
+    },
+    {
+      "path": "Sources/Hotels/HotelBatchImportView.swift",
+      "sha256": "70534dd95865b2549b60b05f6167a21a81283c11f2234f11677d5a91ed22bea2"
+    },
+    {
+      "path": "Sources/Hotels/HotelImportSessionView.swift",
+      "sha256": "0d151a833e62faddf0aa71a9c4ba7593c330cf5a4f09e9be4eac9a24a3726724"
+    },
+    {
+      "path": "Sources/Hotels/HotelReviewView.swift",
+      "sha256": "42544e24366417d370d8709aab58d168ec5ab2b566b045efc14d0884a9f3fe27"
+    },
+    {
+      "path": "Sources/Networking/APIClient+Offers.swift",
+      "sha256": "3e6f58acf44699ffc4b4f5144b0191c2c35cd1a83864b6c050696b2032e5c12f"
+    },
+    {
+      "path": "Sources/Views/BookingCheckoutAdminCard.swift",
+      "sha256": "2f627681bfb783a0882e01277f631f239014f04e4c723c337d0da812275e7278"
+    },
+    {
+      "path": "Sources/Views/BookingDetailView.swift",
+      "sha256": "e7a6d7f23eba8096bc21de7b6447429965ada7021043711b3f16299a00dabcba"
+    },
+    {
+      "path": "Sources/Views/BookingESIMAdminCard.swift",
+      "sha256": "00de4b4ada26032dda1490e958aa4469cf5550d629ee590c388823e95636cc49"
+    },
+    {
+      "path": "Sources/Views/BookingItineraryEditor.swift",
+      "sha256": "5e7420f704298f791bcf6b108f8a0c0871c401a90473fb69b20a5c92c3ce61bf"
+    },
+    {
+      "path": "Sources/Views/BookingPricingEditorSheet.swift",
+      "sha256": "8b2550baa78b59492230b6b9e7949dafa9b0f88dc2be5de69a3e67b7a8cc149c"
+    },
+    {
+      "path": "Sources/Views/BookingSecurityAdminCard.swift",
+      "sha256": "008ca4f10987200899b0386633d1c339e18bc951069803f1784a2973e5476bc6"
+    },
+    {
+      "path": "Sources/Views/BookingsView.swift",
+      "sha256": "408de14265b3009bc9a50d69a9c139bb69d0b0c28e3a71988e50513042f5672a"
+    },
+    {
+      "path": "Sources/Views/BusinessOffersView.swift",
+      "sha256": "00fc9945a2190d9d545dc6d95dce67eead8d223f0c27ffc8cfefa831af662f20"
+    },
+    {
+      "path": "Sources/Views/BusinessPushDiagnosticsView.swift",
+      "sha256": "274bfa274c71ed8b8fb5638d5c17cf4da06e39bc4362d6c958ff674eea89a083"
+    },
+    {
+      "path": "Sources/Views/BusinessSecuritySettingsView.swift",
+      "sha256": "ca45f1570ef362f48545afa15b20426b383c4cad05fbd50d1244b8f6e92ed02b"
+    },
+    {
+      "path": "Sources/Views/BusinessSessionsView.swift",
+      "sha256": "4d163f7124a8b963e669dcb387c7b14e9326b28931f86b2bf285ad23123b6ad3"
+    },
+    {
+      "path": "Sources/Views/BusinessTabView.swift",
+      "sha256": "1175e235421c8468a4bfafc65bdb228e3d1c0528c17e5638afea54cf5c93fca1"
+    },
+    {
+      "path": "Sources/Views/ChatsView.swift",
+      "sha256": "25d4e246293fc3bfb6d13f55c89144431692cb3edfa537a90b2d586a4720621e"
+    },
+    {
+      "path": "Sources/Views/ClientArchiveView.swift",
+      "sha256": "57ae5603b3399ce6780c1d9bec25bf4e227322be989e56213e57b3ace6857198"
+    },
+    {
+      "path": "Sources/Views/ESIMCenterView.swift",
+      "sha256": "784fd267c17b00ed963de3dbc58cb06e7b1aa61fd2f9a5441f1333887f62259f"
+    },
+    {
+      "path": "Sources/Views/EmployeesView.swift",
+      "sha256": "5d0f0b6617a03d0bbef9703321eae8f2cae44d69d7fcbf4c58bbd8b4a9f3d84e"
+    },
+    {
+      "path": "Sources/Views/FlightHubPriceHistoryView.swift",
+      "sha256": "c5921066d6aefaba02b0aa0a5f389e257efe6c0ae655d2cc2e639bf590a5391e"
+    },
+    {
+      "path": "Sources/Views/HotelsView.swift",
+      "sha256": "4527b78b84c969a48f571d99accd6fb3b4287fc6b4f6e3d5d0735e0e9b340579"
+    },
+    {
+      "path": "Sources/Views/IntelligenceView.swift",
+      "sha256": "e389626d8f0a328b77468e1c585468a75026900da627a0340d9f1c6e7c05e429"
+    },
+    {
+      "path": "Sources/Views/NotificationsComposerView.swift",
+      "sha256": "ab38c6d31d628583b2be2a09f0f73c9914b26375c96bd6b2086d2a2e0e06efd0"
+    },
+    {
+      "path": "Sources/Views/OverviewView.swift",
+      "sha256": "0d28cfd8fedda210f270c5834a154ba829093ca39ee2d6c651df25646ccea780"
+    },
+    {
+      "path": "Sources/Views/PaymentsView.swift",
+      "sha256": "dba4a5b3872772e3d7316095e8d75b766d49a6666e164e9e3d9c7680e51fc2ce"
+    },
+    {
+      "path": "Sources/Views/PrimaryHotelsView.swift",
+      "sha256": "4e6aed04c5d2ca95948ff8760c5cb30da75e2a7ec3d5a536ccda4e201e0cad04"
+    },
+    {
+      "path": "Sources/Views/ProfileView.swift",
+      "sha256": "e821fe0fff864e3091a487d572f895e24441ea16433db458df53e5dcd8ca6090"
+    },
+    {
+      "path": "Sources/Views/UmrahBuilderView.swift",
+      "sha256": "e42220ca0f6bc89df8a8c047cf23bdb573e3053fc8a6701f957b369f6500aa0b"
+    },
+    {
+      "path": "Sources/Views/ZiyaratsView.swift",
+      "sha256": "1e5ee3d2d064ccd1096e4ef3cb4f9d2ec7c841ec5dcebe18cad96a34dcad2347"
+    },
+    {
+      "path": "Tests/Architecture/test_business_ui_final.py",
+      "sha256": "48c1973abf7bbb8b2d03e88567606a77caad7a8e3137e02672c627c3bf5c99b5"
+    },
+    {
+      "path": "Tests/Architecture/test_design_consistency_block1.py",
+      "sha256": "ff0f4ad93137d4b42315edd45f254b3c6254a23db95a9f86adaf42197ccfa4ae"
+    },
+    {
+      "path": "Tests/Architecture/test_design_consistency_block2.py",
+      "sha256": "e8f1a5349e895b6ec3eaadc5fb7bf0f0f32791ec5539dddcd9f725e0634e0dfe"
+    },
+    {
+      "path": "Tests/UmrahPackageDraftTests.swift",
+      "sha256": "5db6a4bf6370fa12e155c3410b6876ac5aea6cb8f6bd54aecb0dc181235374db"
+    },
+    {
+      "path": "Tests/run_umrah_draft_tests.py",
+      "sha256": "350f27aa1e8ece7e38f8c5b3ffa07fd04aebfb3d2cfd35b44d60ed082ec7aab3"
+    }
+  ]
+}

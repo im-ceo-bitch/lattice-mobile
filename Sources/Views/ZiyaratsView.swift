@@ -49,11 +49,11 @@ struct ZiyaratsView: View {
         .toolbar {
             if !usesPersistentSidebar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button { dismiss() } label: { Image(systemName: "xmark") }
+                    Button { dismiss() } label: { Image(systemName: "xmark") }.foregroundStyle(BusinessDesign.headerInk)
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
-                Button { isCreating = true } label: { Image(systemName: "plus") }
+                Button { isCreating = true } label: { Image(systemName: "plus") }.foregroundStyle(BusinessDesign.headerInk)
             }
         }
         .searchable(text: $search, prompt: "Найти место")
@@ -273,7 +273,7 @@ private struct ZiyaratEditorView: View {
         .navigationTitle(place == nil ? "Новое место" : "Изменить место")
         .navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) { Button("Закрыть") { dismiss() } }
+            ToolbarItem(placement: .topBarLeading) { Button("Закрыть") { dismiss() }.foregroundStyle(BusinessDesign.headerInk) }
             ToolbarItem(placement: .topBarTrailing) {
                 Button(saving ? "Сохраняю…" : "Сохранить") { Task { await save() } }.disabled(saving || canonicalTitle.isEmpty || coordinate == nil)
             }

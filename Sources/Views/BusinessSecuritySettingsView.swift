@@ -135,7 +135,7 @@ private struct BusinessPINEditView: View {
         .navigationTitle(replacing ? "Изменить PIN" : "Создать PIN")
         .navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
         .toolbar {
-            ToolbarItem(placement: .cancellationAction) { Button("Отмена") { dismiss() } }
+            ToolbarItem(placement: .cancellationAction) { Button("Отмена") { dismiss() }.foregroundStyle(BusinessDesign.headerInk) }
             ToolbarItem(placement: .confirmationAction) {
                 Button("Сохранить") {
                     do {
@@ -169,7 +169,7 @@ private struct BusinessPINRemoveView: View {
         .navigationTitle("Удалить PIN")
         .navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
         .toolbar {
-            ToolbarItem(placement: .cancellationAction) { Button("Отмена") { dismiss() } }
+            ToolbarItem(placement: .cancellationAction) { Button("Отмена") { dismiss() }.foregroundStyle(BusinessDesign.headerInk) }
             ToolbarItem(placement: .confirmationAction) {
                 Button("Удалить", role: .destructive) {
                     if appLock.removePIN(currentPIN: currentPIN) { dismiss() }

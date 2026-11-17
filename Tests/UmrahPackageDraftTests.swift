@@ -64,3 +64,28 @@ for key in ["builderStage","builderFlightPhase","builderHotelPhase","builderOrig
 let legacyDraft = try JSONDecoder().decode(UmrahPackageDraft.self, from: JSONSerialization.data(withJSONObject: legacyV2))
 expect(legacyDraft.builderStage == nil && legacyDraft.saleTotal == 3300, "Historical drafts compatible")
 print("Configurator 2 draft checks passed")
+
+// UI preview must never show a catalog-only fare or an incomplete package as a final quote.
+var previewDraft = UmrahPackageDraft()
+expect(BusinessConfiguratorPricePreview(draft: previewDraft, stage: 0).amount == nil, "No initial price from default transfer")
+previewDraft.outbound = flight("out", "TAS", "JED", "2099-11-20T15:00:00Z", "2099-11-20T19:00:00Z")
+previewDraft.inbound = flight("in", "MED", "TAS", "2099-11-27T20:00:00Z", "2099-11-28T00:00:00Z")
+previewDraft.flightFares = ["out": 350, "back": 350]; previewDraft.selectedFareKeys = ["out":"a", "back":"a"]; previewDraft.selectedFareKinds = ["out":"round_trip", "back":"round_trip"]
+expect(BusinessConfiguratorPricePreview(draft: previewDraft, stage: 1).amount == nil, "Suggested price not confirmed")
+previewDraft.flightPrice = "500,50"
+let partialFlight = BusinessConfiguratorPricePreview(draft: previewDraft, stage: 1)
+expect(partialFlight.amount == 1001 && !partialFlight.isComplete, "Confirmed fare for two, not final")
+previewDraft.makkah = decoded.makkah; previewDraft.medina = decoded.medina
+previewDraft.medina.price = ""
+let partialStay = BusinessConfiguratorPricePreview(draft: previewDraft, stage: 2)
+expect(partialStay.amount == 1401 && !partialStay.isComplete, "One selected hotel, no default service costs")
+previewDraft.medina = decoded.medina
+previewDraft.pickup = previewDraft.arrival!
+previewDraft.commission = "10"; previewDraft.discount = "100"
+let finalPreview = BusinessConfiguratorPricePreview(draft: previewDraft, stage: 4)
+expect(finalPreview.isComplete && finalPreview.amount == previewDraft.saleTotal && finalPreview.amount == 2101.1, "Final includes canonical commission and discount")
+previewDraft.discount = "99999"
+expect(!BusinessConfiguratorPricePreview(draft: previewDraft, stage: 4).isComplete, "Invalid discount cannot display final")
+previewDraft.flightPrice = ""; previewDraft.makkah.price = ""; previewDraft.medina.price = ""
+expect(BusinessConfiguratorPricePreview(draft: previewDraft, stage: 1).amount == nil, "Invalidated prices removed from preview")
+print("Configurator design price preview checks passed")

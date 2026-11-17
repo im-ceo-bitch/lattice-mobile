@@ -69,11 +69,11 @@ struct PaymentsView: View {
         .toolbar {
             if !usesPersistentSidebar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("Закрыть") { dismiss() }
+                    Button("Закрыть") { dismiss() }.foregroundStyle(BusinessDesign.headerInk)
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
-                Button { showAdd = true } label: { Image(systemName: "plus") }
+                Button { showAdd = true } label: { Image(systemName: "plus") }.foregroundStyle(BusinessDesign.headerInk)
             }
         }
         .sheet(isPresented: $showAdd) {
@@ -273,7 +273,7 @@ struct PaymentTemplateEditorView: View {
         .navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
         .toolbar {
             if creating {
-                ToolbarItem(placement: .topBarLeading) { Button("Отмена") { dismiss() } }
+                ToolbarItem(placement: .topBarLeading) { Button("Отмена") { dismiss() }.foregroundStyle(BusinessDesign.headerInk) }
             }
         }
         .onChange(of: selectedQR) { _, item in

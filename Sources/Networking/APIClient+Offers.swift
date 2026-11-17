@@ -51,6 +51,12 @@ struct ConciergeCareRequest: Decodable, Identifiable {
     let rooms: Int
     let notes: String?
     let created_at: String
+    let response_due_at: String?
+    let updated_at: String?
+    let budget_usd: Int?
+    let hotel_class: Int?
+    let scope: String?
+    let locale: String?
     var statusTitle: String {
         switch status {
         case "CARE_REQUEST": return "Новая заявка"

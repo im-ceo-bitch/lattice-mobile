@@ -468,10 +468,10 @@ private struct ItineraryEventEditorSheet: View {
             .navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Отмена") { onCancel(); dismiss() }
+                    Button("Отмена") { onCancel(); dismiss() }.foregroundStyle(BusinessDesign.headerInk)
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Готово") { onSave(value); dismiss() }
+                    Button("Готово") { onSave(value); dismiss() }.foregroundStyle(BusinessDesign.headerInk)
                         .fontWeight(.semibold)
                         .disabled(value.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !validTimes)
                 }

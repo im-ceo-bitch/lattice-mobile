@@ -135,10 +135,10 @@ struct HotelBatchImportView: View {
                 }
             }
             .navigationTitle(queue.activeItem?.coordinator.showSource == true ? (queue.activeItem?.coordinator.currentProvider?.rawValue ?? "Источник") : "Импорт отелей")
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button { dismiss() } label: { Image(systemName: "xmark") }
+                    Button { dismiss() } label: { Image(systemName: "xmark") }.foregroundStyle(BusinessDesign.headerInk)
                 }
             }
             .onAppear { queue.start() }

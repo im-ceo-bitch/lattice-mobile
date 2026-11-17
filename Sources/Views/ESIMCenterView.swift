@@ -100,10 +100,10 @@ struct ESIMCenterView: View {
         .businessNavigationSurface()
         .toolbar {
             if !usesPersistentSidebar {
-                ToolbarItem(placement: .topBarLeading) { Button("Закрыть") { dismiss() } }
+                ToolbarItem(placement: .topBarLeading) { Button("Закрыть") { dismiss() }.foregroundStyle(BusinessDesign.headerInk) }
             }
             ToolbarItem(placement: .principal) {
-                BusinessBrandLogo(width: 116)
+                BusinessBrandLogo(width: 116, foreground: BusinessDesign.headerInk)
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
@@ -567,7 +567,7 @@ private struct ESIMPurchaseSheet: View {
             .navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Закрыть") { dismiss() }
+                    Button("Закрыть") { dismiss() }.foregroundStyle(BusinessDesign.headerInk)
                 }
             }
         }
@@ -881,7 +881,7 @@ private struct ESIMAssignmentSheet: View {
         .navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
         .searchable(text: $search, prompt: "Бронь или паломник")
         .toolbar {
-            ToolbarItem(placement: .cancellationAction) { Button("Отмена") { dismiss() } }
+            ToolbarItem(placement: .cancellationAction) { Button("Отмена") { dismiss() }.foregroundStyle(BusinessDesign.headerInk) }
         }
         .task { await loadBookings() }
         .alert("Не удалось назначить eSIM", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
