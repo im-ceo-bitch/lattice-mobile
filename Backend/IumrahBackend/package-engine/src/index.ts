@@ -56,6 +56,7 @@ async function publicHealth(env: Env) {
       smsProvider: "devsms",
       smsProviderConfigured: Boolean(env.DEVSMS_API_TOKEN),
       quoteSealingMode: quoteSealingMode(env),
+      pricingContract: "trip-summary-v2",
       telegramBotConfigured: Boolean(env.IUMRAH_CORE_FETCH && /^\d+:[\w-]{25,}$/.test(env.IUMRAH_TELEGRAM_BOT_TOKEN?.trim() || "")),
     });
   }
@@ -101,6 +102,7 @@ async function publicHealth(env: Env) {
       smsProvider: "devsms",
       smsProviderConfigured: Boolean(env.DEVSMS_API_TOKEN),
       quoteSealingMode: quoteSealingMode(env),
+      pricingContract: "trip-summary-v2",
       telegramBotConfigured: Boolean(env.IUMRAH_CORE_FETCH && /^\d+:[\w-]{25,}$/.test(env.IUMRAH_TELEGRAM_BOT_TOKEN?.trim() || "")),
     });
   } catch (error) {
@@ -120,6 +122,7 @@ async function publicHealth(env: Env) {
       smsProvider: "devsms",
       smsProviderConfigured: Boolean(env.DEVSMS_API_TOKEN),
       quoteSealingMode: quoteSealingMode(env),
+      pricingContract: "trip-summary-v2",
       telegramBotConfigured: Boolean(env.IUMRAH_CORE_FETCH && /^\d+:[\w-]{25,}$/.test(env.IUMRAH_TELEGRAM_BOT_TOKEN?.trim() || "")),
       error: error instanceof Error ? error.message : "D1 health check failed",
     }, 503);

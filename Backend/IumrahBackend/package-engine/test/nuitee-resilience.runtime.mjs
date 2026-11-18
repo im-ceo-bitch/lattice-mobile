@@ -98,3 +98,18 @@ test('delayed price result remains pending and retains supplier prices without a
     assert.equal(result.sandbox,true,'preserve test provenance rather than erasing price');
   } finally {globalThis.fetch=old;}
 });
+
+test('unrated hotels appear under every star filter without fabricated rating', async()=>{
+ const env=environment(),old=globalThis.fetch;
+ env.cache.set('catalog:v2:makkah',{payload:JSON.stringify([{id:'a',name:'Four',stars:4},{id:'b',name:'Unknown'},{id:'c',name:'Zero',stars:0},{id:'d',name:'Five',stars:5}]),updated_at:Date.now(),expires_at:Date.now()+600000});
+ globalThis.fetch=async()=>{throw Error('catalog must not fetch rates');};
+ try{for(let stars=1;stars<=5;stars++){const r=await get(env,`&catalogOnly=1&stars=${stars}`); assert.ok(r.hotels.some(h=>h.id==='b'&&h.stars===undefined));assert.ok(r.hotels.some(h=>h.id==='c'&&h.stars===0));assert.equal(r.hotels.some(h=>h.id==='a'),stars===4);}}
+ finally{globalThis.fetch=old;}
+});
+test('price-only responses reuse scoped per-property prices across filters without metadata',async()=>{
+ const env=environment(),old=globalThis.fetch;let calls=0;
+ env.cache.set('catalog:v2:makkah',{payload:JSON.stringify([{id:'a',name:'Four',stars:4},{id:'b',name:'Unknown'},{id:'c',name:'Five',stars:5}]),updated_at:Date.now(),expires_at:Date.now()+600000});
+ globalThis.fetch=async(_,init)=>{calls++;const ids=JSON.parse(init.body).hotelIds;return Response.json({data:ids.filter(id=>id!=='c').map(id=>({hotelId:id,price:250}))});};
+ try{let r=await get(env,'&ratesOnly=1&hotelIds=a,b&pageSize=2');assert.equal(r.hotels.length,2);assert.ok(r.hotels.every(h=>h.name===undefined&&h.minimumRate.price===250));r=await get(env,'&ratesOnly=1&stars=4&hotelIds=b&pageSize=1');assert.equal(calls,1);assert.equal(r.hotels[0].minimumRate.price,250);r=await get(env,'&ratesOnly=1&hotelIds=c&pageSize=1');assert.equal(r.hotels[0].rateStatus,'not_returned');assert.equal(r.rateError,null);const u=url('&ratesOnly=1&hotelIds=b&pageSize=1');u.searchParams.set('adults','3');await handleNuiteeHotelRequest(new Request(u),env,u);assert.equal(calls,3);}
+ finally{globalThis.fetch=old;}
+});

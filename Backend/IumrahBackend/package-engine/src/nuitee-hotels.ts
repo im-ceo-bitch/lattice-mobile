@@ -87,7 +87,7 @@ async function provider(env: Env, path: string, params?: URLSearchParams, data?:
     await save(env, 'provider:cooldown:v1', true, Math.max(1, Math.min(3600, Number.isFinite(seconds) ? seconds : 60)));
     throw new Error('NUITEE_RATE_LIMIT');
   }
-  if (supplierCode === '2001' && path.startsWith('/hotels/')) return {data: []};
+  if (supplierCode === '2001' && path.startsWith('/hotels/')) return {data: [], explicitUnavailable:true};
   if (supplierCode === '4011') throw new Error('NUITEE_SUPPLIER_TIMEOUT');
   if (!response.ok) throw new Error(`NUITEE_HTTP_${response.status}${supplierCode ? `_CODE_${supplierCode.replace(/[^0-9]/g, '')}` : ''}`);
   if (json?.error) throw new Error(`NUITEE_PROVIDER_${supplierCode.replace(/[^0-9]/g, '') || 'ERROR'}`);
@@ -190,11 +190,12 @@ async function minimums(env: Env, city: 'makkah' | 'madinah', hotels: Json[], ch
     const result = await provider(env, '/hotels/min-rates', undefined, {
       hotelIds: ids, checkin, checkout, currency: 'USD', guestNationality: 'UZ', occupancies: [{ adults }],
     });
+    if (!Array.isArray(result.data)) throw new Error('NUITEE_INVALID_MINIMUMS');
     const values = Array.isArray(result.data) ? result.data.map((r: Json) => ({
       hotelId: text(r.hotelId), price: priceOf(r.price), currency: 'USD', offerId: text(r.offerId),
-    })).filter((r: Json) => r.hotelId && r.price !== null) : [];
+    })).filter((r: Json) => ids.includes(r.hotelId) && r.price !== null && r.price > 0) : [];
     await save(env, key, values, values.length ? 15 * 60 : 2 * 60);
-    return { values, stale: false, updatedAt: Date.now() };
+    return { values, stale: false, updatedAt: Date.now(), explicitUnavailable: result.explicitUnavailable === true };
   } catch (e) {
     if (cached && Date.now() - cached.updatedAt < 6 * 3600 * 1000) return { values: cached.data as Json[], stale: true, updatedAt: cached.updatedAt, rateError: e instanceof Error ? e.message : 'RATES_UNAVAILABLE' };
     throw e;
@@ -266,22 +267,47 @@ async function listing(url: URL, env: Env) {
   if (paged && (!Number.isSafeInteger(offset) || offset < 0 || !Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100 || !Number.isInteger(stars) || stars < 0 || stars > 5)) return error('INVALID_HOTEL_PAGE');
   const query = text(url.searchParams.get('query')).toLowerCase();
   const hotelIds = url.searchParams.has('hotelIds') ? new Set((url.searchParams.get('hotelIds') ?? '').split(',').filter(Boolean)) : null;
-  const c = await catalog(env, city);
-  const filtered = c.items.filter(h => (!stars || Math.round(Number(h.stars ?? 0)) === stars) &&
+  const cachedStatic = url.searchParams.get('ratesOnly') === '1' ? await cachedCatalog(env, city) : null;
+  const c = cachedStatic ? {items: cachedStatic.data as Json[], stale: !cachedStatic.fresh} : await catalog(env, city);
+  const filtered = c.items.filter(h => (!stars || !Number.isFinite(Number(h.stars)) || Number(h.stars) <= 0 || Number(h.stars) > 5 || Math.round(Number(h.stars)) === stars) &&
     (!hotelIds || hotelIds.has(h.id)) && (!query || `${h.name ?? ''} ${h.address ?? ''}`.toLowerCase().includes(query)));
   const items = paged ? filtered.slice(offset, offset + pageSize) : filtered;
   let rateError: string | null = null, pricesStale = false, pricesUpdatedAt: number | null = null;
   const indexed = new Map<string, Json>();
   const catalogOnly = url.searchParams.get('catalogOnly') === '1';
+  const ratesOnly = !catalogOnly && url.searchParams.get('ratesOnly') === '1';
+  const explicitUnavailable = new Set<string>();
   if (!catalogOnly) {
     // Legacy full-city requests remain supported; never send an oversized batch.
     for (let start = 0; start < items.length; start += 200) {
       try {
-        const rates = await minimums(env, city, items.slice(start, start + 200), inDate, outDate, adults);
+        const batch = items.slice(start, start + 200);
+        const scope = `minimum:property:v1:${city}:${inDate}:${outDate}:${adults}:UZ:USD:`;
+        const missing: Json[] = [];
+        if (ratesOnly) {
+          // Reuse positive per-property rates across different stars/search/favorite filters.
+          for (const hotel of batch) {
+            const entry = await read(env, scope + hotel.id);
+            if (entry?.fresh && entry.data?.price > 0) {
+              indexed.set(hotel.id, entry.data);
+              pricesUpdatedAt = pricesUpdatedAt === null ? entry.updatedAt : Math.min(pricesUpdatedAt, entry.updatedAt);
+            } else missing.push(hotel);
+          }
+        } else missing.push(...batch);
+        if (!missing.length) continue;
+        const rates = await minimums(env, city, missing, inDate, outDate, adults);
         pricesStale ||= rates.stale;
         pricesUpdatedAt = pricesUpdatedAt === null ? rates.updatedAt : Math.min(pricesUpdatedAt, rates.updatedAt);
         rateError ||= rates.rateError ?? null;
-        for (const value of rates.values) indexed.set(value.hotelId, value);
+        for (const value of rates.values) {
+          indexed.set(value.hotelId, value);
+          if (ratesOnly && !rates.stale && value.price > 0) {
+            // Do not extend the original supplier TTL on cache hits.
+            const remaining = Math.floor((rates.updatedAt + 15 * 60 * 1000 - Date.now()) / 1000);
+            if (remaining > 0) await save(env, scope + value.hotelId, value, remaining);
+          }
+        }
+        if (rates.explicitUnavailable) for (const hotel of missing) explicitUnavailable.add(hotel.id);
       } catch (e) { rateError ||= e instanceof Error ? e.message : 'RATES_UNAVAILABLE'; }
     }
   }
@@ -289,9 +315,9 @@ async function listing(url: URL, env: Env) {
     city, checkin: inDate, checkout: outDate, adults, priceType: 'room_total', currency: 'USD',
     hotelCatalogStale: c.stale, pricesStale, pricesUpdatedAt, rateError,
     ...(paged ? { total: filtered.length, nextOffset: offset + items.length < filtered.length ? offset + items.length : null } : {}),
-    hotels: items.map(h => ({ ...h, minimumRate: indexed.get(h.id) ?? null,
+    hotels: items.map(h => ({ ...(ratesOnly ? {id:h.id} : h), minimumRate: indexed.get(h.id) ?? null,
       rateStatus: indexed.has(h.id) ? (pricesStale ? 'cached' : 'available')
-        : rateError ? 'provider_error' : catalogOnly ? 'not_requested' : 'no_availability' })),
+        : rateError ? 'provider_error' : catalogOnly ? 'not_requested' : ratesOnly && !explicitUnavailable.has(h.id) ? 'not_returned' : 'no_availability' })),
   });
 }
 async function isListedHotel(env: Env, id: string): Promise<boolean> {

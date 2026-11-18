@@ -877,16 +877,23 @@ export async function generatePackageQuote(request: Request, env: Env): Promise<
     }
     const quoteProof = await sealPricingSnapshot(calculated.snapshot, env);
     // Planned preview only: verified flight times, no confidential costs.
-    const planned = verifiedSchedule ? buildBookingItinerary("preview", {
-      generatorTrace: verifiedSchedule,
-      input: { includeMadinah, flightTripType: tripType },
-      stay: { makkahNights: stayPlan.makkahNights, madinahNights: stayPlan.madinahNights },
-      stayPolicy: parseStayPolicy(raw.stayPolicy),
-      includedServices: quoteInput.includeHaramainTrain ? ["haramainTrain"] : [],
-    }, "en") : null;
-    const sameStay = planned && ["makkahCheckIn", "makkahCheckOut", "madinahCheckIn", "madinahCheckOut", "firstCity", "lastCity"].every(key =>
-      planned.stayPlan[key as keyof typeof stayPlan] === stayPlan[key as keyof typeof stayPlan]);
-    const itineraryPreview = sameStay && planned ? planned.items : [];
+    let itineraryPreview: ReturnType<typeof buildBookingItinerary>["items"] = [];
+    try {
+      const planned = verifiedSchedule ? buildBookingItinerary("preview", {
+        generatorTrace: verifiedSchedule,
+        input: { includeMadinah, flightTripType: tripType },
+        stay: { makkahNights: stayPlan.makkahNights, madinahNights: stayPlan.madinahNights },
+        stayPolicy: parseStayPolicy(raw.stayPolicy),
+        includedServices: quoteInput.includeHaramainTrain ? ["haramainTrain"] : [],
+      }, "en") : null;
+      const sameStay = planned && ["makkahCheckIn", "makkahCheckOut", "madinahCheckIn", "madinahCheckOut", "firstCity", "lastCity"].every(key =>
+        planned.stayPlan[key as keyof typeof stayPlan] === stayPlan[key as keyof typeof stayPlan]);
+      itineraryPreview = sameStay && planned ? planned.items : [];
+    } catch {
+      // Calendar enrichment is optional; supplier prices and sealed quote remain valid.
+      console.warn("PACKAGE_QUOTE_ITINERARY_PREVIEW_FAILED");
+    }
+    if (!calculated.snapshot.tripSummary) throw new Error("PACKAGE_PRICE_BREAKDOWN_UNAVAILABLE");
 
 
     // Confidential supplier components, markup and estimated profit intentionally

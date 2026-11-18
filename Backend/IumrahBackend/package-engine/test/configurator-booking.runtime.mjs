@@ -286,3 +286,28 @@ test('adult exception requires identical approved hotel/date/party and live supp
  const guests={adults:6,children:0,infants:0,rooms:1};const saved={input:{includeMadinah:false,travelers:{...guests,rooms:2}},selection:{makkahHotelId:'lp123'},stay:{makkahCheckIn:checkin,makkahCheckOut:checkout}};const approved={adults:6,rooms:1};const live=room({adults:6,tariffSource:'production',prebookId:'verified'});
  assert.equal(roomApprovalMatches(saved,approved,guests,[live]),true);assert.equal(roomApprovalMatches(saved,approved,guests,[{...live,tariffSource:'sandbox'}]),false);assert.equal(roomApprovalMatches(saved,approved,guests,[{...live,hotelId:'different'}]),false);assert.equal(roomApprovalMatches(saved,approved,guests,[{...live,checkout:checkin}]),false);assert.equal(roomApprovalMatches(saved,approved,{...guests,children:1},[live]),false);assert.equal(roomApprovalMatches(saved,{...approved,rooms:2},guests,[live]),false);
 });
+
+
+test('shared quote endpoint: three adults, two rooms per city, MED arrival and JED return, all retail prices reconcile',async()=>{
+ const env=fixture({sandbox:true});
+ const switchDay=new Date(Date.parse(checkin)+3*86400000).toISOString().slice(0,10);
+ env.put('catalog:v1:madinah',[{id:'med123',name:'Med Hotel',stars:4,city:'Madinah'}]);
+ const rooms=[];
+ for(const [city,hotelId,from,to,prices] of [['madinah','med123',checkin,switchDay,[980,650]],['makkah','lp123',switchDay,checkout,[150,120]]]){
+  for(const [index,adults] of [2,1].entries()){
+   const offerId=`${city}-${index}`,roomId=`room-${index}`;
+   env.put(`rates:v2:${hotelId}:${from}:${to}:${adults}::UZ:USD`,[{offerId,roomId,price:prices[index],currency:'USD'}]);
+   rooms.push({id:`${city}:${index}`,city,hotelId,offerId,roomId,checkin:from,checkout:to,adults,children:[]});
+  }
+ }
+ const orig=env.HOTELS_DB.prepare;
+ env.HOTELS_DB.prepare=sql=>sql.includes('curated_flight_offers')?{bind(){return this;},async first(){return {currency:'USD',per_traveler_fare:250,observed_at:new Date().toISOString(),itinerary_json:JSON.stringify({legs:[{origin:'TAS',destination:'MED',departure_at:checkin+'T05:50:00Z',arrival_at:checkin+'T11:00:00Z'}]})};}}:orig(sql);
+ const body={tier:'standard',tripType:'roundTrip',includeMadinah:true,travelers:{adults:3,children:0,infants:0,rooms:2},hotels:{makkah:{hotelId:'lp123',roomId:'room-0',nights:4},madinah:{hotelId:'med123',roomId:'room-0',nights:3}},transferVehicle:'carnival',flight:{providerItineraryId:`mixed:curated:direct~aviasales:ow:JED:TAS:${checkout}:-:HY:338:-:-`,legs:[{origin:'TAS',destination:'MED',departureDate:checkin},{origin:'JED',destination:'TAS',departureDate:checkout}]},nuiteeRooms:rooms};
+ await mockFetch(async()=>Response.json({success:true,data:[{price:299,airline:'HY',flight_number:'338',departure_at:checkout+'T11:40:00Z',duration:290}]}),async()=>{
+  const response=await generatePackageQuote(new Request('https://fixture/api/package/quote',{method:'POST',body:JSON.stringify(body)}),env);
+  const payload=await response.json();assert.equal(response.status,200,JSON.stringify(payload));
+  const q=payload.quote,p=q.tripSummary;assert.ok(p);assert.equal(q.bookingAllowed,true);assert.equal(p.totalUsd,q.totalPackagePrice);assert.equal(q.pricePerPerson,p.perPilgrimUsd);assert.equal(p.components.find(x=>x.code==='flight_roundtrip').amountUsd,1647);assert.equal(p.components.find(x=>x.code==='makkah_hotel').amountUsd,270);assert.equal(p.components.find(x=>x.code==='madinah_hotel').amountUsd,1630);assert.equal(p.components.find(x=>x.code==='visa').amountUsd,360);
+  const cents=x=>Math.round(x*100);assert.equal(p.components.reduce((sum,x)=>sum+cents(x.amountUsd),0),cents(p.servicesSubtotalUsd));assert.equal(cents(p.servicesSubtotalUsd)+cents(p.supportAmountUsd)+cents(p.paymentAmountUsd)+cents(p.roundingUsd),cents(q.totalPackagePrice));assert.equal(cents(p.paymentAmountUsd),Math.round(q.totalPackagePrice*2));assert.equal(cents(p.supportAmountUsd),Math.round(p.servicesSubtotalUsd*9));
+  assert.equal(q.stayPlan.firstCity,'Madinah');assert.equal(q.stayPlan.madinahNights,3);assert.equal(q.stayPlan.makkahNights,4);assert.doesNotMatch(JSON.stringify(q),/supplierCostUsd|estimatedMarginUsd|markupRate/);
+ });
+});
