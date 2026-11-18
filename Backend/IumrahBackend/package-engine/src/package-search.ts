@@ -1,10 +1,11 @@
+import { findRoomApproval } from "./room-approval";
 import { resolveNuiteePackageHotels, type NuiteePackageRoom } from "./nuitee-hotels";
 import type { Env } from "./env";
 import { readFlightSearchCache, type NormalizedFlightSearch } from "./flight-cache";
 import { resolveServerHotelPricing } from "./hotel-costs";
 import { calculatePackageQuote, calculatePartialPackageEstimate, calculateStorefrontPreviewQuote, type PackageTier, type ServerQuoteInput, type TripType, type TransferVehicle, type VerifiedJourneyFare } from "./pricing";
 import { sealPricingSnapshot } from "./quote-audit";
-import { deriveAuthoritativeStayPlan, type StayPolicy, type VerifiedFlightSchedule } from "./itinerary-planner";
+import { buildBookingItinerary, deriveAuthoritativeStayPlan, type StayPolicy, type VerifiedFlightSchedule } from "./itinerary-planner";
 
 type QuoteRequest = {
   nuiteeRooms?: NuiteePackageRoom[];
@@ -870,7 +871,23 @@ export async function generatePackageQuote(request: Request, env: Env): Promise<
       makkahRoomId: makkahRequest.roomId,
       madinahRoomId: madinahRequest?.roomId ?? null,
     };
+    if (calculated.snapshot.roomPolicy?.requiresAdultException && nuitee?.supplierMode === "production") {
+      const approval=await findRoomApproval(request,env,quoteInput.travelers,nuitee.rooms);
+      if(approval){calculated.snapshot.roomApproval=approval;calculated.snapshot.roomPolicy.requiresAdultException=false;}
+    }
     const quoteProof = await sealPricingSnapshot(calculated.snapshot, env);
+    // Planned preview only: verified flight times, no confidential costs.
+    const planned = verifiedSchedule ? buildBookingItinerary("preview", {
+      generatorTrace: verifiedSchedule,
+      input: { includeMadinah, flightTripType: tripType },
+      stay: { makkahNights: stayPlan.makkahNights, madinahNights: stayPlan.madinahNights },
+      stayPolicy: parseStayPolicy(raw.stayPolicy),
+      includedServices: quoteInput.includeHaramainTrain ? ["haramainTrain"] : [],
+    }, "en") : null;
+    const sameStay = planned && ["makkahCheckIn", "makkahCheckOut", "madinahCheckIn", "madinahCheckOut", "firstCity", "lastCity"].every(key =>
+      planned.stayPlan[key as keyof typeof stayPlan] === stayPlan[key as keyof typeof stayPlan]);
+    const itineraryPreview = sameStay && planned ? planned.items : [];
+
 
     // Confidential supplier components, markup and estimated profit intentionally
     // never leave the Worker. The sealed proof is opaque to iOS/Android/Web and is
@@ -884,9 +901,12 @@ export async function generatePackageQuote(request: Request, env: Env): Promise<
         isEstimated: calculated.isEstimated,
         quoteId: calculated.quoteId,
         quoteProof,
-        bookingAllowed: nuitee?.bookingAllowed ?? true,
+        ...(calculated.snapshot.tripSummary ? { tripSummary: calculated.snapshot.tripSummary } : {}),
+        ...(calculated.snapshot.roomPolicy ? { roomPolicy: calculated.snapshot.roomPolicy } : {}),
+        bookingAllowed: (nuitee?.bookingAllowed ?? true) && !calculated.snapshot.roomPolicy?.requiresAdultException,
         resolvedTier: tier,
         stayPlan,
+        itineraryPreview,
       },
     });
   } catch (error) {

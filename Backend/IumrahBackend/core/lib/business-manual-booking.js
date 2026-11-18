@@ -1,3 +1,4 @@
+import { tripSummaryForManual } from "../../package-engine/src/trip-summary-pricing.mjs";
 import { requestEnv, backendFetch, NextResponse } from '../runtime.js';
 import { ensureBookingSchema, getBookingDb, hashBookingToken, makeBookingId, normalizeLanguage, cents } from './booking-store.js';
 import { readCookie, STAFF_SESSION_COOKIE, verifyStaffSessionToken } from './staff-auth.js';
@@ -72,7 +73,8 @@ export async function createManualBooking(request) {
     if(raw.sendEmail===true&&!/^\S+@\S+\.\S+$/.test(email))return json({error:'INVALID_EMAIL'},400);
     const id=makeBookingId(input.input.startDate.slice(0,4));const now=new Date().toISOString(), lang=normalizeLanguage(raw.lang), status='AVAILABILITY_CHECK';
     // Public booking contains only selling amounts, never internal costs or commission.
-    booking={...input,...total,manualDetails:safeDetails(raw.manualDetails),id,status,createdAt:now,updatedAt:now};
+    const report=tripSummaryForManual(raw.cost,total.totalUsd,count);
+    booking={...input,...total,...(report?{tripSummary:report.client}:{}),manualDetails:safeDetails(raw.manualDetails),id,status,createdAt:now,updatedAt:now};
     const statements=[db.prepare(`INSERT INTO bookings (id,access_token_hash,status,created_at,updated_at,lang,plan_id,total_cents,per_pilgrim_cents,traveler_count,rooms,origin_code,outbound_destination,return_origin,start_date,end_date,flight_name,makkah_hotel,madinah_hotel,payload_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(id,await hashBookingToken(accessToken),status,now,now,lang,input.planId,cents(total.totalUsd),cents(total.perPilgrimUsd),count,input.input.travelers.rooms,input.route.originCode,input.route.outboundDestination,input.route.returnOrigin,input.input.startDate,input.input.endDate,input.flight,input.hotelNames.makkah,input.hotelNames.madinah,JSON.stringify(booking)),db.prepare(`INSERT INTO booking_events (booking_id,status,actor_type,actor_id,note,created_at) VALUES (?,?,'staff',?,?,?)`).bind(id,status,staff.sub,'Manual Business booking; availability not confirmed.',now),db.prepare('INSERT INTO business_manual_bookings (request_hash,booking_id,share_hash,staff_login,cost_json,email_status,created_at) VALUES (?,?,?,?,?,?,?)').bind(requestHash,id,shareHash,staff.sub,JSON.stringify({cost:raw.cost,email,lang}),raw.sendEmail===true?'pending':'not_requested',now)];
     try {await db.batch(statements);} catch(e) {
       // Concurrent retries must return the same existing booking, not duplicate it.
@@ -107,7 +109,7 @@ export async function publicBooking(row) {
   const status=operation?.status?String(operation.status).toUpperCase():row.status;
   // Deliberately whitelist. No names, contacts, passport, cost report or access token.
   const flight=d.flight||{};const hotel=h=>h?{name:h.name,checkIn:h.checkIn,checkOut:h.checkOut}:null;
-  return {id:row.id,bookingNumber:operation?.booking_number??null,status,lang:row.lang,totalUsd:b.totalUsd,perPilgrimUsd:b.perPilgrimUsd,travelers:(b.input?.travelers?.adults||0)+(b.input?.travelers?.children||0)+(b.input?.travelers?.infants||0),startDate:b.input?.startDate,endDate:b.input?.endDate,flight:{airline:flight.airline,outboundOrigin:flight.outboundOrigin,outboundDestination:flight.outboundDestination,outboundDate:flight.outboundDate,returnOrigin:flight.returnOrigin,returnDestination:flight.returnDestination,returnDate:flight.returnDate},makkah:hotel(d.makkahHotel),madinah:hotel(d.madinahHotel),services:b.includedServices,details:safeDetails(b.manualDetails)};
+  return {id:row.id,bookingNumber:operation?.booking_number??null,status,lang:row.lang,totalUsd:b.totalUsd,perPilgrimUsd:b.perPilgrimUsd,travelers:(b.input?.travelers?.adults||0)+(b.input?.travelers?.children||0)+(b.input?.travelers?.infants||0),startDate:b.input?.startDate,endDate:b.input?.endDate,flight:{airline:flight.airline,outboundOrigin:flight.outboundOrigin,outboundDestination:flight.outboundDestination,outboundDate:flight.outboundDate,returnOrigin:flight.returnOrigin,returnDestination:flight.returnDestination,returnDate:flight.returnDate},makkah:hotel(d.makkahHotel),madinah:hotel(d.madinahHotel),services:b.includedServices,details:safeDetails(b.manualDetails),...(b.tripSummary?{tripSummary:b.tripSummary}:{})};
 }
 export function sharePage() {
   const nonce=crypto.randomUUID().replaceAll('-','');
@@ -118,11 +120,12 @@ export function sharePage() {
 export async function manualBookingInfo(request,{params}) {
   const staff=await authorize(request);if(!staff)return json({error:'FORBIDDEN'},403);
   const {id}=await params;const db=getBookingDb();if(!db)return json({error:'UNAVAILABLE'},503);await schema(db);
-  const row=await db.prepare('SELECT m.cost_json,m.email_status FROM business_manual_bookings m JOIN bookings b ON b.id=m.booking_id WHERE m.booking_id=?').bind(id).first();
+  const row=await db.prepare('SELECT m.cost_json,m.email_status,b.payload_json FROM business_manual_bookings m JOIN bookings b ON b.id=m.booking_id WHERE m.booking_id=?').bind(id).first();
   if(!row)return json({manual:false});
   const data=JSON.parse(row.cost_json);
   const offer=await db.prepare('SELECT id,token FROM business_offers WHERE booking_id=?').bind(id).first().catch(()=>null);
-  return json({manual:true,cost:data.cost,emailStatus:row.email_status,packageID:offer?.id??null,shareURL:offer?`https://iumrah.uz/api/offers#${offer.token}`:null});
+  const snapshot=JSON.parse(row.payload_json);const t=snapshot.input?.travelers;const report=snapshot.tripSummary&&t?tripSummaryForManual(data.cost,snapshot.totalUsd,t.adults+t.children+t.infants):null;
+  return json({manual:true,cost:data.cost,tripSummaryReport:report&&JSON.stringify(report.client)===JSON.stringify(snapshot.tripSummary)?report:null,emailStatus:row.email_status,packageID:offer?.id??null,shareURL:offer?`https://iumrah.uz/api/offers#${offer.token}`:null});
 }
 export async function rotateManualShare(request,{params}) {
   const staff=await authorize(request);if(!staff)return json({error:'FORBIDDEN'},403);

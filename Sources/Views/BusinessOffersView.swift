@@ -114,20 +114,27 @@ struct BusinessOfferDetailView: View {
                         Text(offer.totalUsd, format: .currency(code: "USD")).font(.largeTitle.bold())
                         Text("\(offer.views) открытий ссылки · до \(dateLabel(offer.expiresAt))").font(.caption).foregroundStyle(.secondary)
                     }.padding(18).frame(maxWidth: .infinity, alignment: .leading).businessCard(radius: 24)
+                    if let report = detail.tripSummaryReport {
+                        TripSummaryFinancialReportView(report: report).padding(16).businessCard(radius: 24)
+                    } else {
+                        Text("Детализация 9% + 2% недоступна для исторического предложения или расчёта с недостаточной маржой. Итоговая цена не изменена.").font(.caption).foregroundStyle(.secondary)
+                    }
+                    if offer.isClientSaved { PackageSupportBusinessView(packageID: offer.id) }
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Действия").font(BusinessDesign.TypeStyle.section)
+                        if offer.isClientSaved { Text("Пакет сохранён клиентом. Это ещё не заявка на бронирование.").font(.caption).foregroundStyle(.secondary) }
                         if let bookingID = offer.bookingID {
                             NavigationLink { BookingDetailView(bookingID: bookingID) } label: { Label("Открыть бронирование", systemImage: "suitcase.rolling") }.buttonStyle(BusinessActionStyle())
                             if let receipt { Text("Email: \(receipt.emailDescription)").font(.caption) }
-                            Button("Проверить отправку и ID") { Task { await convert(offer) } }.buttonStyle(BusinessActionStyle(primary: false)).disabled(working)
-                        } else if offer.active {
+                            if !offer.isClientSaved { Button("Проверить отправку и ID") { Task { await convert(offer) } }.buttonStyle(BusinessActionStyle(primary: false)).disabled(working) }
+                        } else if offer.active && !offer.isClientSaved {
                             Button { accept = true } label: { Label("Оформить за клиента", systemImage: "suitcase.rolling") }.buttonStyle(BusinessActionStyle(primary: false)).disabled(working)
                         }
-                        if offer.status != "revoked", let url = URL(string: offer.shareURL) {
+                        if !offer.isClientSaved, offer.status != "revoked", let url = URL(string: offer.shareURL) {
                             ShareLink(item: url) { Label("Поделиться ссылкой", systemImage: "square.and.arrow.up") }.buttonStyle(BusinessActionStyle(primary: offer.active || offer.bookingID == nil))
                             if let preview = previewURL(url) { Link(destination: preview) { Label("Предпросмотр без учёта просмотра", systemImage: "eye") }.buttonStyle(BusinessActionStyle(primary: false)) }
                         }
-                        if offer.active && offer.sentAt == nil {
+                        if offer.active && !offer.isClientSaved && offer.sentAt == nil {
                             Button("Отметить отправленным") { Task { await action(offer, "sent") } }.buttonStyle(BusinessActionStyle(primary: false)).disabled(working)
                             Text("Отметка не отправляет сообщение автоматически.").font(.caption).foregroundStyle(.secondary)
                         }

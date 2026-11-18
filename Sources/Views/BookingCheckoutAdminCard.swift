@@ -74,6 +74,7 @@ struct BookingCheckoutAdminCard: View {
                 }
 
                 if financesOnly {
+                BusinessRefundEstimateCard(bookingID: bookingID)
                 if let rewards = checkout.rewards, rewards.totalUsd > 0 {
                     VStack(alignment: .leading, spacing: 8) {
                         LabeledContent("Стоимость пакета", value: String(format: "$%.2f", rewards.totalUsd))
@@ -503,9 +504,13 @@ struct BookingCheckoutAdminCard: View {
                 if !items.isEmpty { ProgressView(value: Double(ready), total: Double(items.count)).tint(BusinessDesign.securityBlue) }
                 Text(items.isEmpty ? "Обязательные позиции пока не определены." : ready == items.count ? "Все обязательные документы опубликованы. Остальные условия готовности проверяются отдельно." : "Осталось подготовить: \(items.count-ready). Общий PDF может покрывать несколько позиций.").font(.caption).foregroundStyle(.white.opacity(0.75))
             }.foregroundStyle(.white).padding(16).frame(maxWidth: .infinity, alignment: .leading).background(Color.black, in: RoundedRectangle(cornerRadius: 18))
+            let visas = items.filter { $0.kind == "visa" }
+            if !visas.isEmpty {
+                Label(visas.allSatisfy(\.ready) ? "Визы готовы · проверьте цену и наличие билетов перед покупкой" : "Сначала оформите визы · покупка билетов ожидает", systemImage: "checkmark.seal").font(.subheadline).foregroundStyle(.secondary)
+            }
+            requirementGroup("Визы", kind: "visa", icon: "checkmark.seal", items: items, documents: published)
             requirementGroup("Перелёты", kind: "ticket", icon: "airplane", items: items, documents: published)
             requirementGroup("Отели", kind: "voucher", icon: "building.2", items: items, documents: published)
-            requirementGroup("Визы", kind: "visa", icon: "checkmark.seal", items: items, documents: published)
             requirementGroup("Страховки", kind: "insurance", icon: "cross.case", items: items, documents: published)
             let other = published.filter { !["ticket", "voucher", "visa", "insurance"].contains($0.documentKind) }
             if !other.isEmpty { Text("Другие документы").font(.headline); ForEach(other) { document in documentRow(document, requirements: items) } }
@@ -560,7 +565,11 @@ struct BookingCheckoutAdminCard: View {
                         Spacer()
                         if !item.ready && canPublish {
                             Menu {
-                                Button("Ожидается") { Task { await updateRequirement(item, state: "pending") } }
+                                if item.kind == "visa" {
+                                    Button("Заявка фактически подана") { Task { await updateRequirement(item, state: "submitted") } }
+                                    if item.state == "submitted" { Button("Отказ в визе") { Task { await updateRequirement(item, state: "refused") } } }
+                                }
+                                if item.state != "submitted" && item.state != "refused" { Button("Ожидается") { Task { await updateRequirement(item, state: "pending") } } }
                                 Button("На оформлении") { Task { await updateRequirement(item, state: "preparing") } }
                                 Button("Требует исправления") { Task { await updateRequirement(item, state: "needs_correction") } }
                             } label: { Image(systemName: "ellipsis.circle").font(.title3).foregroundStyle(BusinessDesign.ink).frame(width: 44, height: 44) }.disabled(saving)
@@ -602,7 +611,7 @@ struct BookingCheckoutAdminCard: View {
 
     private func requirementStateTitle(_ item: BusinessDocumentRequirement) -> String {
         if item.ready { return "Опубликован" }
-        switch item.state { case "preparing": return "На оформлении"; case "needs_correction": return "Требует исправления"; default: return "Ожидается" }
+        switch item.state { case "submitted": return "Подано · невозвратно"; case "refused": return "Отказ · требуется решение"; case "preparing": return "На оформлении"; case "needs_correction": return "Требует исправления"; default: return "Ожидается" }
     }
     @MainActor private func updateRequirement(_ item: BusinessDocumentRequirement, state: String) async {
         saving = true; error = nil; defer { saving = false }

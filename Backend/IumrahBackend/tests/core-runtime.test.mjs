@@ -156,3 +156,20 @@ test('merged native offers use existing Sales schema, revision, verified contact
  assert.equal(sql.prepare('SELECT COUNT(*) n FROM bookings').get().n,before+3);
 
 });
+test('saved package immutable sharing, capability-separated support and staff room decision',async()=>{
+ const id='PKG-'+crypto.randomUUID().toUpperCase(), owner='aa'.repeat(32), token='bb'.repeat(32), at=new Date().toISOString();
+ const {hashBookingToken}=await import('../core/lib/booking-store.js');
+ const ownerHash=await hashBookingToken('client-saved-package:v1:'+owner),tokenHash=await hashBookingToken(token);
+ const p={totalUsd:4120,perPilgrimUsd:686.67,input:{startDate:'2031-03-01',endDate:'2031-03-08',includeMadinah:false,travelers:{adults:6,children:0,infants:0,rooms:2}},hotelNames:{makkah:'Example <hotel>'},flight:'TAS JED',includedServices:['flight'],tripSummary:{version:'trip-summary-v2',components:[{code:'flight_roundtrip',label:'Flight',amountUsd:4120}],supportAmountUsd:0,paymentAmountUsd:0}};
+ sql.exec('CREATE TABLE IF NOT EXISTS client_saved_package_versions(package_id TEXT,revision INTEGER,snapshot_json TEXT,report_json TEXT,created_at TEXT,PRIMARY KEY(package_id,revision))');
+ sql.prepare('INSERT INTO business_offers(id,request_hash,token,token_hash,staff_login,source,snapshot_json,cost_json,draft_json,lang,total_cents,travelers,created_at,updated_at,expires_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(id,ownerHash,token,tokenHash,'client','client',JSON.stringify(p),'{"supplierCostUsd":123}','', 'ru',412000,6,at,at,'2031-03-01');
+ sql.prepare('INSERT INTO client_saved_package_versions VALUES(?,?,?,?,?)').run(id,1,JSON.stringify(p),'{"supplierCostUsd":123}',at);
+ const shared=await go(`/api/offers/shared/${token}/1`);assert.equal(shared.status,200,await shared.clone().text());assert.doesNotMatch(await shared.text(),/supplierCostUsd|request_hash|owner/);
+ const html=await go(`/offer/saved/${token}/1`);assert.equal(html.status,200);assert.match(await html.text(),/og:image/);assert.equal((await go(`/offer/saved-image`)).headers.get('content-type'),'image/jpeg');
+ const path=`/api/offers/saved/${id}/thread`;assert.equal((await go(path,'GET',undefined,{'x-package-owner':token})).status,404);const h={'x-package-owner':owner};
+ const msg={revision:1,body:'Please check one room',requestID:'test-message-000001',requestRooms:1};const res=await go(path,'POST',msg,h);assert.equal(res.status,200,await res.clone().text());assert.equal((await res.json()).roomRequest.state,'pending');assert.equal((await (await go(path,'POST',msg,h)).json()).messages.length,1);
+ assert.equal((await go(`/api/admin/offers/${id}/room-request`,'POST',{revision:1,decision:'approved',note:'check'})).status,403);
+ const login=await go('/api/auth/staff/login','POST',{login:'operator',password:'test-password'}),auth={cookie:login.headers.get('set-cookie').split(';')[0],'x-iumrah-business-session':'fixture-device'};
+ const decided=await go(`/api/admin/offers/${id}/room-request`,'POST',{revision:1,decision:'approved',note:'Revalidate production room'},auth);assert.equal(decided.status,200,await decided.clone().text());assert.equal((await decided.json()).roomRequest.state,'approved');
+ assert.equal((await go(`/api/offers/saved/${id}/booking`,'POST',{revision:1,bookingID:'fake'},h)).status,400);
+});

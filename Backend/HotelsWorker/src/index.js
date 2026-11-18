@@ -1,5 +1,7 @@
+import { careAdmin } from "../../IumrahBackend/core/telegram/care.js";
+import { tripSummaryForSnapshot } from "../../IumrahBackend/package-engine/src/trip-summary-pricing.mjs";
 import { normalizeClientPushToken, clientPushProvider, fcmConfigured, deliverClientPushRows, sendFCM } from './fcm.js';
-import { documentRequirements, readinessFor, validatedAmount, paymentSatisfied, serviceRequirements, operationalProgress, queueFor } from "./booking-foundation.js";
+import { documentRequirements, readinessFor, validatedAmount, paymentSatisfied, serviceRequirements, operationalProgress, queueFor, refundEstimate } from "./booking-foundation.js";
 import { accountIDFromChatKey, chatScope, chatScopeSQL, staffChatScope, chatScopeVersion, carePushTargets, persistCarePushResult } from "./care-identity.js";
 import { incrementalChatPage } from "./chat-incremental.js";
 import { ensureBookingIdentity, allocateBookingNumber } from './booking-identity.js';
@@ -134,6 +136,10 @@ async function handleAdmin(request, env, url, user, businessSession = null) {
     if (parts.length === 3 && parts[2] === 'retry' && request.method === 'POST') return retryImportJob(env, jobID);
     if (parts.length === 3 && parts[2] === 'cancel' && request.method === 'POST') return cancelImportJob(env, jobID);
     return methodNotAllowed();
+  }
+
+  if (parts[0] === 'telegram-care') {
+    return careAdmin(request, env, parts.slice(1));
   }
 
   if (parts[0] === 'chats') {
@@ -1268,6 +1274,7 @@ async function handleBusinessOperations(request, env, url, parts, user, business
     if (parts.length === 3 && parts[2] === 'service-operation' && request.method === 'PUT') return saveServiceOperation(request,env,bookingID,user);
     if (parts.length === 3 && parts[2] === 'manager' && request.method === 'PUT') return saveBookingManager(request,env,bookingID,user);
     if (parts.length === 3 && parts[2] === 'dismiss-cancellation' && request.method === 'POST') return dismissCancellationRequest(request,env,bookingID,user);
+    if (parts.length === 3 && parts[2] === 'refund-preview' && request.method === 'GET') return bookingRefundPreview(env,bookingID);
     if (parts.length === 3 && parts[2] === 'refund' && request.method === 'POST') return recordBookingRefund(request,env,bookingID,user);
     if (parts.length === 4 && parts[2] === 'itinerary-execution' && request.method === 'PUT') return saveItineraryExecution(request,env,bookingID,parts[3],user);
     if (parts.length === 3 && parts[2] === 'security' && request.method === 'GET') return adminSecuritySubmissionResponse(env, bookingID);
@@ -4315,6 +4322,11 @@ async function operationsBookings(request, env) {
   for(const item of output){
     const status=normalizedTripStatus(item.operationStatus), manager=ownerMap.get(item.id)||null;
     const meta=tripMeta.get(item.id)||{}; item.managerID=manager; item.operationTasks=queueFor(status,{createdAt:meta.availability_started_at||item.createdAt,startDate:item.startDate,endDate:item.endDate,paymentDue:meta.payment_confirmation_deadline_at||meta.price_lock_expires_at,documentsDue:meta.documents_deadline_at,submitted:pendingMap.get(item.id),cancellationRequested:requestSet.has(item.id),manager});
+    if(status==='booking_confirmed'&&!requestSet.has(item.id)&&parseJSONObject(meta.booking_snapshot_json).tripSummary?.version==='trip-summary-v2'){
+      const {requirements}=await foundationDocuments(env,item.id,meta);
+      const visas=requirements.filter(x=>x.kind==='visa');
+      if(visas.length&&visas.every(x=>x.ready)&&requirements.some(x=>x.kind==='ticket'&&!x.ready))item.operationTasks.push({key:'ticket_purchase',priority:1,dueAt:null});
+    }
     const refund=refundMap.get(item.id);if(status==='cancelled'&&!closedSet.has(item.id)&&refund&&(refund.outstanding>0||refund.historical_unverified))item.operationTasks.push({key:'refund',priority:0,dueAt:null});
     if(['completed','cancelled'].includes(status)&&!closedSet.has(item.id))item.operationTasks.push({key:'finance_close',priority:2,dueAt:null});
   }
@@ -4768,9 +4780,15 @@ async function bookingPricingOverride(env, bookingID) {
 }
 
 function reportWithPricingOverride(report, override) {
-  if (!report || !override) return report;
+  if (!report) return report;
+  if (!override) {
+    const v2 = report.tripSummary ? tripSummaryForSnapshot(report) : null;
+    return {...report, ...(v2 && JSON.stringify(v2.client)===JSON.stringify(report.tripSummary) ? {tripSummaryReport:v2} : {})};
+  }
   return {
     ...report,
+    tripSummary: null,
+    tripSummaryReport: null,
     components: override.components,
     totals: override.totals,
     businessOverride: true
@@ -5953,6 +5971,25 @@ async function reviewBookingReceiptUnlocked(request,env,bookingID,receiptID,user
   await sendClientPush(env,bookingID,'iumrah',decision==='approved'?'Поступление оплаты проверено':'Чек требует исправления',{type:'payment_review',bookingID}).catch(()=>{});
   return json({ok:true,payment});
 }
+async function bookingRefundPreview(env,bookingID,trip=null) {
+  trip=trip||await env.HOTELS_DB.prepare('SELECT * FROM pilgrim_trips WHERE booking_id=?').bind(bookingID).first();
+  if(!trip)return json({ok:false,error:'BOOKING_NOT_FOUND'},404);
+  const source=await sourceBookingPayload(env,bookingID), report=source.tripSummary;
+  if(report?.version!=='trip-summary-v2'||!Array.isArray(report.components))return json({ok:true,available:false,reason:'LEGACY_PRICE_REVIEW_REQUIRED',items:[]});
+  const payment=await foundationPayment(env,bookingID), docs=await foundationDocuments(env,bookingID,trip);
+  const refundRow=await env.HOTELS_DB.prepare('SELECT COALESCE(SUM(amount_cents),0) AS n FROM booking_refunds_v3 WHERE booking_id=?').bind(bookingID).first();
+  const audit=await env.HOTELS_DB.prepare("SELECT target_id FROM booking_operations_audit_v3 WHERE booking_id=? AND action IN ('document_requirement_submitted','document_requirement_refused')").bind(bookingID).all();
+  const submitted=new Set((audit.results||[]).map(x=>x.target_id));
+  const snapshot=parseJSONObject(trip.booking_snapshot_json), start=source.input?.startDate||snapshot.input?.startDate;
+  const requested=await env.HOTELS_DB.prepare('SELECT created_at FROM booking_cancel_request_v3 WHERE booking_id=?').bind(bookingID).first();
+  const effectiveTime=Number.isFinite(Date.parse(requested?.created_at))?Date.parse(requested.created_at):Date.now();
+  const beforeTrip=typeof start==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(start)&&effectiveTime<Date.parse(start+'T00:00:00+03:00')&&!['in_trip','completed'].includes(normalizedTripStatus(trip.status));
+  const managed=await env.HOTELS_DB.prepare("SELECT id FROM booking_operations_audit_v3 WHERE booking_id=? AND action='itinerary_saved' LIMIT 1").bind(bookingID).first();
+  const pickup=managed?await env.HOTELS_DB.prepare("SELECT i.date_local,t.time_local FROM booking_itinerary_items i LEFT JOIN booking_itinerary_times_v3 t ON t.booking_id=i.booking_id AND t.item_id=i.id WHERE i.booking_id=? AND i.id=? ORDER BY i.date_local,i.sort_order LIMIT 1").bind(bookingID,bookingID+'-hotel-transfer').first():null;
+  const pickupAt=pickup?.date_local&&/^\d{4}-\d{2}-\d{2}$/.test(pickup.date_local)&&/^\d{2}:\d{2}$/.test(pickup?.time_local||'')?Date.parse(pickup.date_local+'T'+pickup.time_local+':00+03:00'):NaN;
+  const result=refundEstimate(report,{paidCents:payment.paidCents,refundedCents:Number(refundRow?.n||0),paymentVerified:payment.satisfied&&!payment.reconciliationRequired&&payment.dueCents===Math.round(report.totalUsd*100),visaSlots:docs.requirements.filter(x=>x.kind==='visa').map(x=>({state:x.state,ready:x.ready,submitted:submitted.has(x.key)})),beforeTrip,pickupAt,now:effectiveTime,transferStarted:['in_trip','completed'].includes(normalizedTripStatus(trip.status)),cancelled:normalizedTripStatus(trip.status)==='cancelled'});
+  return json({ok:true,available:true,...result});
+}
 async function foundationDocuments(env,bookingID,trip) {
   const rows=await env.HOTELS_DB.prepare("SELECT d.id,d.document_kind,d.title,d.booking_reference,d.content_type,d.created_at,COALESCE(p.publication_status,'published') AS publication_status,COALESCE(p.slots_json,'[]') AS slots_json,p.updated_at AS publication_updated_at FROM booking_travel_documents d LEFT JOIN booking_document_publication_v3 p ON p.document_id=d.id AND p.booking_id=d.booking_id WHERE d.booking_id=? ORDER BY d.created_at").bind(bookingID).all();
   const documents=(rows.results||[]).map(d=>{let slots=[];try{slots=JSON.parse(d.slots_json)}catch{}return {...d,slots:Array.isArray(slots)?slots:[]}});
@@ -5963,36 +6000,51 @@ async function foundationDocuments(env,bookingID,trip) {
   const requirements=documentRequirements(snapshot,count);
   const stateRows=await env.HOTELS_DB.prepare('SELECT requirement_key,state,updated_at FROM booking_document_requirement_state_v3 WHERE booking_id=?').bind(bookingID).all();
   const states=new Map((stateRows.results||[]).map(r=>[r.requirement_key,r]));
+  const visaAudit=await env.HOTELS_DB.prepare("SELECT target_id,action FROM booking_operations_audit_v3 WHERE booking_id=? AND action IN ('document_requirement_submitted','document_requirement_refused') ORDER BY created_at,id").bind(bookingID).all();
+  const visaStates=new Map((visaAudit.results||[]).map(r=>[r.target_id,r.action==='document_requirement_refused'?'refused':'submitted']));
   const progress=readinessFor(requirements,documents).map(r=>{
     if(r.ready)return {...r,state:'published'};
     const manual=states.get(r.key);
     const revoked=documents.filter(d=>d.publication_status==='revoked'&&d.slots.includes(r.key)).map(d=>d.publication_updated_at||'').sort().at(-1);
+    if(r.kind==='visa'&&visaStates.has(r.key))return {...r,state:visaStates.get(r.key)};
     return {...r,state:revoked&&(!manual||revoked>manual.updated_at)?'needs_correction':manual?.state||'pending'};
   });
   return {documents,requirements:progress};
 }
-async function updateDocumentRequirementState(request,env,bookingID,user){
+async function visaFirstGate(env,bookingID,requirements){
+  const source=await sourceBookingPayload(env,bookingID);
+  return source.tripSummary?.version==='trip-summary-v2' && requirements.some(r=>r.kind==='visa'&&!r.ready);
+}
+async function updateDocumentRequirementState(request,env,bookingID,user){return withBookingMutation(env,bookingID,()=>updateDocumentRequirementStateUnlocked(request,env,bookingID,user));}
+async function updateDocumentRequirementStateUnlocked(request,env,bookingID,user){
   const trip=await env.HOTELS_DB.prepare('SELECT * FROM pilgrim_trips WHERE booking_id=?').bind(bookingID).first();
   if(!trip||!['booking_confirmed','ready_to_travel','in_trip'].includes(normalizedTripStatus(trip.status)))return json({ok:false,error:'DOCUMENT_EDITING_CLOSED'},409);
   const body=await request.json().catch(()=>null), key=body?.key,state=body?.state;
-  if(typeof key!=='string'||!['pending','preparing','needs_correction'].includes(state))return json({ok:false,error:'INVALID_DOCUMENT_STATE'},400);
-  const item=(await foundationDocuments(env,bookingID,trip)).requirements.find(r=>r.key===key);
+  if(typeof key!=='string'||!['pending','preparing','needs_correction','submitted','refused'].includes(state))return json({ok:false,error:'INVALID_DOCUMENT_STATE'},400);
+  const requirements=(await foundationDocuments(env,bookingID,trip)).requirements;
+  const item=requirements.find(r=>r.key===key);
   if(!item)return json({ok:false,error:'INVALID_DOCUMENT_SCOPE'},400);
   if(item.ready)return json({ok:false,error:'DOCUMENT_ALREADY_PUBLISHED'},409);
+  if(['submitted','refused'].includes(state)&&item.kind!=='visa')return json({ok:false,error:'INVALID_DOCUMENT_STATE'},400);
+  if(item.kind==='visa'&&['submitted','refused'].includes(item.state)&&!['submitted','refused'].includes(state))return json({ok:false,error:'VISA_SUBMISSION_IMMUTABLE'},409);
+  if(state==='refused'&&item.state!=='submitted')return json({ok:false,error:'VISA_SUBMISSION_REQUIRED'},409);
+  if(item.kind==='ticket'&&state==='preparing'&&await visaFirstGate(env,bookingID,requirements))return json({ok:false,error:'VISA_FIRST_REQUIRED'},409);
   const actor=cleanText(user?.login,180)||'staff',now=new Date().toISOString();
   await env.HOTELS_DB.batch([
-    env.HOTELS_DB.prepare('INSERT INTO booking_document_requirement_state_v3(booking_id,requirement_key,state,updated_by,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(booking_id,requirement_key) DO UPDATE SET state=excluded.state,updated_by=excluded.updated_by,updated_at=excluded.updated_at').bind(bookingID,key,state,actor,now),
+    env.HOTELS_DB.prepare('INSERT INTO booking_document_requirement_state_v3(booking_id,requirement_key,state,updated_by,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(booking_id,requirement_key) DO UPDATE SET state=excluded.state,updated_by=excluded.updated_by,updated_at=excluded.updated_at').bind(bookingID,key,state==='submitted'?'preparing':state==='refused'?'needs_correction':state,actor,now),
     operationAudit(env,bookingID,'document_requirement_'+state,key,actor,{},now)
   ]);
   return json({ok:true});
 }
-async function updateDocumentPublication(request,env,bookingID,documentID,user) {
+async function updateDocumentPublication(request,env,bookingID,documentID,user) {return withBookingMutation(env,bookingID,()=>updateDocumentPublicationUnlocked(request,env,bookingID,documentID,user));}
+async function updateDocumentPublicationUnlocked(request,env,bookingID,documentID,user) {
   const trip=await env.HOTELS_DB.prepare('SELECT * FROM pilgrim_trips WHERE booking_id=?').bind(bookingID).first();
   if(!trip||!['booking_confirmed','ready_to_travel','in_trip'].includes(normalizedTripStatus(trip.status)))return json({ok:false,error:'DOCUMENT_EDITING_CLOSED'},409);
   const body=await request.json().catch(()=>null),state=body?.publicationStatus;
   if(!['published','revoked'].includes(state))return json({ok:false,error:'INVALID_DOCUMENT_STATE'},400);
   const id=safeID(documentID), data=await foundationDocuments(env,bookingID,trip),doc=data.documents.find(d=>d.id===id);
   if(!doc)return json({ok:false,error:'DOCUMENT_NOT_FOUND'},404);
+  if(state==='published'&&doc.document_kind==='ticket'&&await visaFirstGate(env,bookingID,data.requirements))return json({ok:false,error:'VISA_FIRST_REQUIRED'},409);
   const slots=Array.isArray(body.slots)?[...new Set(body.slots)]:doc.slots;
   if(slots.length>60||!slots.every(key=>data.requirements.some(r=>r.key===key&&r.kind===doc.document_kind)))return json({ok:false,error:'INVALID_DOCUMENT_SCOPE'},400);
   const actor=cleanText(user?.login,180)||'staff',now=new Date().toISOString();
@@ -6101,12 +6153,14 @@ async function serveAdminTravelerPassport(env, bookingID, position) {
   return new Response(obj.body,{headers:{'content-type':row.passport_content_type||'image/jpeg','cache-control':'private, no-store'}});
 }
 
-async function uploadBookingTravelDocument(request, env, bookingID, user, url) {
+async function uploadBookingTravelDocument(request, env, bookingID, user, url) {return withBookingMutation(env,bookingID,()=>uploadBookingTravelDocumentUnlocked(request,env,bookingID,user,url));}
+async function uploadBookingTravelDocumentUnlocked(request, env, bookingID, user, url) {
   const kind=cleanText(url.searchParams.get('kind'),32)||'other'; if(!['visa','voucher','insurance','ticket','other'].includes(kind))return json({ok:false,error:'INVALID_DOCUMENT_KIND'},400);
   const trip=await env.HOTELS_DB.prepare('SELECT * FROM pilgrim_trips WHERE booking_id=?').bind(bookingID).first();
   if(!trip||!['booking_confirmed','ready_to_travel','in_trip'].includes(normalizedTripStatus(trip.status)))return json({ok:false,error:'DOCUMENT_EDITING_CLOSED'},409);
   const slots=[...new Set(url.searchParams.getAll('slot'))];
   const current=await foundationDocuments(env,bookingID,trip), requirements=current.requirements;
+  if(kind==='ticket'&&await visaFirstGate(env,bookingID,requirements))return json({ok:false,error:'VISA_FIRST_REQUIRED'},409);
   const replaceRaw=url.searchParams.get('replace'), replaceID=replaceRaw?safeID(replaceRaw):null;
   const replaced=replaceID?current.documents.find(d=>d.id===replaceID):null;
   if(replaceRaw&&(!replaced||replaced.publication_status!=='published'||replaced.document_kind!==kind))return json({ok:false,error:'DOCUMENT_REPLACEMENT_UNAVAILABLE'},409);
@@ -6700,6 +6754,7 @@ async function handleClientOperations(request, env, parts) {
   if (parts[0] === 'bookings') {
     const bookingID=cleanText(parts[1],180); if(!bookingID)return json({ok:false,error:'INVALID_BOOKING_ID'},400);
     if(parts.length===2&&request.method==='DELETE'){const auth=await requireClientBooking(request,env,bookingID,{syncTrip:false});if(!auth.ok)return auth.response;return json({ok:false,error:'USE_CANCELLATION'},409);}
+    if(parts.length===3&&parts[2]==='refund-preview'&&request.method==='GET'){const auth=await requireClientBooking(request,env,bookingID);if(!auth.ok)return auth.response;return bookingRefundPreview(env,bookingID,auth.trip);}
     if(parts.length===3&&parts[2]==='cancel-request'&&request.method==='POST'){const auth=await requireClientBooking(request,env,bookingID);if(!auth.ok)return auth.response;return requestBookingCancellation(env,bookingID,auth.trip);}
     return methodNotAllowed();
   }

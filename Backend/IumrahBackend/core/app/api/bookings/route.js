@@ -247,6 +247,7 @@ export async function POST(request) {
     // Persist canonical public totals, never the decrypted cost report or proof.
     input.totalUsd = verified.totalUsd;
     input.perPilgrimUsd = verified.perPilgrimUsd;
+    if (verified.tripSummary) input.tripSummary = verified.tripSummary;
     const db = getBookingDb();
     if (!db)
         return NextResponse.json({ error: "BOOKING_DB_NOT_CONFIGURED" }, { status: 503, headers: { "Cache-Control": "no-store" } });

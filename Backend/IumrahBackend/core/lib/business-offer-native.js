@@ -14,14 +14,14 @@ export async function readNativeOffer(request,{params}){
  const db=await dbReady(),r=await lookup(db,token);if(!r||r.state==='revoked')return json({error:'NOT_FOUND'},404);
  const p=JSON.parse(r.snapshot_json),i=p.input,t=i.travelers;
  // Only display fields; never send supplier pricing, personal information or editor draft.
- return json({packageID:r.id,revision:r.revision,expiresAt:r.expires_at,status:r.state==='converted'?'accepted':r.expires_at<=new Date().toISOString()?'expired':'available',lang:r.lang,package:{totalUsd:p.totalUsd,perPilgrimUsd:p.perPilgrimUsd,input:{from:i.from,originCode:i.originCode||p.route.originCode,arrivalAirportCode:i.arrivalAirportCode||p.route.outboundDestination,startDate:i.startDate,endDate:i.endDate,includeMadinah:i.includeMadinah,travelers:{adults:t.adults,children:t.children,infants:t.infants,rooms:t.rooms}},hotelNames:p.hotelNames,flight:p.flight,includedServices:p.includedServices}});
+ return json({packageID:r.id,revision:r.revision,expiresAt:r.expires_at,status:r.state==='converted'?'accepted':r.expires_at<=new Date().toISOString()?'expired':'available',lang:r.lang,package:{totalUsd:p.totalUsd,perPilgrimUsd:p.perPilgrimUsd,input:{from:i.from,originCode:i.originCode||p.route.originCode,arrivalAirportCode:i.arrivalAirportCode||p.route.outboundDestination,startDate:i.startDate,endDate:i.endDate,includeMadinah:i.includeMadinah,travelers:{adults:t.adults,children:t.children,infants:t.infants,rooms:t.rooms}},hotelNames:p.hotelNames,flight:p.flight,includedServices:p.includedServices,...(p.tripSummary?{tripSummary:p.tripSummary}:{})}});
 }
 export async function acceptNativeOffer(request,{params}){
  const {token}=await params,raw=await request.json().catch(()=>null),env=requestEnv();
  if(raw?.guestCheckout===true)return acceptGuestOffer(env,token,raw);
  if(!secret(raw?.requestSecret)||!secret(raw?.verificationToken)||!['sms','email'].includes(raw?.channel))return json({error:'VERIFIED_CONTACT_REQUIRED'},400);
  const db=await dbReady();if(!db||!env.HOTELS_DB)return json({error:'UNAVAILABLE'},503);
- const row=await lookup(db,token);if(!row||row.state==='revoked')return json({error:'NOT_FOUND'},404);
+ const row=await lookup(db,token);if(!row||row.state==='revoked'||row.source==='client')return json({error:'NOT_FOUND'},404);
  const firstName=String(raw.firstName||'').trim().slice(0,120),lastName=String(raw.lastName||'').trim().slice(0,120);
  if(firstName.length<2||lastName.length<2)return json({error:'INVALID_NAME'},400);
  const native={channel:raw.channel,requestHash:await hashBookingToken('native-offer:'+row.id+':'+raw.requestSecret),proofHash:await hashBookingToken(raw.verificationToken),accessToken:await hashBookingToken('native-booking:'+row.id+':'+raw.requestSecret)};
@@ -45,7 +45,7 @@ export function nativeOfferPage(request){return offerPage(request);}
 async function acceptGuestOffer(env,token,raw){
  if(!secret(raw.requestSecret))return json({error:'INVALID_REQUEST'},400);
  const db=await dbReady();if(!db||!env.HOTELS_DB)return json({error:'UNAVAILABLE'},503);
- const row=await lookup(db,token);if(!row||row.state==='revoked')return json({error:'NOT_FOUND'},404);
+ const row=await lookup(db,token);if(!row||row.state==='revoked'||row.source==='client')return json({error:'NOT_FOUND'},404);
  const native={channel:'guest',requestHash:await hashBookingToken('guest-offer:'+row.id+':'+raw.requestSecret),proofHash:await hashBookingToken('guest-offer-proof:'+row.id+':'+raw.requestSecret),accessToken:await hashBookingToken('guest-offer-access:'+row.id+':'+raw.requestSecret)};
  if(row.state==='converted')return convert(db,row,{},'',false,raw.revision,'client','web-guest-offer',native);
  if(raw.revision!==row.revision||row.expires_at<=new Date().toISOString())return json({error:'OFFER_CHANGED'},409);

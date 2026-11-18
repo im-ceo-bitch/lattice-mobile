@@ -1,3 +1,5 @@
+import { verifyRoomApproval } from "./room-approval";
+import { tripSummaryForSnapshot } from "./trip-summary-pricing.mjs";
 import { bookingGrantRead } from "./booking-grants";
 import type { D1Like } from "./d1";
 import type { Env } from "./env";
@@ -46,6 +48,7 @@ function sameNumber(a: unknown, b: unknown, tolerance = 0.011) {
 
 export function assertBookingMatchesSnapshot(booking: Record<string, any>, snapshot: GeneratorPricingSnapshot) {
   if (snapshot.bookingAllowed === false) throw new Error("SANDBOX_QUOTE_NOT_BOOKABLE");
+  if (snapshot.roomPolicy?.requiresAdultException) throw new Error("BOOKING_QUOTE_ADULT_OCCUPANCY_REQUIRED");
   if (!sameNumber(booking.totalUsd, snapshot.totals.publicTotalUsd)) throw new Error("BOOKING_QUOTE_TOTAL_MISMATCH");
   if (!sameNumber(booking.perPilgrimUsd, snapshot.totals.publicPricePerPilgrimUsd)) throw new Error("BOOKING_QUOTE_PER_PERSON_MISMATCH");
   if (String(booking.planId ?? booking.input?.preferredPlan ?? "") !== snapshot.context.tier) throw new Error("BOOKING_QUOTE_TIER_MISMATCH");
@@ -77,12 +80,13 @@ export function assertBookingMatchesSnapshot(booking: Record<string, any>, snaps
 }
 
 // Internal only: never expose the decrypted snapshot through a public route.
-export async function verifyBookingQuote(booking: Record<string, any>, proof: unknown, env: Env): Promise<{quoteId:string; totalUsd:number; perPilgrimUsd:number}> {
+export async function verifyBookingQuote(booking: Record<string, any>, proof: unknown, env: Env): Promise<{quoteId:string; totalUsd:number; perPilgrimUsd:number; tripSummary?:GeneratorPricingSnapshot["tripSummary"]}> {
   if (typeof proof !== "string" || !proof.trim() || proof.length > 80_000) throw new Error("QUOTE_PROOF_REQUIRED");
   // The canonical booking path requires the existing dedicated server sealing key.
   if (!String(env.PACKAGE_QUOTE_SEAL_KEY ?? "").trim()) throw new Error("QUOTE_SEAL_NOT_CONFIGURED");
   const snapshot = await unsealPricingSnapshot(proof, env);
   assertBookingMatchesSnapshot(booking, snapshot);
+  if(snapshot.context.travelers.adults>snapshot.context.travelers.rooms*5&&(!snapshot.roomApproval||!await verifyRoomApproval(env,snapshot.roomApproval,snapshot.context.travelers,snapshot.nuiteeRooms||[])))throw new Error("BOOKING_QUOTE_ADULT_OCCUPANCY_REQUIRED");
   if (String(booking.generatorTrace?.quoteId ?? "") !== snapshot.quoteId) throw new Error("BOOKING_QUOTE_ID_MISMATCH");
   if (Boolean(booking.input?.includeMadinah) !== snapshot.context.includeMadinah) throw new Error("BOOKING_QUOTE_SCOPE_MISMATCH");
   // New quotes bind the selected itinerary and dates, not just the displayed amount.
@@ -117,7 +121,17 @@ export async function verifyBookingQuote(booking: Record<string, any>, proof: un
     const expected = city === "makkah" ? contract.makkahRoomId : contract.madinahRoomId;
     if (expected && String(trace[city+"Hotel"]?.roomId ?? "") !== expected) throw new Error("BOOKING_QUOTE_ROOM_MISMATCH");
   }
-  return {quoteId:snapshot.quoteId,totalUsd:snapshot.totals.publicTotalUsd,perPilgrimUsd:snapshot.totals.publicPricePerPilgrimUsd};
+  return {quoteId:snapshot.quoteId,totalUsd:snapshot.totals.publicTotalUsd,perPilgrimUsd:snapshot.totals.publicPricePerPilgrimUsd,...(snapshot.tripSummary ? {tripSummary:snapshot.tripSummary} : {})};
+}
+
+// Internal capability for the guest-package storage path. Never serialize the
+// private report to a public response, and require the same verified quote contract.
+export async function verifySavedPackageQuote(booking: Record<string, any>, proof: unknown, env: Env) {
+  const verified = await verifyBookingQuote(booking, proof, env);
+  const snapshot = await unsealPricingSnapshot(String(proof), env);
+  const report = tripSummaryForSnapshot(snapshot);
+  if (!report || !verified.tripSummary || JSON.stringify(report.client)!==JSON.stringify(verified.tripSummary)) throw new Error("BOOKING_QUOTE_REFRESH_REQUIRED");
+  return {verified, report};
 }
 
 function parsedObject(value: string | null | undefined): Record<string, unknown> {

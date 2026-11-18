@@ -26,6 +26,7 @@ struct BusinessManualBookingInfo: Codable {
     let emailStatus: String?
     var packageID: String? = nil
     var shareURL: String? = nil
+    var tripSummaryReport: TripSummaryFinancialReport? = nil
 }
 
 struct BusinessOffer: Codable, Equatable, Identifiable {
@@ -46,10 +47,13 @@ struct BusinessOffer: Codable, Equatable, Identifiable {
     let bookingID: String?
     let convertedAt: String?
     let shareURL: String
-    var editable: Bool { status != "converted" && status != "revoked" }
-    var active: Bool { editable && status != "expired" }
+    var source: String? = nil
+    var isClientSaved: Bool { source == "client" }
+    var editable: Bool { !isClientSaved && status != "converted" && status != "revoked" }
+    var active: Bool { status != "converted" && status != "revoked" && status != "expired" }
     var statusTitle: String {
         switch status {
+        case "saved": return "Сохранено клиентом"
         case "created": return "Создано"
         case "sent": return "Отмечено отправленным"
         case "viewed": return "Просмотрено"
@@ -65,6 +69,8 @@ struct BusinessOfferEvent: Codable, Equatable {
     let createdAt: String
     var title: String {
         switch kind {
+        case "client_saved": return "Клиент сохранил пакет"
+        case "client_updated": return "Клиент обновил пакет"
         case "created": return "Пакет создан"
         case "sent": return "Отмечено отправленным"
         case "first_viewed": return "Первый просмотр ссылки"
@@ -79,11 +85,13 @@ struct BusinessOfferDetail: Decodable {
     let offer: BusinessOffer
     let editorDraft: String
     let events: [BusinessOfferEvent]
-    private enum CodingKeys: String, CodingKey { case editorDraft, events }
+    let tripSummaryReport: TripSummaryFinancialReport?
+    private enum CodingKeys: String, CodingKey { case editorDraft, events, tripSummaryReport }
     init(from decoder: Decoder) throws {
         offer = try BusinessOffer(from: decoder)
         let c = try decoder.container(keyedBy: CodingKeys.self)
         editorDraft = try c.decode(String.self, forKey: .editorDraft)
         events = try c.decode([BusinessOfferEvent].self, forKey: .events)
+        tripSummaryReport = try c.decodeIfPresent(TripSummaryFinancialReport.self, forKey: .tripSummaryReport)
     }
 }

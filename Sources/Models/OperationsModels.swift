@@ -203,6 +203,7 @@ struct BookingPricingReport: Codable, Hashable {
     let components: [BookingPricingComponent]
     let totals: BookingPricingTotals
     let selection: BookingGeneratorSelection?
+    var tripSummaryReport: TripSummaryFinancialReport? = nil
 }
 
 struct BookingPricingContext: Codable, Hashable {
@@ -807,5 +808,5 @@ struct BookingRefundRecord: Codable, Hashable, Identifiable { let id: String; le
 struct BookingOperationAudit: Codable, Hashable, Identifiable { let id: String; let action: String; let target: String; let actor: String; let createdAt: String }
 struct BookingOperationTask: Codable, Hashable, Identifiable {
     var id: String { key }; let key: String; let priority: Int; let dueAt: String?
-    var title: String { ["availability":"Проверить наличие", "receipt":"Проверить чек", "payment":"Ожидается оплата", "documents":"Подготовить документы", "departure":"Вылет", "trip":"Сопровождение", "unassigned":"Назначить менеджера", "cancellation":"Запрос отмены", "refund":"Сверить возврат", "finance_close":"Закрыть финансы"][key] ?? key }
+    var title: String { ["availability":"Проверить наличие", "receipt":"Проверить чек", "payment":"Ожидается оплата", "documents":"Подготовить документы", "ticket_purchase":"Проверить и купить билеты", "departure":"Вылет", "trip":"Сопровождение", "unassigned":"Назначить менеджера", "cancellation":"Запрос отмены", "refund":"Сверить возврат", "finance_close":"Закрыть финансы"][key] ?? key }
 }

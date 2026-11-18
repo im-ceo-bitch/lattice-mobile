@@ -69,3 +69,21 @@ export function queueFor(status,{createdAt,startDate,endDate,paymentDue=null,doc
  if(!manager)add('unassigned',3);
  return tasks;
 }
+
+// Preliminary whole-trip estimate. No payment or cancellation is performed.
+export function refundEstimate(report,ctx){
+ const items=report.components.map(c=>{
+  const amountCents=Math.round(c.amountUsd*100);let refundCents=null,reason='supplier_review';
+  if(c.cancellationPolicy==='visa_submission'&&ctx.visaSlots.length){
+   const slots=ctx.visaSlots;
+   if(slots.some(s=>['refused','needs_correction'].includes(s.state)))reason='visa_manual_review';
+   else {const base=Math.floor(amountCents/slots.length),extra=amountCents%slots.length;refundCents=slots.reduce((sum,s,i)=>sum+(!s.ready&&!s.submitted&&!['submitted','published'].includes(s.state)?base+(i<extra?1:0):0),0);reason='visa_submission';}
+  }else if(c.cancellationPolicy==='full_before_service'&&ctx.beforeTrip){refundCents=amountCents;reason='before_service';}
+  else if(c.cancellationPolicy==='transfer_24h'&&Number.isFinite(ctx.pickupAt)&&ctx.now<ctx.pickupAt&&!ctx.transferStarted){refundCents=amountCents-(ctx.now<=ctx.pickupAt-86400000?0:Math.min(10000,amountCents));reason='transfer_24h';}
+  return {code:c.code,label:c.label,amountCents,refundCents,reason};
+ });
+ const knownCents=items.reduce((s,c)=>s+(c.refundCents??0),0),supportCents=Math.min(Math.round(knownCents*.09),Math.round(report.supportAmountUsd*100));
+ const remainingCents=Math.max(0,ctx.paidCents-ctx.refundedCents);
+ const estimateCents=ctx.paymentVerified&&!ctx.cancelled&&ctx.refundedCents===0?Math.min(remainingCents,knownCents+supportCents):null;
+ return {items,knownCents,supportCents,estimateCents,paidCents:ctx.paidCents,refundedCents:ctx.refundedCents,manualReview:true,paymentFeeRefundCents:null};
+}

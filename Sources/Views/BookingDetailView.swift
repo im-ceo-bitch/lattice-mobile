@@ -110,7 +110,9 @@ struct BookingDetailView: View {
                         if let cancellation = detail.operationsCenter?.cancellation { cancellationCard(cancellation) }
                         if let center = detail.operationsCenter, let state = detail.operation?.tripStatus, state == .completed || state == .cancelled { financialCloseCard(center, detail: detail) }
                         pricingCard(detail)
-                        if let cost = manualInfo?.cost { manualCostCard(cost) }
+                        if let report = manualInfo?.tripSummaryReport {
+                            TripSummaryFinancialReportView(report: report).padding(18).businessCard(radius: 24)
+                        } else if let cost = manualInfo?.cost { manualCostCard(cost) }
                     default:
                         if let center = detail.operationsCenter { operationsCenterCard(center, detail: detail) }
                         if let operation = detail.operation, !operation.tripStatus.isCompleted {
@@ -992,8 +994,8 @@ struct BookingDetailView: View {
                 HStack(spacing: 12) {
                     Image(systemName: "eye.slash.fill").frame(width: 38, height: 38).background(BusinessDesign.secondarySurface, in: Circle())
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("Цена под капотом").font(.title2.bold()).foregroundStyle(.primary)
-                        Text("Внутренний расчёт · клиент его не видит").font(.caption).foregroundStyle(.secondary)
+                        Text("Финансовый отчёт").font(.title2.bold()).foregroundStyle(.primary)
+                        Text("Клиентские и внутренние цены").font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
                     Image(systemName: showPricing ? "chevron.up" : "chevron.down").font(.caption.bold()).foregroundStyle(.secondary)
@@ -1028,7 +1030,11 @@ struct BookingDetailView: View {
                     }
                     .buttonStyle(.plain)
                     .padding(.bottom, 14)
-                    pricingReportView(report)
+                    if let summary = report.tripSummaryReport {
+                        TripSummaryFinancialReportView(report: summary)
+                    } else {
+                        pricingReportView(report)
+                    }
                 } else if detail.pricingLines.isEmpty {
                     detailRow("Итого клиенту", detail.booking.totalUsd.formatted(.currency(code: "USD")))
                     detailRow("На паломника", detail.booking.perPilgrimUsd.formatted(.currency(code: "USD")))

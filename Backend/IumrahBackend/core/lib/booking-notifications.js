@@ -44,6 +44,22 @@ export async function prepareCreationIntent(env,raw,input,quoteProof,lang){
  const profile={...(input.pilgrimProfile||{}),[field]:normalized,[field==='email'?'emailVerifiedAt':'phoneVerifiedAt']:row.verified_at};
  return {id,accessToken,requestHash,channel,locale:lang,profile,deviceToken,environment:raw.pushEnvironment==='development'?'development':'production'};
 }
+// Guest offer checkout deliberately does not mark unverified contact as verified.
+// Atomic rate gate keyed by a server-HMAC of recipient; request IDs are idempotent.
+export async function prepareGuestCreationIntent(env,requestSecret,input,quoteProof,lang){
+ if(!env.BOOKINGS_DB||String(env.IUMRAH_SESSION_SECRET||'').length<32)throw err('NOTIFICATION_SERVICE_UNAVAILABLE');
+ const p=input?.pilgrimProfile||{},phone=String(p.phone||''),email=String(p.email||'').trim().toLowerCase();
+ if(!/^[a-f0-9]{64}$/.test(requestSecret)||!/^\+998\d{9}$/.test(phone)||!/^\S+@\S+\.\S+$/.test(email)||email.length>180)throw err('INVALID_CONTACT');
+ const db=env.BOOKINGS_DB,requestHash=await hashBookingToken(JSON.stringify([requestSecret,quoteProof,input]));
+ const phoneKey=hex(await hmac(env.IUMRAH_SESSION_SECRET,'guest-phone:'+phone)),emailKey=hex(await hmac(env.IUMRAH_SESSION_SECRET,'guest-email:'+email));
+ await db.prepare('CREATE TABLE IF NOT EXISTS guest_creation_rate_v1(request_hash TEXT PRIMARY KEY,phone_hash TEXT NOT NULL,email_hash TEXT NOT NULL,created_at TEXT NOT NULL)').run();
+ const at=new Date().toISOString(),cutoff=new Date(Date.now()-3600000).toISOString();
+ await db.prepare('DELETE FROM guest_creation_rate_v1 WHERE created_at<?').bind(new Date(Date.now()-86400000).toISOString()).run();
+ await db.prepare(`INSERT OR IGNORE INTO guest_creation_rate_v1(request_hash,phone_hash,email_hash,created_at) SELECT ?,?,?,? WHERE (SELECT COUNT(*) FROM guest_creation_rate_v1 WHERE created_at>=? AND (phone_hash=? OR email_hash=?))<5`).bind(requestHash,phoneKey,emailKey,at,cutoff,phoneKey,emailKey).run();
+ const allowed=await db.prepare('SELECT request_hash FROM guest_creation_rate_v1 WHERE request_hash=?').bind(requestHash).first();
+ if(!allowed)throw err('GUEST_RATE_LIMIT');
+ return {requestHash,channel:'guest',locale:lang,deviceToken:null,environment:'production'};
+}
 export function creationOutboxStatement(db,job,now){
  return db.prepare('INSERT INTO booking_creation_delivery_v1(booking_id,request_hash,channel,locale,device_token,environment,push_done,next_attempt_at,created_at) VALUES(?,?,?,?,?,?,?,?,?)').bind(job.id,job.requestHash,job.channel,job.locale,job.deviceToken,job.environment,job.deviceToken?0:1,now,now);
 }

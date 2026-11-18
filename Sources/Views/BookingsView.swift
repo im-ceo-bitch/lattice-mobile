@@ -244,7 +244,7 @@ struct BookingsView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack { Text("Требуют внимания").font(.headline); Spacer(); if taskFilter != nil { Button("Все задачи") { taskFilter = nil; filter = .all } } }
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
-                ForEach(expandQueue ? ["availability","receipt","payment","documents","departure","trip","cancellation","refund","finance_close","unassigned"] : ["availability","receipt","payment","documents"], id: \.self) { key in
+                ForEach(expandQueue ? ["availability","receipt","payment","documents","ticket_purchase","departure","trip","cancellation","refund","finance_close","unassigned"] : ["availability","receipt","payment","documents"], id: \.self) { key in
                     let count = bookings.filter { (!mineOnly || (myMemberID != nil && $0.managerID == myMemberID)) && ($0.operationTasks ?? []).contains { $0.key == key } }.count
                     Button { taskFilter = taskFilter == key ? nil : key; filter = .all; search = "" } label: {
                         VStack(alignment: .leading, spacing: 4) {

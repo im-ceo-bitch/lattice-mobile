@@ -1,3 +1,6 @@
+import { sharedPackage, packageThread, staffPackageThread, roomDecision, linkPackageBooking } from "./lib/package-lifecycle.js";
+import { shareImage } from "./lib/package-share-image.js";
+import { saveClientPackage, readClientPackage, reviseClientPackage } from "./lib/client-saved-packages.js";
 import { readNativeOffer, acceptNativeOffer, nativeOfferPage } from "./lib/business-offer-native.js";
 import { offerPage, readOffer, acceptOffer, listOffers, createOffer, offerDetail, updateOffer, staffAcceptOffer } from "./lib/business-offers.js";
 import { sharePage, shareRead, manualBookingInfo, rotateManualShare } from "./lib/business-manual-booking.js";
@@ -51,6 +54,15 @@ import * as telegramWebhook from "./app/api/telegram/webhook/route.js";
 import { startStaffRecovery, finishStaffRecovery } from "./lib/staff-recovery.js";
 import {nativeMini,nativeTelegramSetup} from "./lib/telegram-native.js";
 export const routes = [
+  {pattern:/^\/offer\/saved-image$/,keys:[],handlers:{GET:shareImage}},
+  {pattern:/^\/offer\/saved\/([a-f0-9]{64})\/(\d+)$/,keys:["token","revision"],handlers:{GET:sharedPackage}},
+  {pattern:/^\/api\/offers\/shared\/([a-f0-9]{64})\/(\d+)$/,keys:["token","revision"],handlers:{GET:sharedPackage}},
+  {pattern:/^\/api\/offers\/saved\/([^/]+)\/thread$/,keys:["id"],handlers:{GET:packageThread,POST:packageThread}},
+  {pattern:/^\/api\/offers\/saved\/([^/]+)\/booking$/,keys:["id"],handlers:{POST:linkPackageBooking}},
+  {pattern:/^\/api\/admin\/offers\/([^/]+)\/thread$/,keys:["id"],handlers:{GET:staffPackageThread,POST:staffPackageThread}},
+  {pattern:/^\/api\/admin\/offers\/([^/]+)\/room-request$/,keys:["id"],handlers:{POST:roomDecision}},
+  {pattern:/^\/api\/offers\/saved$/,keys:[],handlers:{POST:saveClientPackage}},
+  {pattern:/^\/api\/offers\/saved\/([^/]+)$/,keys:["id"],handlers:{GET:readClientPackage,PATCH:reviseClientPackage}},
   {pattern:/^\/api\/bookings\/offers\/([a-f0-9]{64})\/accept$/,keys:["token"],handlers:{POST:acceptNativeOffer}},
   {pattern:/^\/api\/bookings\/offers\/([a-f0-9]{64})$/,keys:["token"],handlers:{GET:readNativeOffer}},
   {pattern:/^\/offer\/([a-f0-9]{64})$/,keys:["token"],handlers:{GET:nativeOfferPage}},

@@ -5,8 +5,15 @@
     "moduleResolution": "Bundler",
     "strict": true,
     "skipLibCheck": true,
-    "lib": ["ES2022", "WebWorker"],
-    "noEmit": true
+    "lib": [
+      "ES2022",
+      "WebWorker"
+    ],
+    "noEmit": true,
+    "allowJs": true
   },
-  "include": ["src/**/*.ts"]
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.mjs"
+  ]
 }

@@ -79,6 +79,10 @@ test('server quote seals Nuitee identities, uses existing package engine, and de
   assert.equal(snapshot.nuiteeRooms[0].prebookId,'prebook');assert.equal(snapshot.context.tier,'standard');
   assert.equal(snapshot.components.find(x=>x.code==='hotel_makkah')?.supplierCostUsd ?? snapshot.components.find(x=>/makkah/i.test(x.code))?.supplierCostUsd,245);
   assert.equal(body.quote.stayPlan.makkahCheckIn,checkin);assert.equal(body.quote.stayPlan.makkahCheckOut,checkout);
+  assert.ok(Array.isArray(body.quote.itineraryPreview));
+  assert.ok(body.quote.itineraryPreview.some(event=>event.kind==='arrival' && event.dateLocal===checkin));
+  assert.ok(body.quote.itineraryPreview.some(event=>event.kind==='flightHome' && event.dateLocal===checkout));
+  assert.doesNotMatch(JSON.stringify(body.quote.itineraryPreview),/supplierCost|prebookId|quoteProof/);
  });
 });
 
@@ -276,4 +280,9 @@ test('mixed quote accepts local departure dates across UTC midnight, rejects alt
   body.flight.legs[0].departureDate=checkin;body.flight.legs[1].destination='SKD';
   assert.match(JSON.stringify(await (await send()).json()),/MIXED_ROUTE_MISMATCH/);
  });
+});
+import {roomApprovalMatches} from '../.runtime-dist/room-approval.js';
+test('adult exception requires identical approved hotel/date/party and live supplier prebook',()=>{
+ const guests={adults:6,children:0,infants:0,rooms:1};const saved={input:{includeMadinah:false,travelers:{...guests,rooms:2}},selection:{makkahHotelId:'lp123'},stay:{makkahCheckIn:checkin,makkahCheckOut:checkout}};const approved={adults:6,rooms:1};const live=room({adults:6,tariffSource:'production',prebookId:'verified'});
+ assert.equal(roomApprovalMatches(saved,approved,guests,[live]),true);assert.equal(roomApprovalMatches(saved,approved,guests,[{...live,tariffSource:'sandbox'}]),false);assert.equal(roomApprovalMatches(saved,approved,guests,[{...live,hotelId:'different'}]),false);assert.equal(roomApprovalMatches(saved,approved,guests,[{...live,checkout:checkin}]),false);assert.equal(roomApprovalMatches(saved,approved,{...guests,children:1},[live]),false);assert.equal(roomApprovalMatches(saved,{...approved,rooms:2},guests,[live]),false);
 });

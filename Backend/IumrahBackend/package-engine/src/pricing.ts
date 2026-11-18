@@ -1,3 +1,4 @@
+import { tripSummaryForSnapshot, adultRoomPolicy, type ClientTripSummary } from "./trip-summary-pricing.mjs";
 export type PackageTier = "economy" | "standard" | "comfort" | "luxury";
 export type TripType = "roundTrip" | "oneWay";
 export type TransferVehicle = "malibu" | "carnival" | "yukon" | null;
@@ -26,6 +27,10 @@ export type PricingHotelInput = {
 };
 
 export type GeneratorPricingSnapshot = {
+  tripSummary?: ClientTripSummary;
+  roomPolicy?: {minimumRooms:number;requiresAdultException:boolean};
+  roomApproval?: import("./room-approval").RoomApproval;
+  tripSummaryAddOns?: Record<string, number>;
   bookingContract?: {
     legs: Array<{origin:string;destination:string;departureDate:string}>;
     schedule: import("./itinerary-planner").VerifiedFlightSchedule | null;
@@ -272,6 +277,12 @@ function calculateQuote(input: ServerQuoteInput, estimate: boolean): CalculatedP
     },
   };
 
+  if (!estimate) {
+    snapshot.roomPolicy = adultRoomPolicy(input.travelers.adults, input.travelers.rooms);
+    snapshot.tripSummaryAddOns = {...(vehicleUpgrade > 0 ? {vip_transfer_upgrade:vehicleUpgrade} : {}), ...(trainAddOn > 0 ? {haramain_train_addon:trainAddOn} : {})};
+    const report = tripSummaryForSnapshot(snapshot);
+    if (report) snapshot.tripSummary = report.client;
+  }
   return {
     totalPackagePrice: snapshot.totals.publicTotalUsd,
     pricePerPerson: snapshot.totals.publicPricePerPilgrimUsd,
