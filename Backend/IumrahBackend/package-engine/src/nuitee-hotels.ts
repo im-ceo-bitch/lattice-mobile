@@ -5,6 +5,8 @@ import { localizeKnownAmenities, hotelLanguage, translateHotelText, uzbekCyrilli
 
 type Json = Record<string, any>;
 type Entry = { payload: string; expires_at: number; updated_at: number };
+type Cached = { data: any; fresh: boolean; updatedAt: number };
+type CatalogResult = {items: Json[]; stale: boolean};
 const BASE = 'https://api.liteapi.travel/v3.0';
 const DAY = 86400;
 const supportedCities: Record<string, string[]> = {
@@ -108,6 +110,26 @@ async function read(env: Env, key: string): Promise<{ data: any; fresh: boolean;
   try { return { data: JSON.parse(r.payload), fresh: r.expires_at > Date.now(), updatedAt: r.updated_at }; }
   catch { return null; }
 }
+/** One D1 query per <=80 keys instead of 80 Worker subrequests for each price page. */
+async function readMany(env: Env, keys: string[]): Promise<Map<string, Cached>> {
+  const found = new Map<string, Cached>();
+  if (!env.HOTELS_DB || !keys.length) return found;
+  const unique = [...new Set(keys)];
+  for (let start=0; start<unique.length; start+=80) {
+    const chunk=unique.slice(start,start+80);
+    const statement=env.HOTELS_DB.prepare(`SELECT key,payload,expires_at,updated_at FROM nuitee_hotel_cache WHERE key IN (${chunk.map(()=>'?').join(',')})`).bind(...chunk);
+    // Some local test adapters support only first(). Real D1 always supports all().
+    if (typeof statement.all !== 'function') {
+      for (const key of chunk) {const value=await read(env,key);if(value)found.set(key,value);}
+      continue;
+    }
+    const result=await statement.all<Entry & {key:string}>();
+    for(const row of result.results ?? []) {
+      try { found.set(row.key,{data:JSON.parse(row.payload),fresh:row.expires_at>Date.now(),updatedAt:row.updated_at}); } catch { /* invalid cache row */ }
+    }
+  }
+  return found;
+}
 async function save(env: Env, key: string, data: unknown, ttl: number) {
   if (!env.HOTELS_DB) return;
   const now = Date.now();
@@ -115,6 +137,16 @@ async function save(env: Env, key: string, data: unknown, ttl: number) {
     VALUES (?1,?2,?3,?4) ON CONFLICT(key) DO UPDATE SET
     payload=excluded.payload, updated_at=excluded.updated_at, expires_at=excluded.expires_at`)
     .bind(key, JSON.stringify(data), now, now + ttl * 1000).run();
+}
+async function saveMany(env:Env, values:Array<{key:string;data:unknown;ttl:number}>) {
+  if(!env.HOTELS_DB || !values.length)return;
+  const db=env.HOTELS_DB as typeof env.HOTELS_DB & {batch?: (statements:import('./d1').D1PreparedStatementLike[])=>Promise<unknown[]>};
+  if(typeof db.batch !== 'function') { for(const v of values)await save(env,v.key,v.data,v.ttl);return; }
+  const now=Date.now();
+  for(let start=0;start<values.length;start+=40) {
+    const statements=values.slice(start,start+40).map(v=>db.prepare(`INSERT INTO nuitee_hotel_cache (key,payload,updated_at,expires_at) VALUES (?1,?2,?3,?4) ON CONFLICT(key) DO UPDATE SET payload=excluded.payload,updated_at=excluded.updated_at,expires_at=excluded.expires_at`).bind(v.key,JSON.stringify(v.data),now,now+v.ttl*1000));
+    await db.batch(statements);
+  }
 }
 function hotelItem(raw: Json): Json | null {
   const id = text(raw.id), name = text(raw.name);
@@ -130,71 +162,93 @@ function hotelItem(raw: Json): Json | null {
     latitude: num(raw.latitude ?? raw.location?.latitude), longitude: num(raw.longitude ?? raw.location?.longitude),
   };
 }
-// v2 invalidates the old 150-property snapshot without deleting it. It remains
-// a last-known-good fallback and is still valid for existing room selections.
+// v3 is a verified complete city snapshot. Earlier versions may be truncated;
+// they remain readable for old saved offers but never suppress a fresh sync.
+const catalogueFlights = new WeakMap<object, Map<string,Promise<CatalogResult>>>();
 async function cachedCatalog(env: Env, city: string) {
-  return await read(env, `catalog:v2:${city}`) ?? await read(env, `catalog:v1:${city}`);
+  const current=await read(env, `catalog:v3:${city}`);
+  if(current)return current;
+  const old=await read(env,`catalog:partial:v3:${city}`) ?? await read(env,`catalog:v2:${city}`) ?? await read(env,`catalog:v1:${city}`);
+  return old ? {...old,fresh:false} : null;
 }
-async function catalog(env: Env, city: 'makkah' | 'madinah') {
-  const key = `catalog:v2:${city}`;
-  const cached = await read(env, key);
-  if (cached?.fresh) return { items: cached.data as Json[], stale: false };
-  const previous = cached ?? await read(env, `catalog:v1:${city}`);
-  try {
-    const selected = new Map<string, Json>();
-    const limit = 200;
-    // Page through both supplier spellings, merging by property ID rather than
-    // choosing whichever first page happens to have more results.
-    for (const name of supportedCities[city]) {
-      const rawIDs = new Set<string>();
-      let offset = 0;
-      for (let page = 0; page < 50; page++) {
-        const p = new URLSearchParams({ countryCode: 'SA', cityName: name, limit: String(limit), offset: String(offset) });
-        const result = await provider(env, '/data/hotels', p);
-        if (!Array.isArray(result.data)) throw new Error('NUITEE_INVALID_CATALOG');
-        const raw = result.data as Json[];
-        if (!raw.length) break;
-        let advanced = false;
-        for (const record of raw) {
-          const id = text(record.id);
-          if (id && !rawIDs.has(id)) { rawIDs.add(id); advanced = true; }
-          const item = hotelItem(record);
-          if (item && !selected.has(item.id)) selected.set(item.id, item);
+async function catalog(env: Env, city: 'makkah' | 'madinah', force=false): Promise<CatalogResult> {
+  const db=env.HOTELS_DB!;
+  let running=catalogueFlights.get(db);
+  if(!running){running=new Map();catalogueFlights.set(db,running);}
+  const existing=running.get(city);
+  if(existing)return existing;
+  const task=fetchCatalog(env,city,force);
+  running.set(city,task);
+  try{return await task;}finally{if(running.get(city)===task)running.delete(city);}
+}
+async function fetchCatalog(env:Env,city:'makkah'|'madinah',force:boolean):Promise<CatalogResult>{
+  const key=`catalog:v3:${city}`;
+  const cached=await read(env,key);
+  if(cached?.fresh && !force)return {items:cached.data as Json[],stale:false};
+  const previous=cached ?? await cachedCatalog(env,city);
+  const selected=new Map<string,Json>();
+  const supplierIDs=new Set<string>();
+  const sources:Json[]=[];
+  try{
+    const limit=200;
+    for(const name of supportedCities[city]){
+      const rawIDs=new Set<string>();let offset=0;let reportedTotal:number|null=null;let pages=0;
+      for(let page=0;page<50;page++){
+        const params=new URLSearchParams({countryCode:'SA',cityName:name,limit:String(limit),offset:String(offset)});
+        const result=await provider(env,'/data/hotels',params);
+        if(!Array.isArray(result.data))throw new Error('NUITEE_INVALID_CATALOG');
+        const raw=result.data as Json[];pages++;
+        const total=num(result.total ?? result.pagination?.total ?? result.meta?.total);
+        if(total!==null)reportedTotal=total;
+        if(!raw.length){if(reportedTotal!==null && offset<reportedTotal)throw new Error('NUITEE_CATALOG_INCOMPLETE');break;}
+        let advanced=false;
+        for(const record of raw){
+          const id=text(record.id);
+          if(id&&!rawIDs.has(id)){rawIDs.add(id);supplierIDs.add(id);advanced=true;}
+          const item=hotelItem(record);
+          if(item&&!selected.has(item.id))selected.set(item.id,item);
         }
-        if (!advanced) break; // provider repeated a page; never loop or duplicate
-        offset += raw.length;
-        const total = num(result.total);
-        if (total !== null && total >= raw.length && offset >= total) break;
-        // Some responses omit total or clamp limit. Continue even on a short page.
-        if (page === 49) throw new Error('NUITEE_CATALOG_PAGE_LIMIT');
+        // A repeated page is not proof of end-of-catalogue. Never cache it as complete.
+        if(!advanced)throw new Error('NUITEE_CATALOG_REPEATED_PAGE');
+        offset+=raw.length;
+        if(reportedTotal!==null && reportedTotal>=raw.length && offset>=reportedTotal)break;
+        if(page===49)throw new Error('NUITEE_CATALOG_PAGE_LIMIT');
       }
+      if(reportedTotal!==null && rawIDs.size<reportedTotal)throw new Error('NUITEE_CATALOG_INCOMPLETE');
+      sources.push({name,pages,received:rawIDs.size,reportedTotal});
     }
-    const items = [...selected.values()].sort((a,b) => (b.stars ?? 0) - (a.stars ?? 0) || (b.rating ?? 0) - (a.rating ?? 0) || a.id.localeCompare(b.id));
-    if (!items.length) throw new Error('NUITEE_CATALOG_EMPTY');
-    await save(env, key, items, 7 * DAY);
-    return { items, stale: false };
-  } catch (e) {
-    if (previous) return { items: previous.data as Json[], stale: true };
+    const items=[...selected.values()].sort((a,b)=>(b.stars??0)-(a.stars??0)||(b.rating??0)-(a.rating??0)||a.id.localeCompare(b.id));
+    if(!items.length)throw new Error('NUITEE_CATALOG_EMPTY');
+    await save(env,key,items,7*DAY);
+    await save(env,`catalog:coverage:v3:${city}`,{complete:true,supplierUnique:supplierIDs.size,stored:items.length,unknownStars:items.filter(h=>!h.stars||h.stars>5).length,sources,syncedAt:Date.now()},30*DAY);
+    return {items,stale:false};
+  }catch(e){
+    const code=e instanceof Error?e.message:'NUITEE_CATALOG_UNAVAILABLE';
+    await save(env,`catalog:attempt:v3:${city}`,{complete:false,code,supplierUnique:supplierIDs.size,sources,attemptedAt:Date.now()},DAY);
+    if(previous)return {items:previous.data as Json[],stale:true};
+    // If no complete snapshot exists, don't claim a partial download is complete.
+    // Keep any verified rows usable as an explicitly stale last-known snapshot.
+    if(selected.size){const items=[...selected.values()];await save(env,`catalog:partial:v3:${city}`,items,DAY);return {items,stale:true};}
     throw e;
   }
 }
-async function minimums(env: Env, city: 'makkah' | 'madinah', hotels: Json[], checkin: string, checkout: string, adults: number) {
+async function minimums(env: Env, city: 'makkah' | 'madinah', hotels: Json[], checkin: string, checkout: string, adults: number, children: number[] = []) {
   // Cache by exact ID set, not merely city/dates: page 2 must not reuse page 1 prices.
-  const key = `minimum:v2:${city}:${checkin}:${checkout}:${adults}:UZ:USD:${hotels.map(h => text(h.id)).sort().join(',')}`;
+  const key = `minimum:v2:${city}:${checkin}:${checkout}:${adults}${children.length ? `:children:${children.join(",")}` : ""}:UZ:USD:${hotels.map(h => text(h.id)).sort().join(',')}`;
   const cached = await read(env, key);
-  if (cached?.fresh) return { values: cached.data as Json[], stale: false, updatedAt: cached.updatedAt };
+  if (cached?.fresh && Array.isArray(cached.data) && hotels.every(h => cached.data.some((r: Json) => r.hotelId === h.id && r.price > 0))) return { values: cached.data as Json[], stale: false, updatedAt: cached.updatedAt };
   try {
     const ids = hotels.map(h => text(h.id)).filter(Boolean);
     if (!ids.length) return { values: [], stale: false, updatedAt: Date.now() };
     // Nuitee min-rates is a batch request. We never perform one request per card.
     const result = await provider(env, '/hotels/min-rates', undefined, {
-      hotelIds: ids, checkin, checkout, currency: 'USD', guestNationality: 'UZ', occupancies: [{ adults }],
+      hotelIds: ids, checkin, checkout, currency: 'USD', guestNationality: 'UZ', occupancies: [{ adults, ...(children.length ? {children} : {}) }], timeout: 30,
     });
     if (!Array.isArray(result.data)) throw new Error('NUITEE_INVALID_MINIMUMS');
     const values = Array.isArray(result.data) ? result.data.map((r: Json) => ({
       hotelId: text(r.hotelId), price: priceOf(r.price), currency: 'USD', offerId: text(r.offerId),
     })).filter((r: Json) => ids.includes(r.hotelId) && r.price !== null && r.price > 0) : [];
-    await save(env, key, values, values.length ? 15 * 60 : 2 * 60);
+    if (values.length) await save(env, key, values, 15 * 60);
     return { values, stale: false, updatedAt: Date.now(), explicitUnavailable: result.explicitUnavailable === true };
   } catch (e) {
     if (cached && Date.now() - cached.updatedAt < 6 * 3600 * 1000) return { values: cached.data as Json[], stale: true, updatedAt: cached.updatedAt, rateError: e instanceof Error ? e.message : 'RATES_UNAVAILABLE' };
@@ -229,7 +283,9 @@ function normalizedRates(result: Json, hotelId: string) {
     for (const rate of type.rates ?? []) {
       const cancellation = rate.cancellationPolicies || type.cancellationPolicies || {};
       const retail = rate.retailRate || {};
-      const total = priceOf(retail.total);
+      // For this single-room request an offer-level total is also valid.
+      const rawTotal = retail.total ?? ((type.rates ?? []).length === 1 ? type.offerRetailRate : undefined);
+      const total = priceOf(rawTotal);
       if (total === null || total <= 0) continue;
       const policyInfos = Array.isArray(cancellation.cancelPolicyInfos) ? cancellation.cancelPolicyInfos : [];
       const chargeOnArrival = Array.isArray(retail.taxesAndFees)
@@ -238,7 +294,7 @@ function normalizedRates(result: Json, hotelId: string) {
         offerId: text(type.offerId || rate.offerId), roomId: String(rate.mappedRoomId ?? ''),
         roomName: plain(rate.name || type.name || 'Room'), mealPlan: plain(rate.boardName || rate.boardType || ''),
         includedMeals: supplierMealInclusions(rate.boardName || rate.boardType),
-        price: total, currency: text((Array.isArray(retail.total) ? retail.total[0]?.currency : retail.total?.currency)) || 'USD',
+        price: total, currency: text((Array.isArray(rawTotal) ? rawTotal[0]?.currency : rawTotal?.currency)) || 'USD',
         refundable: text(cancellation.refundableTag) === 'RFN',
         cancellationTag: text(cancellation.refundableTag),
         cancellationDescription: plain(cancellation.description || cancellation.name),
@@ -248,7 +304,7 @@ function normalizedRates(result: Json, hotelId: string) {
       });
     }
   }
-  return offers.sort((a,b) => a.price - b.price);
+  return offers.filter(o => o.offerId && o.currency.toUpperCase() === "USD").sort((a,b) => a.price - b.price);
 }
 async function listing(url: URL, env: Env) {
   const city = (url.searchParams.get('city') || '').toLowerCase();
@@ -260,6 +316,10 @@ async function listing(url: URL, env: Env) {
   if (!stayDates(inDate, outDate)) return error('INVALID_DATES');
   const adults = Math.floor(Number(url.searchParams.get('adults') || 2));
   if (!Number.isInteger(adults) || adults < 1 || adults > 8) return error('INVALID_OCCUPANCY');
+  const rawChildren = url.searchParams.get("children") ?? "";
+  if (rawChildren && !/^\d{1,2}(,\d{1,2})*$/.test(rawChildren)) return error("INVALID_CHILD_AGES");
+  const children = rawChildren ? rawChildren.split(",").map(Number) : [];
+  if (children.length > 8 || children.some(age => !Number.isInteger(age) || age < 0 || age > 17)) return error("INVALID_CHILD_AGES");
   const paged = url.searchParams.has('offset') || url.searchParams.has('pageSize') || url.searchParams.has('stars') || url.searchParams.has('query') || url.searchParams.has('hotelIds');
   const offset = Number(url.searchParams.get('offset') ?? 0);
   const pageSize = Number(url.searchParams.get('pageSize') ?? 12);
@@ -282,42 +342,77 @@ async function listing(url: URL, env: Env) {
     for (let start = 0; start < items.length; start += 200) {
       try {
         const batch = items.slice(start, start + 200);
-        const scope = `minimum:property:v1:${city}:${inDate}:${outDate}:${adults}:UZ:USD:`;
+        const scope = `minimum:property:v1:${city}:${inDate}:${outDate}:${adults}${children.length ? `:children:${children.join(",")}` : ""}:UZ:USD:`;
         const missing: Json[] = [];
         if (ratesOnly) {
           // Reuse positive per-property rates across different stars/search/favorite filters.
+          const detailKey=(id:string)=>`rates:v2:${id}:${inDate}:${outDate}:${adults}:${children.join(",")}:UZ:USD`;
+          const cachedRows=await readMany(env,batch.flatMap(h=>[scope+h.id,detailKey(h.id)]));
           for (const hotel of batch) {
-            const entry = await read(env, scope + hotel.id);
+            const entry = cachedRows.get(scope + hotel.id);
             if (entry?.fresh && entry.data?.price > 0) {
               indexed.set(hotel.id, entry.data);
               pricesUpdatedAt = pricesUpdatedAt === null ? entry.updatedAt : Math.min(pricesUpdatedAt, entry.updatedAt);
-            } else missing.push(hotel);
+            } else {
+              const detailEntry = cachedRows.get(detailKey(hotel.id));
+              const best = detailEntry?.fresh && Array.isArray(detailEntry.data)
+                ? detailEntry.data.filter((r: Json) => r.currency === 'USD' && r.price > 0 && r.offerId).sort((a: Json,b: Json) => a.price-b.price)[0] : null;
+              if (best && detailEntry) {
+                indexed.set(hotel.id, {hotelId:hotel.id,price:best.price,currency:'USD',offerId:best.offerId});
+                pricesUpdatedAt = pricesUpdatedAt === null ? detailEntry.updatedAt : Math.min(pricesUpdatedAt, detailEntry.updatedAt);
+              } else missing.push(hotel);
+            }
           }
         } else missing.push(...batch);
         if (!missing.length) continue;
-        const rates = await minimums(env, city, missing, inDate, outDate, adults);
+        const rates = await minimums(env, city, missing, inDate, outDate, adults, children);
         pricesStale ||= rates.stale;
         pricesUpdatedAt = pricesUpdatedAt === null ? rates.updatedAt : Math.min(pricesUpdatedAt, rates.updatedAt);
         rateError ||= rates.rateError ?? null;
+        const writes:Array<{key:string;data:unknown;ttl:number}>=[];
         for (const value of rates.values) {
           indexed.set(value.hotelId, value);
           if (ratesOnly && !rates.stale && value.price > 0) {
             // Do not extend the original supplier TTL on cache hits.
             const remaining = Math.floor((rates.updatedAt + 15 * 60 * 1000 - Date.now()) / 1000);
-            if (remaining > 0) await save(env, scope + value.hotelId, value, remaining);
+            if (remaining > 0) writes.push({key:scope+value.hotelId,data:value,ttl:remaining});
           }
         }
-        if (rates.explicitUnavailable) for (const hotel of missing) explicitUnavailable.add(hotel.id);
+        await saveMany(env,writes);
+        if (rates.explicitUnavailable && missing.length === 1) explicitUnavailable.add(missing[0].id);
+        // min-rates can return a partial answer. One bounded batch of the full
+        // search endpoint verifies only the missing IDs, not one request per card.
+        if (paged && !rates.rateError && !(rates.explicitUnavailable && missing.length === 1)) {
+          const unresolved = missing.filter(h => !indexed.has(h.id));
+          if (unresolved.length) {
+            const full = await provider(env, '/hotels/rates', undefined, {
+              hotelIds: unresolved.map(h => h.id), checkin: inDate, checkout: outDate,
+              currency: 'USD', guestNationality: 'UZ', occupancies: [{adults, ...(children.length ? {children} : {})}],
+              roomMapping: false, maxRatesPerHotel: 1, timeout: 30,
+            });
+            if (!Array.isArray(full.data)) throw new Error('NUITEE_INVALID_RATES');
+            const recovered:Array<{key:string;data:unknown;ttl:number}>=[];
+            for (const hotel of unresolved) {
+              const best = normalizedRates(full, hotel.id)[0];
+              if (best) {
+                const value = {hotelId:hotel.id, price:best.price, currency:'USD', offerId:best.offerId};
+                indexed.set(hotel.id,value);
+                recovered.push({key:scope+hotel.id,data:value,ttl:15*60});
+              } else if (full.explicitUnavailable && unresolved.length === 1) explicitUnavailable.add(hotel.id);
+            }
+            await saveMany(env,recovered);
+          }
+        }
       } catch (e) { rateError ||= e instanceof Error ? e.message : 'RATES_UNAVAILABLE'; }
     }
   }
   return output({ ok: true, provider: 'nuitee', sandbox: isSandbox(env),
     city, checkin: inDate, checkout: outDate, adults, priceType: 'room_total', currency: 'USD',
     hotelCatalogStale: c.stale, pricesStale, pricesUpdatedAt, rateError,
-    ...(paged ? { total: filtered.length, nextOffset: offset + items.length < filtered.length ? offset + items.length : null } : {}),
+    total: filtered.length, nextOffset: paged && offset + items.length < filtered.length ? offset + items.length : null,
     hotels: items.map(h => ({ ...(ratesOnly ? {id:h.id} : h), minimumRate: indexed.get(h.id) ?? null,
       rateStatus: indexed.has(h.id) ? (pricesStale ? 'cached' : 'available')
-        : rateError ? 'provider_error' : catalogOnly ? 'not_requested' : ratesOnly && !explicitUnavailable.has(h.id) ? 'not_returned' : 'no_availability' })),
+        : rateError ? 'provider_error' : catalogOnly ? 'not_requested' : explicitUnavailable.has(h.id) ? 'no_availability' : 'not_returned' })),
   });
 }
 async function isListedHotel(env: Env, id: string): Promise<boolean> {
@@ -411,15 +506,40 @@ async function rates(request: Request, env: Env) {
   const key = `rates:v2:${id}:${checkin}:${checkout}:${adults}:${children.join(",")}:UZ:USD`;
   const cached = await read(env, key);
   // Detail prices are limited to 10 min. NEVER use a stale rate as a bookable offer.
-  if (cached?.fresh && body.forceRefresh !== true) return output({ ok: true, sandbox: isSandbox(env), checkin, checkout, adults, rates: await localizedRates(env,cached.data,language,key), cached: true });
+  if (cached?.fresh && Array.isArray(cached.data) && cached.data.length && body.forceRefresh !== true) return output({ ok: true, sandbox: isSandbox(env), checkin, checkout, adults, rates: await localizedRates(env,cached.data,language,key), cached: true, availabilityConfirmed: true });
   const response = await provider(env, '/hotels/rates', undefined, {
     hotelIds: [id], checkin, checkout, occupancies: [{ adults, children }],
     currency: 'USD', guestNationality: 'UZ', roomMapping: true,
-    maxRatesPerHotel: 50,
+    maxRatesPerHotel: 50, timeout: 30,
   });
   const offers = normalizedRates(response, id);
-  await save(env, key, offers, 10 * 60);
-  return output({ ok: true, sandbox: isSandbox(env), checkin, checkout, adults, rates: await localizedRates(env,offers,language,key), cached: false });
+  if (!Array.isArray(response.data)) throw new Error('NUITEE_INVALID_RATES');
+  // Never cache an empty or malformed response as a successful room search.
+  if (offers.length) {
+    await save(env, key, offers, 10 * 60);
+    if (isSandbox(env)) {
+      // A sandbox price is used only for an internal request. Preserve the actual
+      // observed selection across fresh searches that rotate the supplier offer IDs.
+      const historical = await read(env, `${key}:sandbox-quote:v1`);
+      const cutoff = Date.now() - DAY * 1000;
+      const values = new Map<string, Json>();
+      for (const row of (Array.isArray(historical?.data) ? historical!.data : [])) {
+        if (Number(row.observedAt) >= cutoff) values.set(JSON.stringify([row.offerId,row.roomId]), row);
+      }
+      // Preserve an existing cached offer too, including caches created before this deployment.
+      if (cached && Date.now()-cached.updatedAt < DAY*1000 && Array.isArray(cached.data)) {
+        for (const row of cached.data) {
+          const id = JSON.stringify([row.offerId,row.roomId]);
+          if (!values.has(id)) values.set(id,{...row,observedAt:cached.updatedAt});
+        }
+      }
+      for (const row of offers) values.set(JSON.stringify([row.offerId,row.roomId]), {...row,observedAt:Date.now()});
+      await save(env, `${key}:sandbox-quote:v1`, [...values.values()].sort((a,b)=>b.observedAt-a.observedAt).slice(0,500), DAY);
+    }
+  }
+  return output({ ok: true, sandbox: isSandbox(env), checkin, checkout, adults,
+    rates: await localizedRates(env,offers,language,key), cached: false,
+    availabilityConfirmed: offers.length > 0 || response.explicitUnavailable === true });
 }
 const activeRequests = new WeakMap<object, Map<string, Promise<Response>>>();
 async function coalesced(env: Env, key: string, work: () => Promise<Response>): Promise<Response> {
@@ -475,7 +595,15 @@ export async function handleNuiteeHotelRequest(request: Request, env: Env, url: 
     if (url.pathname === '/api/package/nuitee/hotels' && request.method === 'GET') return await coalesced(env, url.pathname + url.search, () => listing(url, env));
     if (url.pathname === '/api/package/nuitee/hotel' && request.method === 'GET') return await coalesced(env, url.pathname + url.search, () => detail(url, env));
     if (url.pathname === '/api/package/nuitee/reviews' && request.method === 'GET') return await coalesced(env,url.pathname + url.search,()=>reviews(url,env));
-    if (url.pathname === '/api/package/nuitee/rates' && request.method === 'POST') return await rates(request, env);
+    if (url.pathname === '/api/package/nuitee/rates' && request.method === 'POST') {
+      // Coalesce exact room searches from the catalogue recovery and hotel detail.
+      // Force-refresh and language are deliberately separate response identities.
+      const body = await request.clone().json().catch(() => null) as Json | null;
+      if (!body || typeof body.hotelId !== 'string' || !/^lp[a-zA-Z0-9]{1,50}$/.test(body.hotelId)) return await rates(request, env);
+      const key = JSON.stringify([body.hotelId, body.checkin, body.checkout, body.adults, body.children ?? [], hotelLanguage(body.language), body.forceRefresh === true]);
+      if (key.length > 1024) return await rates(request, env);
+      return await coalesced(env, 'room-rates:' + key, () => rates(request, env));
+    }
     return error('NOT_FOUND', 404);
   } catch (e) {
     const code = e instanceof Error ? e.message : 'NUITEE_UNAVAILABLE';
@@ -493,11 +621,13 @@ export async function refreshNuiteeHotelCatalog(env: Env, refreshPrices = true):
       const lastRefresh = await read(env, `scheduled:v2:${city}:${refreshPrices}`);
       if (lastRefresh?.fresh) continue;
       const result = await catalog(env, city);
+      const snapshotVersion=await read(env,`catalog:v3:${city}`);
       // Warm a bounded number of missing photo/details snapshots per cron run.
       // Persist URLs/gallery metadata in D1; image bytes use the iOS disk cache.
       let warmed = 0;
+      const snapshots=await readMany(env,result.items.map(h=>`detail:v1:${h.id}`));
       for (const hotel of result.items) {
-        const snapshot = await read(env, `detail:v1:${hotel.id}`);
+        const snapshot = snapshots.get(`detail:v1:${hotel.id}`);
         if (snapshot?.fresh) {
           hotel.previewImages = safeImages(snapshot.data.images).slice(0, 3);
           hotel.coverImageURL = hotel.previewImages[0] || hotel.coverImageURL;
@@ -515,11 +645,22 @@ export async function refreshNuiteeHotelCatalog(env: Env, refreshPrices = true):
         } catch { break; }
       }
       // Keep the original static expiry: photo enrichment must not prevent refresh.
-      if (!result.stale) {
-        await env.HOTELS_DB.prepare('UPDATE nuitee_hotel_cache SET payload = ?1 WHERE key = ?2')
-          .bind(JSON.stringify(result.items), `catalog:v2:${city}`).run();
+      if (!result.stale && snapshotVersion) {
+        await env.HOTELS_DB.prepare('UPDATE nuitee_hotel_cache SET payload = ?1 WHERE key = ?2 AND updated_at = ?3')
+          .bind(JSON.stringify(result.items), `catalog:v3:${city}`, snapshotVersion.updatedAt).run();
       }
-      if (refreshPrices) await minimums(env, city, result.items.slice(0, 12), checkin, checkout, 2);
+      if (refreshPrices && result.items.length) {
+        // Warm a rotating segment, not the same first 12 hotels. On-demand pricing
+        // always covers the full requested city for the exact dates and guests.
+        const cursorKey=`catalog:warm-cursor:v3:${city}`;
+        const cursor=await read(env,cursorKey);
+        const start=Math.max(0,Number(cursor?.data)||0)%result.items.length;
+        const batch=result.items.slice(start,start+40);
+        const url=new URL('https://iumrah.internal/api/package/nuitee/hotels');
+        url.search=new URLSearchParams({city,checkin,checkout,adults:'2',hotelIds:batch.map(h=>h.id).join(','),pageSize:String(batch.length),ratesOnly:'1'}).toString();
+        const response=await listing(url,env);const payload=await response.json() as Json;
+        if(!payload.rateError)await save(env,cursorKey,(start+batch.length)%result.items.length,365*DAY);
+      }
       await save(env, `scheduled:v2:${city}:${refreshPrices}`, true, 15 * 60);
     } catch {
       // The next scheduled run or an on-demand request will retry.
@@ -563,7 +704,11 @@ export async function resolveNuiteePackageHotels(env: Env, values: NuiteePackage
     const catalog = await cachedCatalog(env, city);
     const hotel = Array.isArray(catalog?.data) ? catalog!.data.find((h:Json)=>h.id===rooms[0].hotelId) : null;
     if (!hotel) throw new Error("HOTEL_NOT_IN_CATALOG");
-    const stars = Math.round(Number(hotel.stars)); packageTierForStars(stars); highestStars = Math.max(highestStars, stars);
+    const rawStars = Math.round(Number(hotel.stars));
+    const stars = Number.isInteger(rawStars) && rawStars >= 1 && rawStars <= 5 ? rawStars : 0;
+    // Unknown official stars remain unknown; use Standard only as internal pricing policy.
+    const commercialStars = stars || 3;
+    highestStars = Math.max(highestStars, commercialStars);
     let total = 0;
     for (const room of rooms) {
       if (!room.offerId || typeof room.offerId !== "string" || room.offerId.length > 20000 || typeof room.roomId !== "string" || !Number.isInteger(room.adults) || room.adults < 1 || room.adults > 8 || !Array.isArray(room.children) || room.children.some(age=>!Number.isInteger(age) || age<0 || age>17) || !dateParam(room.checkin) || !dateParam(room.checkout) || !stayDates(room.checkin,room.checkout)) throw new Error("NUITEE_INVALID_SELECTED_RATE");
@@ -571,9 +716,14 @@ export async function resolveNuiteePackageHotels(env: Env, values: NuiteePackage
       // prebooking it. Re-searching creates new offer IDs and is not validation.
       const anchorKey = `rates:v2:${room.hotelId}:${room.checkin}:${room.checkout}:${room.adults}:${room.children.join(",")}:UZ:USD`;
       const anchor = await read(env, anchorKey);
-      const original = Array.isArray(anchor?.data) ? anchor!.data.find((r:Json)=>r.offerId===room.offerId && r.roomId===room.roomId) : null;
-      if (!original || !anchor?.fresh) throw new Error("NUITEE_SELECTED_RATE_EXPIRED");
-      let current = verifiedOffers.get(room.offerId);
+      let original = Array.isArray(anchor?.data) && (anchor?.fresh || (isSandbox(env) && Date.now()-anchor.updatedAt < DAY*1000)) ? anchor!.data.find((r:Json)=>r.offerId===room.offerId && r.roomId===room.roomId) : null;
+      if (!original && isSandbox(env)) {
+        const historical = await read(env, `${anchorKey}:sandbox-quote:v1`);
+        if (historical?.fresh && Array.isArray(historical.data)) original = historical.data.find((r:Json)=>r.offerId===room.offerId && r.roomId===room.roomId && Number(r.observedAt)>=Date.now()-DAY*1000);
+      }
+      if (!original) throw new Error("NUITEE_SELECTED_RATE_EXPIRED");
+      const verifiedKey = JSON.stringify([anchorKey, room.offerId, room.roomId]);
+      let current = verifiedOffers.get(verifiedKey);
       if (!current) {
         // Internal iumrah bookings may use a server-observed sandbox tariff.
         // It is not a supplier reservation and does not call the supplier book API.
@@ -581,7 +731,7 @@ export async function resolveNuiteePackageHotels(env: Env, values: NuiteePackage
           (await provider(env, '/rates/prebook', undefined, {offerId:room.offerId,usePaymentSdk:false})).data;
         if (!current || (!isSandbox(env) && !current.prebookId) || current.hotelId!==room.hotelId || current.currency!=="USD" || !Number.isFinite(current.price) || current.price<=0) throw new Error("NUITEE_RATE_RECHECK_FAILED");
         if (current.cancellationChanged || current.boardChanged) throw new Error("NUITEE_RATE_TERMS_CHANGED");
-        verifiedOffers.set(room.offerId,current);
+        verifiedOffers.set(verifiedKey,current);
       }
       total += current.price;
       const included = supplierMealInclusions(original.mealPlan);
@@ -596,7 +746,7 @@ export async function resolveNuiteePackageHotels(env: Env, values: NuiteePackage
       for (const meal of ["breakfast","lunch","dinner"] as const) {
         if (!choices[meal]) continue;
         mealComponents.push({code:`meal_${city}_${room.id}_${meal}`,label:`${city === "makkah" ? "Мекка" : "Медина"} · ${room.id} · ${{breakfast:"Завтрак",lunch:"Обед",dinner:"Ужин"}[meal]}${included[meal] ? " · включено" : ""}`,
-          supplierCostUsd:included[meal] ? 0 : hotelMealUnit(packageTierForStars(stars))*people*nights});
+          supplierCostUsd:included[meal] ? 0 : hotelMealUnit(packageTierForStars(commercialStars))*people*nights});
       }
       selected.push({meals:choices,includedMeals:included,stars,tariffSource:isSandbox(env)?"sandbox":"production",supplierReservationConfirmed:false,id:room.id,city:room.city,hotelId:room.hotelId,offerId:room.offerId,roomId:room.roomId,checkin:room.checkin,checkout:room.checkout,adults:room.adults,children:[...room.children],prebookId:current.prebookId});
     }
@@ -604,4 +754,29 @@ export async function resolveNuiteePackageHotels(env: Env, values: NuiteePackage
     result[city] = {hotelId:rooms[0].hotelId, roomId:rooms[0].roomId, amountUsd:total/nights/travelers.rooms, unit:"perRoomNight", nights, pricingMode:isSandbox(env)?"nuiteeSandbox":"nuiteeRevalidated"};
   }
   return {makkah:result.makkah, madinah:result.madinah ?? null, tier:packageTierForStars(highestStars), rooms:selected, mealComponents, supplierMode:isSandbox(env)?"sandbox" as const:"production" as const, bookingAllowed:true};
+}
+
+/** Authenticated staff diagnostics. Counts reflect the supplier pages actually read, not an invented global total. */
+export async function nuiteeCatalogCoverage(env:Env,refresh=false):Promise<Response>{
+  if(!env.HOTELS_DB)return error('HOTELS_DB_NOT_CONFIGURED',503);
+  await ensure(env);
+  const cities=[];
+  for(const city of ['makkah','madinah'] as const){
+    let refreshFailed=false;
+    if(refresh){try{const result=await catalog(env,city,true);refreshFailed=result.stale;}catch{refreshFailed=true;}}
+    const snapshot=await cachedCatalog(env,city);
+    const coverage=await read(env,`catalog:coverage:v3:${city}`);
+    const attempt=await read(env,`catalog:attempt:v3:${city}`);
+    const items=Array.isArray(snapshot?.data)?snapshot.data as Json[]:[];
+    const data=coverage?.data;
+    const latestFailed=refreshFailed || Number(attempt?.data?.attemptedAt??0)>Number(data?.syncedAt??0);
+    const {checkin,checkout}=defaultDates();
+    const scope=`minimum:property:v1:${city}:${checkin}:${checkout}:2:UZ:USD:`;
+    const entries=await readMany(env,items.map(h=>scope+h.id));
+    const priced=[...entries.values()].filter(v=>v.fresh&&Number(v.data?.price)>0).length;
+    cities.push({city,stored:items.length,supplierUnique:data?.supplierUnique??null,unknownStars:items.filter(h=>!h.stars||h.stars>5).length,
+      complete:!!data?.complete&&!latestFailed&&!!snapshot?.fresh,stale:!snapshot?.fresh||latestFailed,syncedAt:data?.syncedAt??null,
+      lastError:latestFailed?attempt?.data?.code??'NUITEE_CATALOG_UNAVAILABLE':null,priceCheckin:checkin,priceCheckout:checkout,priced,priceAdults:2,sources:data?.sources??[]});
+  }
+  return output({ok:true,sandbox:isSandbox(env),cities});
 }

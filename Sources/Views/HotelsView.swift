@@ -23,6 +23,17 @@ struct HotelsView: View {
             LazyVStack(alignment: .leading, spacing: 18) {
                 header
                 cityCounters
+                NavigationLink { NuiteeCatalogCoverageView() } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "building.2.crop.circle").font(.title2)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Nuitee · Полный каталог").font(.headline)
+                            Text("Покрытие Мекки и Медины · синхронизация").font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right").foregroundStyle(.secondary)
+                    }.padding(14).background(BusinessDesign.secondarySurface, in: RoundedRectangle(cornerRadius: 22))
+                }.buttonStyle(.plain)
                 primaryHotelsEntry
                 priceMonitoringEntry
                 cloudStatus

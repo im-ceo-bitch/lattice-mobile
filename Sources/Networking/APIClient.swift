@@ -680,6 +680,15 @@ actor APIClient {
         return try decoder.decode(PushStatusResponse.self, from: data)
     }
 
+    func nuiteeCatalogCoverage(refresh: Bool = false) async throws -> NuiteeCatalogCoverageEnvelope {
+        var request = URLRequest(url: AppConfig.apiBaseURL.appending(path: "/api/admin/package/nuitee/catalog-coverage"))
+        request.httpMethod = refresh ? "POST" : "GET"
+        request.timeoutInterval = 120
+        let (data, response) = try await perform(request)
+        try validate(response, data: data)
+        return try decoder.decode(NuiteeCatalogCoverageEnvelope.self, from: data)
+    }
+
     func hotels() async throws -> [HotelListItem] {
         let token = BusinessSessionVault.sessionToken
         let generation = catalogGeneration

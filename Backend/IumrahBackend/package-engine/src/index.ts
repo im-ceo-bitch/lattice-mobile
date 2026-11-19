@@ -24,7 +24,7 @@ import { quoteSealingMode } from "./quote-audit";
 import { createCarePackageRequest, listCarePackageRequests, updateCarePackageRequest } from "./care-requests";
 import { createTelegramBookingLink, getTelegramBookingStatus } from "./telegram-bridge";
 import { getBookingItineraryPlan } from "./itinerary-planner";
-import { handleNuiteeHotelRequest, refreshNuiteeHotelCatalog } from "./nuitee-hotels";
+import { handleNuiteeHotelRequest, refreshNuiteeHotelCatalog, nuiteeCatalogCoverage } from "./nuitee-hotels";
 import { flightDetailResponse, aeroDataBoxConfiguration } from "./flight-detail";
 import { runPackageSchedule } from "./package-schedule";
 
@@ -157,6 +157,12 @@ export default {
     if (url.pathname.startsWith("/api/admin/package")) {
       const auth = await requirePackageAdmin(request, env);
       if (!auth.ok) return auth.response;
+
+      if (url.pathname === "/api/admin/package/nuitee/catalog-coverage") {
+        if (request.method === "GET") return nuiteeCatalogCoverage(env);
+        if (request.method === "POST") return nuiteeCatalogCoverage(env,true);
+        return json({ok:false,error:"METHOD_NOT_ALLOWED"},405);
+      }
 
       if (url.pathname === "/api/admin/package/flights/curation-search") {
         if (request.method === "POST") return searchIgnavFlightsForCuration(request, env);

@@ -311,3 +311,28 @@ test('shared quote endpoint: three adults, two rooms per city, MED arrival and J
   assert.equal(q.stayPlan.firstCity,'Madinah');assert.equal(q.stayPlan.madinahNights,3);assert.equal(q.stayPlan.makkahNights,4);assert.doesNotMatch(JSON.stringify(q),/supplierCostUsd|estimatedMarginUsd|markupRate/);
  });
 });
+
+
+test('unrated property can be quoted using internal Standard without inventing official stars', async()=>{
+ await mockFetch(async()=>{throw Error('Sandbox quote must not call supplier');},async()=>{
+  const result=await resolveNuiteePackageHotels(fixture({stars:0,sandbox:true}),[room()],party,false);
+  assert.equal(result.tier,'standard'); assert.equal(result.rooms[0].stars,0);
+  assert.equal(result.makkah.amountUsd*7,200); assert.equal(result.rooms[0].supplierReservationConfirmed,false);
+ });
+});
+test('sandbox selected quote survives expired list cache and rotated room offer; rejects other occupancy and client price',async()=>{
+ const env=fixture({sandbox:true}); const key=`rates:v2:lp123:${checkin}:${checkout}:2::UZ:USD`;
+ env.cache.get(key).expires_at=0; env.cache.get(key).updated_at=Date.now()-3600000;
+ await mockFetch(async()=>{throw Error('Sandbox quote must not call supplier');},async()=>{
+  const result=await resolveNuiteePackageHotels(env,[room({price:1})],party,false);
+  assert.equal(result.makkah.amountUsd*7,200);
+  env.put(key,[{offerId:'rotated',roomId:'room',price:250,currency:'USD'}]);
+  env.put(`${key}:sandbox-quote:v1`,[{offerId:'offer',roomId:'room',price:200,currency:'USD',observedAt:Date.now()-3600000}]);
+  const old=await resolveNuiteePackageHotels(env,[room({price:1})],party,false);
+  assert.equal(old.makkah.amountUsd*7,200);
+  await assert.rejects(resolveNuiteePackageHotels(env,[room({offerId:'forged'})],party,false),/NUITEE_SELECTED_RATE_EXPIRED/);
+  await assert.rejects(resolveNuiteePackageHotels(env,[room({adults:3})],{...party,adults:3},false),/NUITEE_SELECTED_RATE_EXPIRED/);
+  env.put(`${key}:sandbox-quote:v1`,[{offerId:'offer',roomId:'room',price:200,currency:'USD',observedAt:Date.now()-25*3600000}]);
+  await assert.rejects(resolveNuiteePackageHotels(env,[room()],party,false),/NUITEE_SELECTED_RATE_EXPIRED/);
+ });
+});

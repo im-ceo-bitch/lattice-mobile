@@ -8277,8 +8277,10 @@ async function listHotels(env, url, publishedOnly) {
 
   if (publishedOnly) where.push("h.status = 'published'");
   if (city) {
-    where.push('LOWER(h.city) = LOWER(?)');
-    values.push(city);
+    const aliases = city === 'Madinah' ? ['madinah','medina','madina','medinah','al madinah','al medina','al madina','al medinah','madinah al munawwarah','medina al munawwarah','madina al munawwarah','al madinah al munawwarah','al medina al munawwarah','al madina al munawwarah']
+      : city === 'Makkah' ? ['makkah','mecca','makka','makkah al mukarramah','makkah almukarramah'] : [city.toLowerCase()];
+    where.push(`LOWER(TRIM(h.city)) IN (${aliases.map(() => '?').join(',')})`);
+    values.push(...aliases);
   }
 
   const sql = `
