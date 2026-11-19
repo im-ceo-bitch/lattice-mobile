@@ -147,7 +147,7 @@ test('V6 verified checkout commits notification intent, deduplicates replay, dis
  const created=await call('/api/bookings','POST',envelope);assert.equal(created.status,201,await created.clone().text());const result=await created.json();await Promise.all(tasks);tasks=[];
  assert.equal(result.booking.pilgrimProfile.phone,phone);assert.ok(result.booking.pilgrimProfile.phoneVerifiedAt);assert.equal(result.trip.pilgrimID,'00000001');
  assert.equal(b.prepare('SELECT COUNT(*) n FROM booking_creation_delivery_v1').get().n,1);assert.equal(b.prepare('SELECT contact_done FROM booking_creation_delivery_v1').get().contact_done,1);
- assert.equal(calls.filter(c=>c.url.includes('devsms')).length,1);assert.equal(calls.filter(c=>c.url.includes('push.apple.com')).length,1);assert.match(calls.find(c=>c.url.includes('devsms')).headers['Idempotency-Key'],/^[a-f0-9-]{36}$/);assert.equal(calls.find(c=>c.url.includes('push.apple.com')).body.type,'booking_created');
+ assert.equal(calls.filter(c=>c.url.includes('devsms')).length,1);assert.equal(calls.filter(c=>c.url.includes('push.apple.com')).length,1);assert.match(calls.find(c=>c.url.includes('devsms')).headers['Idempotency-Key'],/^[a-f0-9-]{36}$/);assert.equal(calls.find(c=>c.url.includes('push.apple.com')).body.type,'booking_created');assert.equal(calls.find(c=>c.url.includes('push.apple.com')).body.bookingID,result.booking.id);assert.match(calls.find(c=>c.url.includes('devsms')).body.message,/6 ночей/);assert.match(calls.find(c=>c.url.includes('devsms')).body.message,/\+998508898845/);assert.ok(calls.find(c=>c.url.includes('devsms')).body.message.includes('/booking/'+result.booking.id));
  const replay=await call('/api/bookings','POST',envelope);assert.equal(replay.status,200,await replay.clone().text());const repeated=await replay.json();await Promise.all(tasks);assert.equal(repeated.accessToken,result.accessToken);assert.equal(repeated.booking.id,result.booking.id);assert.equal(b.prepare('SELECT COUNT(*) n FROM bookings').get().n,1);assert.equal(calls.length,2);
  const other=await call('/api/bookings','POST',{...envelope,notificationIntent:{...intent,requestID:'a2c85e0e-1a41-4d10-bc43-2ed9bbaf3333'}});assert.equal(other.status,400);
  const headers={'x-booking-token':result.accessToken};
@@ -166,4 +166,33 @@ test('V6 verified checkout commits notification intent, deduplicates replay, dis
  const emailProof='c'.repeat(64),email='fixture@example.test';h.prepare('INSERT INTO iumrah_guest_booking_email_challenges(id,email,salt,code_hash,created_at,expires_at,verified_at,verification_token_hash,proof_expires_at) VALUES(?,?,?,?,?,?,?,?,?)').run('proof3',email,'fixture','fixture',now,future,now,hash(emailProof),future);
  const third=await call('/api/bookings','POST',{...envelope,notificationIntent:{...intent,requestID:'c2c85e0e-1a41-4d10-bc43-2ed9bbaf3333',contactChannel:'email',contact:email,verificationToken:emailProof,pushDeviceToken:null}});assert.equal(third.status,201,await third.clone().text());const e=await third.json();await Promise.all(tasks);tasks=[];
  const mail=calls.find(c=>c.url.includes('api.resend.com'));assert.ok(mail);assert.deepEqual(mail.body.to,[email]);assert.match(mail.body.html,/Персональный трансфер/);assert.match(mail.body.html,/Индивидуальное сопровождение/);assert.match(mail.body.html,/#0003/);assert.equal(e.booking.pilgrimProfile.email,email);assert.doesNotMatch(b.prepare('SELECT payload_json FROM bookings WHERE id=?').get(e.booking.id).payload_json,new RegExp(emailProof));
+ // Run the deployed operational schema, then delete the unconfirmed request through the real route.
+ h.exec(readFileSync(new URL('../../HotelsWorker/migrations/0044_business_intelligence.sql',import.meta.url),'utf8'));
+ const del=await call(`/api/catalog/hotels/client/bookings/${s.booking.id}`,'DELETE',null,{'x-booking-token':s.accessToken});assert.equal(del.status,200,await del.clone().text());
+ assert.equal(b.prepare('SELECT id FROM bookings WHERE id=?').get(s.booking.id),undefined);
+ assert.equal(h.prepare('SELECT booking_id FROM pilgrim_trips WHERE booking_id=?').get(s.booking.id),undefined);
+ assert.ok(h.prepare('SELECT booking_id FROM booking_tombstones WHERE booking_id=?').get(s.booking.id));
+ assert.ok(b.prepare('SELECT id FROM bookings WHERE id=?').get(result.booking.id));
+ const deletedReplay=await call('/api/bookings','POST',{...envelope,notificationIntent:{...intent,requestID:'b2c85e0e-1a41-4d10-bc43-2ed9bbaf3333',verificationToken:secondProof,pushDeviceToken:null}});assert.notEqual(deletedReplay.status,201);assert.equal(b.prepare('SELECT id FROM bookings WHERE id=?').get(s.booking.id),undefined);
+ h.prepare("UPDATE pilgrim_trips SET status='payment_pending' WHERE booking_id=?").run(result.booking.id);
+ const protectedDelete=await call(`/api/catalog/hotels/client/bookings/${result.booking.id}`,'DELETE',null,headers);assert.equal(protectedDelete.status,409);assert.ok(b.prepare('SELECT id FROM bookings WHERE id=?').get(result.booking.id));
+ const accountProtected=await call('/api/catalog/hotels/client/account/profile','DELETE',null,{authorization:'Bearer '+a.session.token});assert.equal(accountProtected.status,409);
+
+});
+
+test('account deletion removes only the authenticated trip-free identity and revokes access',async t=>{
+ const {h,call}=await fixture(t);seed(h);
+ const res=await call('/api/catalog/hotels/client/account/profile','DELETE',bearer(tokens.valid));assert.equal(res.status,200,await res.clone().text());
+ assert.equal(h.prepare('SELECT id FROM pilgrims WHERE id=42').get(),undefined);
+ assert.ok(h.prepare('SELECT id FROM pilgrims WHERE id=43').get());
+ assert.equal((await call(legacy,'GET',bearer(tokens.valid))).status,401);
+ assert.equal((await call(legacy,'GET',bearer(tokens.second))).status,200);
+});
+
+test('booking links route to a private-safe app landing page and AASA',async t=>{
+ const {call}=await fixture(t); const id='IUM-2027-EXAMPLE';
+ assert.equal(resolveBackendRoute('/booking/'+id),'packages');
+ const landing=await call('/booking/'+id);assert.equal(landing.status,200);assert.equal(landing.headers.get('cache-control'),'no-store');
+ assert.match(await landing.text(),/iumrah:\/\/widget\/booking\/IUM-2027-EXAMPLE/);
+ const aasa=await (await call('/.well-known/apple-app-site-association')).json();assert.ok(aasa.applinks.details[0].components.some(c=>c['/']==='/booking/*'));
 });

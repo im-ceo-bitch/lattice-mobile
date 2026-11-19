@@ -243,6 +243,7 @@ export function appleAppSiteAssociation(): Response {
           { "/": "/api/offers", comment: "Open existing Business offer links" },
           { "/": "/offer/*", comment: "Open Business offers in iumrah" },
           { "/": "/flights/package/*", comment: "Open package snapshots" },
+          { "/": "/booking/*", comment: "Open authorized booking" },
           { "/": "/ref/*", comment: "Verified referral registration links" },
           { "/": "/h/*", comment: "Open public iumrah hotel links in the iOS app without exposing supplier identifiers." },
           { "/": "/hotel/*", comment: "Backward compatibility for hotel links shared by older beta builds." },
@@ -291,3 +292,10 @@ document.documentElement.lang=l.indexOf('uz-cyrl')===0?'uz-Cyrl':l.split('-')[0]
   });
 }
 
+
+// No booking information or access token is exposed by the public landing page.
+export function bookingWebFallback(url: URL): Response {
+  const id = url.pathname.split('/')[2] || '';
+  if (!/^[A-Za-z0-9_-]{1,180}$/.test(id)) return new Response('Not found', { status: 404 });
+  return new Response(`<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>iumrah · Booking</title><body style="font:17px -apple-system,sans-serif;background:#f2f2f4;padding:24px"><main style="background:white;padding:24px;border-radius:24px;max-width:480px;margin:auto"><h1>iumrah</h1><p>Откройте путешествие в приложении. Доступ к бронированию требует подтверждённого аккаунта или сохранённого доступа.</p><a style="display:block;text-align:center;border-radius:32px;background:#111;color:white;padding:16px;text-decoration:none" href="iumrah://widget/booking/${id}">Открыть в iumrah</a></main></body></html>`, {headers:{'content-type':'text/html; charset=utf-8','cache-control':'no-store','referrer-policy':'no-referrer','x-robots-tag':'noindex, nofollow'}});
+}

@@ -17,7 +17,7 @@ import { handleClientAccountSecurity } from "./client-account-security";
 import { handlePublicIdentityRequest } from "./public-identity";
 import { cleanupExpiredFlightCache, flightCalendarResponse } from "./flight-cache";
 import { deleteCuratedFlightAdmin, exportPublishedFlightsAdmin, listCuratedFlightsAdmin, publicCuratedFlightRecommendations, resolvePublicCuratedFlightRecommendation, saveCuratedFlightAdmin } from "./curated-flights";
-import { appleAppSiteAssociation, hotelWebFallback, publicStorefrontFlightBoard } from "./storefront";
+import { appleAppSiteAssociation, bookingWebFallback, hotelWebFallback, publicStorefrontFlightBoard } from "./storefront";
 import { generatePackageQuote, generateStorefrontPackageQuote } from "./package-search";
 import { commitPackageQuoteReport } from "./booking-gateway";
 import { quoteSealingMode } from "./quote-audit";
@@ -137,6 +137,8 @@ export default {
     if (request.method === "GET" && url.pathname === "/.well-known/apple-app-site-association") {
       return appleAppSiteAssociation();
     }
+
+    if (request.method === "GET" && /^\/booking\/[^/]+$/.test(url.pathname)) return bookingWebFallback(url);
 
     if (request.method === "GET" && (/^\/hotel\/[^/]+$/.test(url.pathname) || /^\/h\/[^/]+$/.test(url.pathname))) {
       return hotelWebFallback(url);

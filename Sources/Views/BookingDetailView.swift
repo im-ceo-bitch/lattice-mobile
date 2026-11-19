@@ -5,6 +5,10 @@ import UIKit
 struct BookingDetailView: View {
     let bookingID: String
 
+    @Environment(\.dismiss) private var dismiss
+    @State private var deleteConfirmation = false
+    @State private var deletingBooking = false
+    @State private var deleteError: String?
     @State private var detail: BookingDetailResponse?
     @State private var loading = true
     @State private var saving = false
@@ -129,6 +133,16 @@ struct BookingDetailView: View {
                         }.buttonStyle(.plain)
                         if manualInfo?.manual == true { shareCard }
                         tripCard(detail.booking)
+                        if let operation = detail.operation, operation.tripStatus == .availabilityCheck,
+                           operation.paymentReceivedAt == nil, operation.confirmationNumber.isEmpty,
+                           ["", "unpaid", "pending", "not_paid"].contains(operation.paymentStatus.lowercased()) {
+                            Button { deleteConfirmation = true } label: {
+                                Label(deletingBooking ? "Удаляем…" : "Удалить бронирование", systemImage: "trash")
+                                    .font(.headline).frame(maxWidth: .infinity).padding(14)
+                                    .foregroundStyle(.red).background(.red.opacity(0.07), in: Capsule())
+                            }.buttonStyle(.plain).disabled(deletingBooking)
+                            if let deleteError { Text(deleteError).font(.footnote).foregroundStyle(.red) }
+                        }
                         DisclosureGroup(isExpanded: $showAdvanced) {
                             operationsCard(detail)
                         } label: {
@@ -162,6 +176,10 @@ struct BookingDetailView: View {
                 await load(showLoading: false)
             }
         }
+        .confirmationDialog("Удалить неоплаченное бронирование?", isPresented: $deleteConfirmation, titleVisibility: .visible) {
+            Button("Удалить бронирование", role: .destructive) { Task { await eraseBooking() } }
+            Button("Оставить бронирование", role: .cancel) {}
+        } message: { Text("Заявка и связанные данные будут удалены. Подтверждённые и оплаченные поездки не удаляются.") }
         .refreshable { await load(showLoading: false) }
         .sheet(item: $editingFlight) { direction in
             if let detail {
@@ -331,6 +349,13 @@ struct BookingDetailView: View {
         return base.allowedTargets.filter { $0 != .cancelled }
     }
 
+    @MainActor private func eraseBooking() async {
+        guard !deletingBooking else { return }
+        deletingBooking = true; deleteError = nil
+        defer { deletingBooking = false }
+        do { try await APIClient.shared.deleteBooking(id: bookingID); detail = nil; notifyOperationsChanged(); dismiss() }
+        catch { deleteError = "Не удалось удалить заявку. Проверьте её статус и платежи. " + error.localizedDescription }
+    }
     private func notifyOperationsChanged() { NotificationCenter.default.post(name: Notification.Name("iumrah.business.bookingOperationsChanged"), object: bookingID) }
 
     private func certificatesCard(_ center: BookingOperationsCenter, detail: BookingDetailResponse) -> some View {

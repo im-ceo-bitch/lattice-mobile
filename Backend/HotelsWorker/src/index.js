@@ -1265,7 +1265,7 @@ async function handleBusinessOperations(request, env, url, parts, user, business
     if (!bookingID) return json({ ok: false, error: 'INVALID_BOOKING_ID' }, 400);
     if (parts.length === 2 && request.method === 'GET') return operationsBookingDetail(request, env, bookingID);
     if (parts.length === 2 && request.method === 'PATCH') return updateOperationsBooking(request, env, bookingID, user);
-    if (parts.length === 2 && request.method === 'DELETE') return json({ok:false,error:'USE_CANCELLATION'},409);
+    if (parts.length === 2 && request.method === 'DELETE') return deleteOperationsBooking(request,env,bookingID,user);
     if (parts.length === 3 && parts[2] === 'umrah-certificate' && request.method === 'POST') return issueTravelCertificate(request,env,bookingID,user);
     if (parts.length === 3 && parts[2] === 'historical-payment' && request.method === 'POST') return reconcileHistoricalPayment(request,env,bookingID,user);
     if (parts.length === 3 && parts[2] === 'certificate-correction' && request.method === 'POST') return correctTravelCertificate(request,env,bookingID,user);
@@ -3632,8 +3632,54 @@ async function purgeOperationalBooking(env, bookingID) {
   }
 }
 
-async function deleteOperationsBooking(request, env, bookingID, user) { return json({ok:false,error:'USE_CANCELLATION'},409); }
-async function deleteClientBooking(request, env, bookingID, auth) { return json({ok:false,error:'USE_CANCELLATION'},409); }
+// Only unconfirmed, unpaid requests may be erased. Keep a minimal non-personal
+// tombstone to prevent stale syncs from resurrecting the deleted booking.
+async function eraseUnconfirmedBooking(env, bookingID, actor) {
+  if(!env.BOOKINGS_DB||!env.HOTELS_DB)return json({ok:false,error:'BOOKING_DB_NOT_CONFIGURED'},503);
+  return withBookingMutation(env,bookingID,async()=>{
+    const db=env.HOTELS_DB, source=env.BOOKINGS_DB;
+    const canonical=await source.prepare('SELECT id,status FROM bookings WHERE id=?').bind(bookingID).first();
+    const trip=await db.prepare('SELECT * FROM pilgrim_trips WHERE booking_id=?').bind(bookingID).first();
+    const tombstone=await db.prepare('SELECT booking_id FROM booking_tombstones WHERE booking_id=?').bind(bookingID).first();
+    if(!canonical&&!trip&&!tombstone)return json({ok:false,error:'BOOKING_NOT_FOUND'},404);
+    if((canonical&&!['NEW','AVAILABILITY_CHECK'].includes(String(canonical.status).toUpperCase())) ||
+       (trip&&(trip.status!=='availability_check'||trip.payment_received_at||trip.confirmation_number||!['','unpaid','pending','not_paid'].includes(String(trip.payment_status||'').toLowerCase()))))return json({ok:false,error:'USE_CANCELLATION'},409);
+    const receipts=await db.prepare('SELECT id FROM booking_payment_receipts WHERE booking_id=? LIMIT 1').bind(bookingID).first();
+    const reconciliation=await db.prepare('SELECT booking_id FROM booking_payment_reconciliation_v3 WHERE booking_id=? LIMIT 1').bind(bookingID).first();
+    if(receipts||reconciliation)return json({ok:false,error:'USE_CANCELLATION'},409);
+    // Financial credits can already be committed for a request; never erase them.
+    const hasTable=async(d,n)=>!!await d.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").bind(n).first();
+    for(const n of ['iumrah_friends_redemptions','iumrah_friends_credit_ledger']){
+      if(await hasTable(db,n)&&await db.prepare(`SELECT booking_id FROM ${n} WHERE booking_id=? LIMIT 1`).bind(bookingID).first())return json({ok:false,error:'USE_CANCELLATION'},409);
+    }
+    // R2 objects are enumerated from owned rows, never from a client-supplied key.
+    const media=[];
+    for(const [table,column] of [['business_chat_attachments','object_key'],['booking_travelers','passport_object_key'],['booking_payment_instructions','payme_qr_object_key'],['booking_travel_documents','object_key'],['iumrah_security_submissions','passport_object_key']]){
+      if(await hasTable(db,table)){
+        const rows=await db.prepare(`SELECT ${column} AS key FROM ${table} WHERE booking_id=? AND ${column} IS NOT NULL`).bind(bookingID).all();
+        for(const row of rows.results||[])if(row.key)media.push(row.key);
+      }
+    }
+    const sourceMedia=await hasTable(source,'booking_documents')?await source.prepare('SELECT r2_key AS key FROM booking_documents WHERE booking_id=?').bind(bookingID).all():{results:[]};
+    if((media.length&&!env.HOTELS_MEDIA)||((sourceMedia.results||[]).length&&!env.PASSPORTS))return json({ok:false,error:'DOCUMENT_STORAGE_NOT_CONFIGURED'},503);
+    // Prevent new synchronization; retain the marker if a later cleanup has to be retried.
+    await db.prepare('INSERT OR IGNORE INTO booking_tombstones(booking_id,deleted_by) VALUES(?,?)').bind(bookingID,'unconfirmed-delete').run();
+    for(const key of new Set(media))await env.HOTELS_MEDIA.delete(key);
+    for(const row of sourceMedia.results||[])await env.PASSPORTS.delete(row.key);
+    const targets=await sourceBookingDeleteTargets(db);
+    const exclude=new Set(['booking_tombstones','booking_mutation_lock_v3','pilgrim_trips']);
+    const statements=targets.filter(x=>!exclude.has(x.table)).map(({table,column})=>db.prepare(`DELETE FROM "${table}" WHERE "${column}"=?`).bind(bookingID));
+    if(await hasTable(db,'client_system_notifications'))statements.push(db.prepare('DELETE FROM client_system_notifications WHERE destination_booking_id=?').bind(bookingID));
+    statements.push(db.prepare('DELETE FROM pilgrim_trips WHERE booking_id=?').bind(bookingID));
+    if(trip?.pilgrim_id)statements.push(db.prepare('UPDATE pilgrims SET total_trips=(SELECT COUNT(*) FROM pilgrim_trips WHERE pilgrim_id=?),last_trip_at=(SELECT MAX(COALESCE(end_date,created_at)) FROM pilgrim_trips WHERE pilgrim_id=?) WHERE id=?').bind(trip.pilgrim_id,trip.pilgrim_id,trip.pilgrim_id));
+    await db.batch(statements);
+    // Keep source proof valid until operational cleanup has committed.
+    await hardDeleteSourceBooking(env,bookingID);
+    return json({ok:true,deleted:true,bookingID});
+  });
+}
+async function deleteOperationsBooking(request, env, bookingID, user) { return eraseUnconfirmedBooking(env,bookingID,user?.login||'staff'); }
+async function deleteClientBooking(request, env, bookingID, auth) { return eraseUnconfirmedBooking(env,bookingID,'client'); }
 
 function teamMemberPayload(payload, defaults = {}) {
   const firstName = safeHumanText(payload?.firstName ?? defaults.firstName ?? '', 120) || '';
@@ -6753,7 +6799,7 @@ async function handleClientOperations(request, env, parts) {
 
   if (parts[0] === 'bookings') {
     const bookingID=cleanText(parts[1],180); if(!bookingID)return json({ok:false,error:'INVALID_BOOKING_ID'},400);
-    if(parts.length===2&&request.method==='DELETE'){const auth=await requireClientBooking(request,env,bookingID,{syncTrip:false});if(!auth.ok)return auth.response;return json({ok:false,error:'USE_CANCELLATION'},409);}
+    if(parts.length===2&&request.method==='DELETE'){const auth=await requireClientBooking(request,env,bookingID,{syncTrip:false});if(!auth.ok)return auth.response;return deleteClientBooking(request,env,bookingID,auth);}
     if(parts.length===3&&parts[2]==='refund-preview'&&request.method==='GET'){const auth=await requireClientBooking(request,env,bookingID);if(!auth.ok)return auth.response;return bookingRefundPreview(env,bookingID,auth.trip);}
     if(parts.length===3&&parts[2]==='cancel-request'&&request.method==='POST'){const auth=await requireClientBooking(request,env,bookingID);if(!auth.ok)return auth.response;return requestBookingCancellation(env,bookingID,auth.trip);}
     return methodNotAllowed();
@@ -7222,6 +7268,35 @@ async function handleClientAccount(request,env,parts){
  }
  if(parts.length===1&&parts[0]==='session'&&request.method==='GET'){const auth=await requireIumrahAccount(request,env);if(!auth.ok)return auth.response;return json({ok:true,account:accountProfile(auth.pilgrim)});}
  if(parts.length===1&&parts[0]==='profile'&&request.method==='PUT'){const auth=await requireIumrahAccount(request,env);if(!auth.ok)return auth.response;const payload=await request.json().catch(()=>null);if(!payload)return json({ok:false,error:'INVALID_JSON'},400);const firstName=safeHumanText(payload.firstName,120)||'',lastName=safeHumanText(payload.lastName,120)||'',phone=cleanText(payload.phone,100)||'',email=cleanText(payload.email,220)||'',telegram=cleanText(payload.telegram,120)||'',whatsapp=cleanText(payload.whatsapp,120)||'';if(!firstName||!lastName)return json({ok:false,error:'PROFILE_NAME_REQUIRED'},400);const displayName=[firstName,lastName].filter(Boolean).join(' ').trim();await env.HOTELS_DB.prepare('UPDATE pilgrims SET first_name=?,last_name=?,display_name=?,phone=?,email=?,telegram=?,whatsapp=?,updated_at=? WHERE id=?').bind(firstName,lastName,displayName,phone,email,telegram,whatsapp,new Date().toISOString(),auth.pilgrim.id).run();const pilgrim=await env.HOTELS_DB.prepare('SELECT * FROM pilgrims WHERE id=?').bind(auth.pilgrim.id).first();return json({ok:true,account:accountProfile(pilgrim)});}
+ if(parts.length===1&&parts[0]==='profile'&&request.method==='DELETE'){
+  const auth=await requireIumrahAccount(request,env);if(!auth.ok)return auth.response;
+  const db=env.HOTELS_DB,id=Number(auth.pilgrim.id);
+  if(await db.prepare('SELECT booking_id FROM pilgrim_trips WHERE pilgrim_id=? LIMIT 1').bind(id).first())return json({ok:false,error:'ACCOUNT_HAS_TRIPS'},409);
+  // Keep financial/referral history out of the destructive path. An operator must
+  // resolve any such balance before erasure; no partial logout masquerades as deletion.
+  const tables=await db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all();
+  const identityTables=[];
+  for(const {name} of tables.results||[]){
+    if(!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name))continue;
+    const cols=await db.prepare(`PRAGMA table_info("${name}")`).all();
+    if(!(cols.results||[]).some(c=>c.name==='pilgrim_id'))continue;
+    if(/friends|referral|ledger|payment/.test(name)&&await db.prepare(`SELECT 1 FROM "${name}" WHERE pilgrim_id=? LIMIT 1`).bind(id).first())return json({ok:false,error:'ACCOUNT_HAS_FINANCIAL_HISTORY'},409);
+    if(/^iumrah_(client_|account|security_|identity_)|^client_notification_devices$/.test(name))identityTables.push(name);
+  }
+  const security=await db.prepare('SELECT * FROM iumrah_security_submissions WHERE pilgrim_id=?').bind(id).all();
+  // Security uploads may need a dedicated retention workflow; don't orphan files.
+  if((security.results||[]).length)return json({ok:false,error:'ACCOUNT_SECURITY_REVIEW_REQUIRED'},409);
+  const key=`care-pilgrim:${id}`;
+  const accountKey=`account:${pilgrimPublicID(id)}`;
+  const attachments=await db.prepare('SELECT object_key FROM business_chat_attachments WHERE booking_id IN (?,?)').bind(key,accountKey).all();
+  if((attachments.results||[]).length&&!env.HOTELS_MEDIA)return json({ok:false,error:'DOCUMENT_STORAGE_NOT_CONFIGURED'},503);
+  for(const row of attachments.results||[])await env.HOTELS_MEDIA.delete(row.object_key);
+  const cleanup=['business_chat_messages','business_chat_attachments','business_chat_threads'].map(n=>db.prepare(`DELETE FROM ${n} WHERE booking_id IN (?,?) AND NOT EXISTS(SELECT 1 FROM pilgrim_trips WHERE pilgrim_id=?)`).bind(key,accountKey,id));
+  // All account mutations are scoped to the authenticated identity.
+  await db.batch([...cleanup,...identityTables.map(n=>db.prepare(`DELETE FROM "${n}" WHERE pilgrim_id=? AND NOT EXISTS(SELECT 1 FROM pilgrim_trips WHERE pilgrim_id=?)`).bind(id,id)),db.prepare('DELETE FROM pilgrims WHERE id=? AND NOT EXISTS(SELECT 1 FROM pilgrim_trips WHERE pilgrim_id=?)').bind(id,id)]);
+  if(await db.prepare('SELECT id FROM pilgrims WHERE id=?').bind(id).first())return json({ok:false,error:'ACCOUNT_DELETE_CONFLICT'},409);
+  return json({ok:true});
+ }
  if(parts.length===1&&parts[0]==='logout'&&request.method==='POST'){const auth=await requireIumrahAccount(request,env);if(!auth.ok)return auth.response;await env.HOTELS_DB.prepare('UPDATE iumrah_account_sessions SET revoked_at=? WHERE token_hash=?').bind(new Date().toISOString(),auth.tokenHash).run();return json({ok:true});}
  if(parts.length===1&&parts[0]==='link-booking'&&request.method==='POST'){
   const auth=await requireIumrahAccount(request,env);if(!auth.ok)return auth.response;

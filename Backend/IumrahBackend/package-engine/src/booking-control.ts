@@ -110,7 +110,8 @@ export async function deletePilgrimBooking(request: Request, id: string, env: Bo
   try {
     const row = await authorizedBooking(request, id, env.BOOKINGS_DB);
     if (!row) return json({ error: "BOOKING_NOT_FOUND" }, 404);
-    return json({ ok: false, error: "USE_CANCELLATION" }, 409);
+    const url = new URL(`/api/catalog/hotels/client/bookings/${encodeURIComponent(id)}`, request.url);
+    return fetch(url, { method: "DELETE", headers: request.headers, redirect: "manual" });
   } catch (error) {
     console.error("booking-control-delete-failed", error);
     return json({ error: "BOOKING_DELETE_FAILED" }, 500);

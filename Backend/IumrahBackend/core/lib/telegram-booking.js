@@ -141,7 +141,7 @@ function noticeText(bookingId, status, lang) {
     const language=String(lang||'en').toLowerCase();
     const label = (notices[language] || notices.en)[status] || (extra[language]||extra.en)[status] || notices.en[status] || status;
     const details = { ru: "Подробности", en: "Details", uz: "Batafsil", "uz-cyrl": "Батафсил", tr: "Ayrıntılar", id: "Rincian", ms: "Butiran" };
-    return `✈️ IUMRAH · ${bookingId}\n\n${label}\n\n${details[language] || "Details"}: https://iumrah.app/booking`;
+    return `✈️ IUMRAH · ${bookingId}\n\n${label}\n\n${details[language] || "Details"}: https://iumrah.app/booking/${encodeURIComponent(bookingId)}`;
 }
 export async function deliverTelegramNotice(db, bookingId, status) {
     const { botToken } = telegramConfiguration();

@@ -21,7 +21,7 @@ async function ensure(db:D1Like){
 }
 export async function sendBookingSMSStatus(env:Env,bookingID:string):Promise<string>{
  if(!env.HOTELS_DB||!env.BOOKINGS_DB||!env.DEVSMS_API_TOKEN)return 'not_configured';
- const booking=await env.BOOKINGS_DB.prepare('SELECT status,payload_json,start_date,end_date,traveler_count FROM bookings WHERE id=? LIMIT 1').bind(bookingID).first<{status:string;payload_json:string;start_date:string;end_date:string;traveler_count:number}>();
+ const booking=await env.BOOKINGS_DB.prepare('SELECT status,payload_json,start_date,end_date,traveler_count,lang FROM bookings WHERE id=? LIMIT 1').bind(bookingID).first<{status:string;payload_json:string;start_date:string;end_date:string;traveler_count:number;lang?:string}>();
  if(!booking)return 'skipped';const profile=JSON.parse(booking.payload_json||'{}').pilgrimProfile;
  const phone=String(profile?.phone||'');if(!profile?.phoneVerifiedAt||!/^\+998\d{9}$/.test(phone))return 'skipped';
  const db=env.HOTELS_DB;
@@ -35,8 +35,13 @@ export async function sendBookingSMSStatus(env:Env,bookingID:string):Promise<str
   const known=await db.prepare('SELECT request_id FROM booking_sms_jobs_v2 WHERE booking_id=? AND status=? AND phone=?').bind(bookingID,status,phone).first();if(!known)return 'legacy_unknown';
  }
  const now=new Date().toISOString();
- const dates=/^\d{4}-\d{2}-\d{2}$/.test(booking.start_date)&&/^\d{4}-\d{2}-\d{2}$/.test(booking.end_date)?` ${booking.start_date} – ${booking.end_date}. ${booking.traveler_count} чел.`:'';
- const message=`iumrah. №${String(trip.booking_number).padStart(4,'0')}. ${copy}${status==='availability_check'?dates:''} https://iumrah.app/booking`;
+ const nights=Number(JSON.parse(booking.payload_json||'{}')?.stay?.totalNights);
+ const support=String(env.BOOKING_SUPPORT_PHONE_UZ||'+998508898845').trim();
+ const number=String(trip.booking_number).padStart(4,'0');
+ const lang=String(booking.lang||'ru').toLowerCase();
+ const text=lang.startsWith('uz-cyrl')?['Брон яратилди. Мавжудлик текширилмоқда.','тун','Алоқа']:lang.startsWith('uz')?['Bron yaratildi. Mavjudlik tekshirilmoqda.','tun','Aloqa']:lang.startsWith('en')?['Booking created. Checking availability.','nights','Support']:['Бронирование создано. Проверяем наличие.','ночей','Связь'];
+ const nightText=Number.isSafeInteger(nights)&&nights>0?` ${nights} ${text[1]}.`:'';
+ const message=status==='availability_check'?`iumrah. №${number}. ${text[0]}${nightText} ${text[2]}: ${support}. https://iumrah.app/booking/${encodeURIComponent(bookingID)}`:`iumrah. №${number}. ${copy} https://iumrah.app/booking/${encodeURIComponent(bookingID)}`;
  await db.prepare('INSERT OR IGNORE INTO booking_sms_jobs_v2(booking_id,status,phone,message,request_id,created_at,next_attempt_at) VALUES(?,?,?,?,?,?,?)').bind(bookingID,status,phone,message,await smsIdempotencyKey(bookingID,status,phone),now,now).run();
  return deliver(env,bookingID,status,phone);
 }

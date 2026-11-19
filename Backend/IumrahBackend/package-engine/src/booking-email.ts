@@ -215,7 +215,7 @@ export function renderBookingEmail(snapshot: BookingEmailSnapshot, locale: Booki
   const servicesHTML=services.length?`<div style="margin-top:25px">${blockTitle(serviceTitle)}<div style="border:1px solid #e6e8ef;border-radius:17px;padding:14px 18px;color:#333946;font-size:14px;line-height:1.7">${services.map(v=>`<div>✓ ${esc(v)}</div>`).join('')}</div></div>`:'';
   const flightSummary=str(data.flight);
   const displayNumber=str(snapshot.bookingNumber||snapshot.bookingID,24).replace(/[\r\n]/g,'');
-  const url='https://iumrah.app/booking';
+  const url='https://iumrah.app/booking/'+encodeURIComponent(String(snapshot.bookingID));
   const terminal:Record<BookingMailLocale,{completed:string;completedBody:string;cancelled:string;cancelledBody:string}>={
     ru:{completed:'Поездка завершена',completedBody:'Архив поездки доступен в iumrah.',cancelled:'Бронирование отменено',cancelledBody:'Откройте бронирование для проверки деталей отмены и связи с поддержкой.'},
     en:{completed:'Trip completed',completedBody:'Your trip archive is available in iumrah.',cancelled:'Booking cancelled',cancelledBody:'Open your booking to review cancellation details and contact support.'},

@@ -291,6 +291,10 @@ export async function POST(request) {
             catch(error){return NextResponse.json({error:error?.checkoutError?error.message:'NOTIFICATION_SERVICE_UNAVAILABLE'},{status:error?.message==='NOTIFICATION_PROOF_INVALID'?400:503});}
         }
         const id = intent?.id || makeBookingId(input.input.startDate.slice(0, 4));
+        if(intent && requestEnv().HOTELS_DB){
+            const deleted=await requestEnv().HOTELS_DB.prepare('SELECT booking_id FROM booking_tombstones WHERE booking_id=?').bind(id).first();
+            if(deleted)return NextResponse.json({error:'BOOKING_DELETED'},{status:410});
+        }
         const accessToken = intent?.accessToken || makeBookingToken();
         const accessTokenHash = await hashBookingToken(accessToken);
         if(intent){

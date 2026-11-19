@@ -42,7 +42,7 @@ export function resolveBackendRoute(pathname) {
   if (pathname === '/') return 'root';
   if (matches(pathname, '/api/services')) return 'services';
   if (matches(pathname, '/api/flight-hub') || matches(pathname, '/v1') || pathname === '/health') return 'flights';
-  if (matches(pathname, '/api/package') || matches(pathname, '/api/admin/package') || pathname === '/.well-known/apple-app-site-association' || /^\/(?:hotel|h|ref)\/[^/]+$/.test(pathname)) return 'packages';
+  if (matches(pathname, '/api/package') || matches(pathname, '/api/admin/package') || pathname === '/.well-known/apple-app-site-association' || /^\/(?:hotel|h|ref|booking)\/[^/]+$/.test(pathname)) return 'packages';
   // Telegram Mini App and its allowlisted assets live in the unified core.
   if (/^\/telegram\/(?:mini(?:\/.*)?|mini-asset\/[^/]+|status-image\/[^/]+|support-image\/[^/]+)$/.test(pathname)) return 'core';
   if (corePrefixes.some(prefix=>matches(pathname,prefix))) return 'core';
