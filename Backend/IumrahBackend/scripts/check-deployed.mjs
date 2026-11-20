@@ -33,6 +33,12 @@ export async function verifyDeployed(env=process.env, fetcher=fetch, activation=
   if(health.service!=='iumrah-backend'||!health.bindings?.FLIGHTS_DB||!health.modules?.core||!health.modules?.packages) throw Error('UNIFIED_WORKER_BINDINGS_NOT_READY');
   const packageHealth=await getJSON(origin+'/api/package/health');
   if(packageHealth.service!=='iumrah-package-engine'||!packageHealth.hotelsDbConfigured||!packageHealth.bookingsDbConfigured) throw Error('PACKAGE_DATABASE_SCHEMA_NOT_READY');
+  // Ensure the real Worker (not the web fallback) exposes the installed
+  // read-only share handler and the D1 public-share migration has run.
+  // This is a nonexistent token; the proper handler returns LINK_UNAVAILABLE.
+  const shareProbe=await fetcher(origin+'/api/package/shares/'+'A'.repeat(43),{headers:{Accept:'application/json'}});
+  const shareBody=await shareProbe.json().catch(()=>null);
+  if(shareProbe.status!==404||shareBody?.error!=='LINK_UNAVAILABLE')throw Error(`PUBLIC_TRIP_SHARES_NOT_READY:HTTP_${shareProbe.status}`);
   const services=await getJSON(origin+'/api/services/health');
   if(services.service!=='iumrah-public-services'||services.release!=='v21-rc'||services.advisorLanguages<9||services.audioLanguages<9)throw Error('PUBLIC_SERVICES_NOT_READY');
   let cutover=await getJSON(origin+'/__iumrah/cutover');

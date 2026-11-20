@@ -25,6 +25,12 @@ const pendingCorePackagePrefixes = [
   '/api/package/booking-contact', '/api/package/quote', '/api/package/storefront/quote', '/api/package/smart/plan',
   '/api/package/care-requests', '/api/admin/package/booking', '/api/admin/package/care-requests'
 ];
+// Token sharing is authenticated against canonical BOOKINGS_DB and HOTELS_DB.
+// Permit this isolated read-only API while unrelated Core mutations remain gated.
+// Only a verified owner can create or revoke links; a share token cannot grant ownership.
+export const isPublicTripSharePath = pathname =>
+  /^\/api\/package\/shares\/[A-Za-z0-9_-]{43}$/.test(pathname) ||
+  /^\/api\/package\/booking\/IUM-\d{4}-[A-Z2-9]{7}\/share$/.test(pathname);
 export function isPendingCorePackage(pathname) {
   return pendingCorePackagePrefixes.some(prefix=>matches(pathname,prefix));
 }
@@ -90,7 +96,7 @@ export function createBackendRouter({hotels, flights, packages, core, requestAer
         return reconcile(await hotels.fetch(request, routedEnv, ctx));
       }
       if (route === 'packages' && packages) {
-        if (isPendingCorePackage(pathname) && !ready) return json({ok:false,error:'CORE_CUTOVER_PENDING'},503);
+        if (isPendingCorePackage(pathname) && !isPublicTripSharePath(pathname) && !ready) return json({ok:false,error:'CORE_CUTOVER_PENDING'},503);
         return packages.fetch(request, routedEnv, ctx);
       }
       if (route === 'cutover') return request.method === 'GET' ? json(await cutoverStatus(env,!!core,ready)) : json({ok:false,error:'METHOD_NOT_ALLOWED'},405);

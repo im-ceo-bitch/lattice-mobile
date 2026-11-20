@@ -30,6 +30,16 @@ export async function ensureSchema(query, schema, binding) {
  if(binding==='BOOKINGS_DB')for(const sql of ['SELECT id,access_token_hash FROM bookings LIMIT 0','SELECT booking_id FROM booking_events LIMIT 0','SELECT booking_id FROM booking_documents LIMIT 0'])await query(sql);
  return {created,added};
 }
+// Idempotent, additive public share migration, no destructive DML.
+const shareSQL=fs.readFileSync(new URL('../migrations/0002_booking_public_shares.sql',import.meta.url),'utf8');
+export async function ensurePublicShareSchema(query) {
+  const statements=shareSQL.replace(/^--.*$/gm,'').split(';').map(x=>x.trim()).filter(Boolean);
+  for(const sql of statements){
+    if(!/^CREATE (?:TABLE|INDEX) IF NOT EXISTS\b/i.test(sql))throw Error('UNSAFE_PUBLIC_SHARE_MIGRATION');
+    await query(sql);
+  }
+  return statements.length;
+}
 export async function applyPackageSchema(env=process.env,fetcher=fetch,config=JSON.parse(fs.readFileSync(new URL('../wrangler.generated.jsonc',import.meta.url),'utf8'))){
  if(config.name!=='iumrah-backend'||!/^[a-f0-9]{32}$/i.test(env.CLOUDFLARE_ACCOUNT_ID||'')||!env.CLOUDFLARE_API_TOKEN)throw Error('INVALID_SCHEMA_DEPLOY_TARGET');
  for(const [binding,schema] of Object.entries(snapshot)){
@@ -43,6 +53,7 @@ export async function applyPackageSchema(env=process.env,fetcher=fetch,config=JS
    return data.result[0].results||[];
   };
   const result=await ensureSchema(query,schema,binding);
+  if(binding==='BOOKINGS_DB') await ensurePublicShareSchema(query);
   console.log(`${binding}: schema verified, created ${result.created} tables, added ${result.added} columns; existing rows preserved.`);
  }
  console.log('Schema readiness only; existing user/booking data parity and R2 migration are NOT verified. Core cutover remains gated.');

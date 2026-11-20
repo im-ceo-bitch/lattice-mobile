@@ -10,6 +10,7 @@ function fake(url) {
  else if(path==='/__iumrah/cutover') data={ok:true,service:'iumrah-backend',coreCutoverEnabled:true,schemaReady:true,migrationAttested:true,providerConfigurationReady:true,missing:[]};
  else if(path==='/api/services/health') data={ok:true,service:'iumrah-public-services',release:'v21-rc',advisorLanguages:9,audioLanguages:9};
  else if(path==='/api/package/health') data={ok:true,service:'iumrah-package-engine',hotelsDbConfigured:true,bookingsDbConfigured:true};
+ else if(path.startsWith('/api/package/shares/')) return Promise.resolve({status:404,ok:false,json:async()=>({ok:false,error:'LINK_UNAVAILABLE'})});
  else if(path==='/health') data={ok:true,database_connected:true};
  else if(path==='/v1/public/status') data={ok:true,ready:true,counts:{flights:12,offers:3}};
  else if(path==='/v1/public/flights') data={ok:true,flights:[]};
@@ -40,4 +41,9 @@ test('release check exposes safe setup stage and provider code, never raw respon
  const e={...env,ADMIN_TOKEN:'ci-secret'};
  const f=async(url)=>url.endsWith('/__iumrah/cutover')?Response.json({ok:true,service:'iumrah-backend',coreCutoverEnabled:true,schemaReady:true,migrationAttested:true,providerConfigurationReady:true,missing:[],providers:{telegram:true}}):url.endsWith('/api/internal/telegram/setup')?Response.json({ok:false,error:'TELEGRAM_WEBHOOK_SETUP_FAILED',stage:'MENU',detail:'TELEGRAM_setChatMenuButton_HTTP_400',description:'PRIVATE_SECRET'},{status:502}):fake(url);
  await assert.rejects(verifyDeployed(e,f),err=>err.message.includes('HTTP_502 stage=MENU')&&err.message.includes('TELEGRAM_setChatMenuButton_HTTP_400')&&!err.message.includes('PRIVATE_SECRET'));
+});
+
+test('deployment verification must fail if public share handler or migration is absent', async()=>{
+ await assert.rejects(verifyDeployed(env,async(url,init)=>url.includes('/api/package/shares/')?Response.json({ok:false,error:'NOT_FOUND'},{status:404}):fake(url)),/PUBLIC_TRIP_SHARES_NOT_READY/);
+ await assert.rejects(verifyDeployed(env,async(url,init)=>url.includes('/api/package/shares/')?Response.json({ok:false,error:'SHARING_UNAVAILABLE'},{status:503}):fake(url)),/PUBLIC_TRIP_SHARES_NOT_READY/);
 });

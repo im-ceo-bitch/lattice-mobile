@@ -1,4 +1,5 @@
 import { recoverGuestBooking } from "./booking-recovery";
+import { handleBookingShare } from "./booking-share";
 import { referralLanding } from "./referral-rewards";
 import { smartConfiguratorPlan } from "./smart-configurator";
 import { handleGuestBookingEmail } from "./booking-email-verification";
@@ -142,6 +143,13 @@ export default {
 
     if (request.method === "GET" && (/^\/hotel\/[^/]+$/.test(url.pathname) || /^\/h\/[^/]+$/.test(url.pathname))) {
       return hotelWebFallback(url);
+    }
+
+    // Separate opaque public viewer token from any authenticated booking mutation.
+    // The shared trip returns a whitelist; it never returns the booking JSON.
+    if (/^\/api\/package\/shares\/[A-Za-z0-9_-]+$/.test(url.pathname) ||
+        /^\/api\/package\/booking\/[^/]+\/share$/.test(url.pathname)) {
+      return handleBookingShare(request, env, url);
     }
 
     if (url.pathname.startsWith("/api/package/public/id/")) {
