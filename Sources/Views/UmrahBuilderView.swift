@@ -51,51 +51,40 @@ struct UmrahBuilderView: View {
     @State private var showOfferConfirmation = false
 
     var body: some View {
-        GeometryReader { geometry in
-            let active = store.draft.requestSecret == nil && store.draft.offerReceipt == nil && store.draft.receipt == nil
-            let wide = geometry.size.width >= 800 && active
-            HStack(alignment: .top, spacing: 16) {
-                if wide && geometry.size.width >= 1100 && !studioHome {
-                    ScrollView { studioRail }.frame(width: 172)
-                }
-                ScrollViewReader { reader in
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: presentation ? 24 : 14) {
-                            Color.clear.frame(height: 0).id("top")
-                            if active {
-                                studioModeBar
-                                if presentation { studioHero }
-                                else { BusinessPageHeading(title: studioHome ? "Создать умру" : steps[step], subtitle: "Рабочее пространство менеджера") }
-                                if !studioHome && (!wide || geometry.size.width < 1100) { compactRail }
-                            } else {
-                                BusinessPageHeading(title: store.draft.offerReceipt != nil || store.draft.submissionMode == "offer" ? "Предложение" : "Бронирование", subtitle: "Управление поездкой")
-                            }
-                            if let offer = store.draft.offerReceipt { offerReceiptView(offer) }
-                            else if let receipt = store.draft.receipt { receiptView(receipt) }
-                            else if store.draft.requestSecret != nil { pendingView }
-                            else if studioHome { studioDashboard }
-                            else { switch step {
-                            case 0: parameters
-                            case 1: UmrahFlightStep(draft: $store.draft)
-                            case 2: UmrahHotelStep(draft: $store.draft)
-                            case 3: UmrahTransferStep(draft: $store.draft)
-                            case 4: summary
-                            default: finalReview; if !presentation { clientForm }
-                            } }
-                            if let error { Label(error, systemImage: "exclamationmark.circle").font(.subheadline).foregroundStyle(.red).id("validation") }
-                            if let storageError = store.storageError { Text(storageError).font(.caption).foregroundStyle(.red) }
-                        }.frame(maxWidth: wide ? .infinity : 760, alignment: .leading).frame(maxWidth: .infinity).padding(.vertical, 8)
-                    }
-                    .scrollDismissesKeyboard(.interactively)
-                    .onChange(of: step) { _, _ in reader.scrollTo("top", anchor: .top) }
-                    .onChange(of: studioHome) { _, _ in reader.scrollTo("top", anchor: .top) }
-                    .onChange(of: flightPhase) { _, _ in reader.scrollTo("top", anchor: .top) }
-                    .onChange(of: hotelPhase) { _, _ in reader.scrollTo("top", anchor: .top) }
-                    .onChange(of: error) { _, value in if value != nil { reader.scrollTo("validation", anchor: .bottom) } }
-                }
-                if wide { ScrollView { liveSummary }.frame(width: geometry.size.width >= 1100 ? 284 : 250) }
-            }.padding(.horizontal, wide ? 20 : BusinessDesign.Space.page).padding(.top, 8)
+        lifecycleContent
+        .confirmationDialog("Создать заявку на умру?", isPresented: $showConfirmation, titleVisibility: .visible) {
+            Button("Создать бронирование") { Task { await submit() } }
+        } message: { Text("Начнётся проверка наличия. Оплата и подтверждение поставщиков пока не выполняются.") }
+        .confirmationDialog(editingOffer == nil ? "Создать предложение?" : "Обновить предложение?", isPresented: $showOfferConfirmation, titleVisibility: .visible) {
+            Button(editingOffer == nil ? "Создать предложение" : "Обновить предложение") { Task { await submitOffer() } }
+        } message: { Text("Наличие не резервируется. Клиент сможет принять актуальную версию по той же ссылке.") }
+        .confirmationDialog("Удалить сохранённый черновик?", isPresented: $confirmDeleteDraft) { Button("Удалить", role: .destructive) { if let deletingDraft { store.deleteSaved(deletingDraft) }; deletingDraft = nil }; Button("Отмена", role: .cancel) { deletingDraft = nil } }
+        .alert("Черновик сохранён", isPresented: $saved) {
+            Button("Хорошо", role: .cancel) { }
+        } message: { Text("Пакет сохранён на этом устройстве.") }
+    }
+
+
+    // Keep each SwiftUI result-builder and modifier chain independently type-checked.
+    private var lifecycleContent: some View {
+        navigationContent
+        .safeAreaInset(edge: .bottom) { if !studioHome && store.draft.requestSecret == nil && store.draft.offerReceipt == nil && store.draft.receipt == nil { footer } }
+        .environment(\.locale, Locale(identifier: "ru_RU"))
+        .onChange(of: scenePhase) { _, phase in if phase != .active { store.save() } }
+        .onDisappear { store.save() }
+        .onChange(of: store.draft) { _, _ in store.save() }
+        .onAppear {
+            if store.draft.builderStage == nil { store.draft.builderStage = 0 }
+            if editingOffer == nil, let savedMode = store.draft.builderFinishAsOffer { finishAsOffer = savedMode }
         }
+        .onChange(of: finishAsOffer) { _, value in store.draft.builderFinishAsOffer = value }
+        .onChange(of: store.draft.includeMedina) { _, _ in
+            store.draft.builderHotelPhase = 0; store.draft.makkah.price = ""; store.draft.medina.price = ""
+        }
+    }
+
+    private var navigationContent: some View {
+        studioLayout
         .environment(\.studioPresentation, presentation)
         .sheet(isPresented: $showComparison) {
             NavigationStack { ScrollView { comparisonView.padding(20) }.navigationTitle("Сравнить варианты").navigationBarTitleDisplayMode(.inline).toolbar { ToolbarItem(placement: .confirmationAction) { Button("Готово") { showComparison = false } } } }
@@ -114,29 +103,116 @@ struct UmrahBuilderView: View {
         .confirmationDialog("Удалить текущий черновик?", isPresented: $restart, titleVisibility: .visible) {
             Button("Начать заново", role: .destructive) { comparison = nil; store.draft = UmrahPackageDraft(); go(0); studioHome = true; store.save() }.disabled(submitting)
         }
-        .safeAreaInset(edge: .bottom) { if !studioHome && store.draft.requestSecret == nil && store.draft.offerReceipt == nil && store.draft.receipt == nil { footer } }
-        .environment(\.locale, Locale(identifier: "ru_RU"))
-        .onChange(of: scenePhase) { _, phase in if phase != .active { store.save() } }
-        .onDisappear { store.save() }
-         .onChange(of: store.draft) { _, _ in store.save() }
-        .onAppear {
-            if store.draft.builderStage == nil { store.draft.builderStage = 0 }
-            if editingOffer == nil, let savedMode = store.draft.builderFinishAsOffer { finishAsOffer = savedMode }
+    }
+
+    private var activeDraft: Bool {
+        store.draft.requestSecret == nil && store.draft.offerReceipt == nil && store.draft.receipt == nil
+    }
+
+    private var studioLayout: some View {
+        GeometryReader { geometry in
+            studioColumns(width: geometry.size.width)
         }
-        .onChange(of: finishAsOffer) { _, value in store.draft.builderFinishAsOffer = value }
-        .onChange(of: store.draft.includeMedina) { _, _ in
-            store.draft.builderHotelPhase = 0; store.draft.makkah.price = ""; store.draft.medina.price = ""
+    }
+
+    private func studioColumns(width: CGFloat) -> some View {
+        let wide = width >= 800 && activeDraft
+        let showRail = wide && width >= 1100 && !studioHome
+        return HStack(alignment: .top, spacing: 16) {
+            if showRail {
+                ScrollView { studioRail }.frame(width: 172)
+            }
+            studioScroll(wide: wide, width: width)
+            if wide {
+                ScrollView { liveSummary }.frame(width: width >= 1100 ? 284 : 250)
+            }
         }
-        .confirmationDialog("Создать заявку на умру?", isPresented: $showConfirmation, titleVisibility: .visible) {
-            Button("Создать бронирование") { Task { await submit() } }
-        } message: { Text("Начнётся проверка наличия. Оплата и подтверждение поставщиков пока не выполняются.") }
-        .confirmationDialog(editingOffer == nil ? "Создать предложение?" : "Обновить предложение?", isPresented: $showOfferConfirmation, titleVisibility: .visible) {
-            Button(editingOffer == nil ? "Создать предложение" : "Обновить предложение") { Task { await submitOffer() } }
-        } message: { Text("Наличие не резервируется. Клиент сможет принять актуальную версию по той же ссылке.") }
-        .confirmationDialog("Удалить сохранённый черновик?", isPresented: $confirmDeleteDraft) { Button("Удалить", role: .destructive) { if let deletingDraft { store.deleteSaved(deletingDraft) }; deletingDraft = nil }; Button("Отмена", role: .cancel) { deletingDraft = nil } }
-        .alert("Черновик сохранён", isPresented: $saved) {
-            Button("Хорошо", role: .cancel) { }
-        } message: { Text("Пакет сохранён на этом устройстве.") }
+        .padding(.horizontal, wide ? 20 : BusinessDesign.Space.page)
+        .padding(.top, 8)
+    }
+
+    private func studioScroll(wide: Bool, width: CGFloat) -> some View {
+        ScrollViewReader { reader in
+            ScrollView {
+                studioContent(wide: wide, width: width)
+            }
+            .scrollDismissesKeyboard(.interactively)
+            .onChange(of: step) { _, _ in reader.scrollTo("top", anchor: .top) }
+            .onChange(of: studioHome) { _, _ in reader.scrollTo("top", anchor: .top) }
+            .onChange(of: flightPhase) { _, _ in reader.scrollTo("top", anchor: .top) }
+            .onChange(of: hotelPhase) { _, _ in reader.scrollTo("top", anchor: .top) }
+            .onChange(of: error) { _, value in
+                if value != nil { reader.scrollTo("validation", anchor: .bottom) }
+            }
+        }
+    }
+
+    private func studioContent(wide: Bool, width: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: presentation ? 24 : 14) {
+            Color.clear.frame(height: 0).id("top")
+            studioHeading(wide: wide, width: width)
+            studioStageContent
+            studioValidation
+        }
+        .frame(maxWidth: wide ? .infinity : 760, alignment: .leading)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 8)
+    }
+
+    @ViewBuilder
+    private func studioHeading(wide: Bool, width: CGFloat) -> some View {
+        if activeDraft {
+            studioModeBar
+            if presentation {
+                studioHero
+            } else {
+                BusinessPageHeading(title: studioHome ? "Создать умру" : steps[step], subtitle: "Рабочее пространство менеджера")
+            }
+            if !studioHome && (!wide || width < 1100) {
+                compactRail
+            }
+        } else {
+            BusinessPageHeading(title: store.draft.offerReceipt != nil || store.draft.submissionMode == "offer" ? "Предложение" : "Бронирование", subtitle: "Управление поездкой")
+        }
+    }
+
+    @ViewBuilder
+    private var studioStageContent: some View {
+        if let offer = store.draft.offerReceipt {
+            offerReceiptView(offer)
+        } else if let receipt = store.draft.receipt {
+            receiptView(receipt)
+        } else if store.draft.requestSecret != nil {
+            pendingView
+        } else if studioHome {
+            studioDashboard
+        } else {
+            studioEditor
+        }
+    }
+
+    @ViewBuilder
+    private var studioEditor: some View {
+        switch step {
+        case 0: parameters
+        case 1: UmrahFlightStep(draft: $store.draft)
+        case 2: UmrahHotelStep(draft: $store.draft)
+        case 3: UmrahTransferStep(draft: $store.draft)
+        case 4: summary
+        default:
+            finalReview
+            if !presentation { clientForm }
+        }
+    }
+
+    @ViewBuilder
+    private var studioValidation: some View {
+        if let error {
+            Label(error, systemImage: "exclamationmark.circle").font(.subheadline).foregroundStyle(.red).id("validation")
+        }
+        if let storageError = store.storageError {
+            Text(storageError).font(.caption).foregroundStyle(.red)
+        }
     }
 
     private var studioModeBar: some View {
