@@ -134,15 +134,61 @@ struct TeamMemberForm: View {
                     .textInputAutocapitalization(.never).autocorrectionDisabled()
                 Text("Публикуются только заполненные поля. Используйте реальное видео гида и его согласие на публикацию.").font(.caption).foregroundStyle(.secondary)
             }
-            VStack(alignment: .leading, spacing: 7) {
-                Text("Описание").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                TextField("Коротко о себе", text: $member.bio, axis: .vertical)
-                    .lineLimit(4...8)
-                    .padding(12)
-                    .background(BusinessDesign.secondarySurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            if !ownerMode && member.roleKind == "guide" {
+                Toggle("Главный гид", isOn: Binding(get: { member.isHeadGuide ?? false }, set: { member.isHeadGuide = $0 }))
+                Picker("Доступность", selection: Binding(get: { member.guideAvailability ?? "available" }, set: { member.guideAvailability = $0 })) {
+                    Text("Доступен для заявок").tag("available")
+                    Text("Занят").tag("busy")
+                    Text("Временно недоступен").tag("unavailable")
+                }
+            }
+            VStack(alignment: .leading, spacing: 10) {
+                sectionTitle("Описание сотрудника · 3 языка", icon: "text.bubble")
+                if !member.bio.isEmpty {
+                    Text("Исходное описание сохранено. Скопируйте его в нужное языковое поле и добавьте переводы.").font(.caption).foregroundStyle(.secondary)
+                    descriptionField("Исходное описание", text: $member.bio)
+                }
+                descriptionField("Русский · RU", text: Binding(get: { member.bioRU ?? "" }, set: { member.bioRU = $0 }))
+                descriptionField("O‘zbekcha · UZ (lotin)", text: Binding(get: { member.bioUZ ?? "" }, set: { member.bioUZ = $0 }))
+                descriptionField("Ўзбекча · UZ (кирилл)", text: Binding(get: { member.bioUZCyrl ?? "" }, set: { member.bioUZCyrl = $0 }))
+                if ownerMode {
+                    Button("Вставить черновик основателя в пустые поля") {
+                        if (member.bioRU ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { member.bioRU = "Я создал iumrah, чтобы каждая семья могла самостоятельно организовать индивидуальную умру, получая персональное сопровождение. Вместе с нашей командой я помогаю сделать путешествие понятным и прозрачным, чтобы вы могли уделить больше времени поклонению и своим близким. Через iumrah Care вы можете обратиться за консультацией и задать вопросы." }
+                        if (member.bioUZ ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { member.bioUZ = "Men iumrah platformasini har bir oila shaxsiy hamrohlik bilan individual umrasini mustaqil tashkil eta olishi uchun yaratdim. Jamoamiz bilan safaringizni tushunarli va shaffof qilishga yordam beramiz, toki ibodat va yaqinlaringizga ko‘proq vaqt ajrata olishingiz mumkin bo‘lsin. Maslahat va savollar uchun iumrah Care orqali murojaat qilishingiz mumkin." }
+                        if (member.bioUZCyrl ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { member.bioUZCyrl = "Мен iumrah платформасини ҳар бир оила шахсий ҳамроҳлик билан индивидуал умрасини мустақил ташкил эта олиши учун яратдим. Жамоамиз билан сафарингизни тушунарли ва шаффоф қилишга ёрдам берамиз, токи ибодат ва яқинларингизга кўпроқ вақт ажрата олишингиз мумкин бўлсин. Маслаҳат ва саволлар учун iumrah Care орқали мурожаат қилишингиз мумкин." }
+                    }.font(.subheadline.weight(.semibold))
+                }
+                Text("До заполнения перевода клиент видит исходное описание. Каждый перевод сохраняется отдельно.").font(.caption).foregroundStyle(.secondary)
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                sectionTitle("Публичные роли", icon: "person.2")
+                Text("Роли на витрине команды не изменяют системные права доступа.").font(.caption).foregroundStyle(.secondary)
+                ForEach(["founder", "admin", "guide", "support", "manager", "transfer", "operations"], id: \.self) { role in
+                    if role != "founder" || ownerMode {
+                        Toggle(publicRoleTitle(role), isOn: Binding(get: { currentRoles.contains(role) }, set: { enabled in
+                            var roles = currentRoles
+                            if enabled { if !roles.contains(role) { roles.append(role) } } else { roles.removeAll { $0 == role } }
+                            member.publicRoles = roles
+                        })).disabled(ownerMode && role == "founder")
+                    }
+                }
             }
         }
         .padding(17).businessCard(radius: 26)
+    }
+
+    private var currentRoles: [String] { member.publicRoles ?? (ownerMode ? ["founder", "admin"] : [member.roleKind]) }
+    private func publicRoleTitle(_ role: String) -> String {
+        switch role { case "founder": return "Основатель"; case "admin": return "Администратор"; case "guide": return "Гид"; case "support": return "Поддержка"; case "manager": return "Менеджер путешествий"; case "transfer": return "Координатор трансфера"; default: return "Операции" }
+    }
+    private func descriptionField(_ title: String, text: Binding<String>) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack { Text(title).font(.subheadline.weight(.semibold)); Spacer(); Text("\(text.wrappedValue.count)/1800").font(.caption2).foregroundStyle(.secondary) }
+            TextField("Описание", text: text, axis: .vertical)
+                .lineLimit(4...10).padding(12)
+                .background(BusinessDesign.secondarySurface, in: RoundedRectangle(cornerRadius: 16))
+                .onChange(of: text.wrappedValue) { _, value in if value.count > 1800 { text.wrappedValue = String(value.prefix(1800)) } }
+        }
     }
 
     private var photoEditor: some View {

@@ -1,0 +1,76 @@
+{
+  "base": "lattice-mobile-main 2.zip",
+  "cumulative": true,
+  "revision": "team-localized",
+  "files": [
+    {
+      "path": "Backend/HotelsWorker/migrations/0044_business_intelligence.sql",
+      "sha256": "79c2a09547a10cc0648635ccd2c7c48bc0e1ac9d2b593eba9ce0be9ba1be128a"
+    },
+    {
+      "path": "Backend/HotelsWorker/migrations/0046_team_localized_profiles.sql",
+      "sha256": "a85c257145fb69d630e97335abc73a88e1e9b40cba0b4e08a531aece5ad6328d"
+    },
+    {
+      "path": "Backend/HotelsWorker/src/index.js",
+      "sha256": "233fc81c8da98ebd60e00c7f5ec11561acc7a4acb3c4d1d178de52966a32eaa8"
+    },
+    {
+      "path": "Backend/IumrahBackend/core/app/api/bookings/route.js",
+      "sha256": "199441307ba29349928ecfb6485e57840b24491a1e04b66aee54bec4e4d26c40"
+    },
+    {
+      "path": "Backend/IumrahBackend/package-engine/src/storefront.ts",
+      "sha256": "51715ed2dc90ab30bf156046b4ceeffb83b5b7048a8a9920bc21f26e511963b8"
+    },
+    {
+      "path": "Backend/IumrahBackend/package-engine/test/home-direct-flights.runtime.mjs",
+      "sha256": "c594604b73208c47b806bdfcc7725305b2b591dfe6606d66fe3ed5a557b39756"
+    },
+    {
+      "path": "Backend/IumrahBackend/scripts/apply-package-schema.mjs",
+      "sha256": "66fc98a6f4d3770fc555984e2ad9f834b3f0ef16e7097f581a9cbd5293db15df"
+    },
+    {
+      "path": "Backend/IumrahBackend/src/package-engine/storefront.ts",
+      "sha256": "73f05eed17e9f99df707825e00b943978871c50167323064916d5bbe87d5fd7a"
+    },
+    {
+      "path": "Backend/IumrahBackend/tests/guide-catalog.test.mjs",
+      "sha256": "c9b94799030103235fc0283bcc95b8991589f3eff320af835251495bf1d36708"
+    },
+    {
+      "path": "IUMRAH_GUIDE_CATALOG_20261125_BIZ_MANIFEST.json",
+      "sha256": "bb22df052f30db0316e65182acdb4b1bc2112192f6e8f5c967da6163f5dc02a1"
+    },
+    {
+      "path": "IUMRAH_HOME_DIRECT_FLIGHTS_20261125.md",
+      "sha256": "7f0aa9cdb3a1275b682c78abecb598da8959b9db50fc7ba26d5a149da53b5a87"
+    },
+    {
+      "path": "IUMRAH_PERSONAL_GUIDES_20261125.md",
+      "sha256": "a940f37dc26a1a8df7192ee9d141a94155de3c14398128ed7f8805e60f616e56"
+    },
+    {
+      "path": "IUMRAH_TEAM_LOCALIZED_20261125.md",
+      "sha256": "cb938e054545323337e98ce7e18360b385fbc661e7c32a88e38db3601be62544"
+    },
+    {
+      "path": "Sources/Models/OperationsModels.swift",
+      "sha256": "02f9e77021d30cd3997d230d16ffb7415701c37ca58ca3e14710c414568fd38a"
+    },
+    {
+      "path": "Sources/Views/BookingDetailView.swift",
+      "sha256": "b87da3f1fc111d3f41b21a0d832c209f24d3be21eaea81fee9e89ca3cdc56e35"
+    },
+    {
+      "path": "Sources/Views/EmployeesView.swift",
+      "sha256": "f513e305841802fb13643ac7ea97d7cbcc157f7c405fd8ace219aaf21ded9682"
+    },
+    {
+      "path": "Sources/Views/ProfileView.swift",
+      "sha256": "873d08e89614334ce84d07b2e725c69090a052e9823528040d7f17ff933deb93"
+    }
+  ],
+  "changed_swift_count": 4
+}

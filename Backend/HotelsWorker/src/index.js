@@ -3498,7 +3498,9 @@ async function bookingAssignmentDetail(env, bookingID) {
   const preferredGuide = preferredGuideID ? await env.HOTELS_DB.prepare("SELECT * FROM team_members WHERE id=? AND role_kind='guide' AND active=1 AND public_visible=1 LIMIT 1").bind(preferredGuideID).first() : null;
   const preference = { preferredGuideID, preferredGuideName: preferredGuide ? mapTeamMember(preferredGuide, false).displayName : null };
   const row = await env.HOTELS_DB.prepare('SELECT * FROM trip_assignments WHERE booking_id=? LIMIT 1').bind(bookingID).first();
-  const primaryGuide = await env.HOTELS_DB.prepare("SELECT * FROM team_members WHERE role_kind='guide' AND active=1 ORDER BY sort_order ASC, created_at ASC LIMIT 1").first();
+  const primaryRows = await env.HOTELS_DB.prepare("SELECT * FROM team_members WHERE role_kind='guide' AND active=1 ORDER BY sort_order ASC, created_at ASC").all();
+  const eligible = (primaryRows.results || []).filter(r=>!r.guide_availability || r.guide_availability==='available');
+  const primaryGuide = eligible.find(r=>Number(r.is_head_guide||0)===1) || eligible[0] || null;
   if (!row) {
     return { ...preference, makkahHotelID: null, madinahHotelID: null, guideID: primaryGuide?.id || null, makkahHotel: null, madinahHotel: null, guide: primaryGuide ? mapTeamMember(primaryGuide, true) : null, guideIsPrimary: !!primaryGuide };
   }
@@ -3520,15 +3522,17 @@ async function bookingAssignmentDetail(env, bookingID) {
 async function clientBookingAssignmentDetail(env, bookingID) {
   const detail = await bookingAssignmentDetail(env, bookingID);
   const guide = detail?.preferredGuideID && detail?.guideIsPrimary ? null : detail?.guide;
+  const trip = await env.HOTELS_DB.prepare('SELECT * FROM pilgrim_trips WHERE booking_id=? LIMIT 1').bind(bookingID).first();
+  const contactsAllowed = !detail?.guideIsPrimary && trip?.payment_status === 'paid' && ['booking_confirmed','ready_to_travel','in_trip','completed'].includes(normalizedTripStatus(trip?.status));
   return {
     guide: guide ? {
       id: String(guide.id || ''),
       displayName: String(guide.displayName || ''),
       roleTitle: String(guide.roleTitle || ''),
-      phoneUZ: String(guide.phoneUZ || ''),
-      phoneSA: String(guide.phoneSA || ''),
-      telegram: String(guide.telegram || ''),
-      whatsapp: String(guide.whatsapp || ''),
+      phoneUZ: contactsAllowed ? String(guide.phoneUZ || '') : '',
+      phoneSA: contactsAllowed ? String(guide.phoneSA || '') : '',
+      telegram: contactsAllowed ? String(guide.telegram || '') : '',
+      whatsapp: contactsAllowed ? String(guide.whatsapp || '') : '',
       bio: String(guide.bio || '')
     } : null
   };
@@ -3551,8 +3555,8 @@ async function updateBookingAssignments(request, env, bookingID, user) {
     if (canonicalCity(hotel.city) !== city) return json({ ok: false, error: 'HOTEL_CITY_MISMATCH', hotelID: id, expectedCity: city }, 409);
   }
   if (guideID) {
-    const guide = await env.HOTELS_DB.prepare("SELECT id FROM team_members WHERE id=? AND role_kind='guide' AND active=1 LIMIT 1").bind(guideID).first();
-    if (!guide) return json({ ok: false, error: 'GUIDE_NOT_AVAILABLE' }, 409);
+    const guide = await env.HOTELS_DB.prepare("SELECT * FROM team_members WHERE id=? AND role_kind='guide' AND active=1 LIMIT 1").bind(guideID).first();
+    if (!guide || (guideID!==current?.guide_team_member_id && guide.guide_availability && guide.guide_availability!=='available')) return json({ ok: false, error: 'GUIDE_NOT_AVAILABLE' }, 409);
   }
   const now = new Date().toISOString();
   const changingGuide = guideID && guideID !== current?.guide_team_member_id;
@@ -3717,6 +3721,33 @@ function teamMemberPayload(payload, defaults = {}) {
   };
 }
 
+function localizedTeamText(value) {
+  if (typeof value !== 'string') return null;
+  return value.replace(/\u0000/g, '').trim().slice(0, 1800);
+}
+const TEAM_PUBLIC_ROLES = ['founder','admin','guide','support','manager','transfer','operations'];
+function teamPublicRoles(value, fallback) {
+  let raw=value; if(typeof raw==='string') { try {raw=JSON.parse(raw);} catch {raw=null;} }
+  const roles=Array.isArray(raw)?[...new Set(raw.filter(x=>TEAM_PUBLIC_ROLES.includes(x)))]:[];
+  return roles.length?roles:fallback;
+}
+function teamExtras(payload, previous) {
+  const roleKind=previous.roleKind;
+  const roles=teamPublicRoles(payload.publicRoles ?? previous.publicRoles, previous.isOwner?['founder','admin']:[roleKind]);
+  return {
+    bioRU: Object.hasOwn(payload,'bioRU') ? localizedTeamText(payload.bioRU) : previous.bioRU ?? null,
+    bioUZ: Object.hasOwn(payload,'bioUZ') ? localizedTeamText(payload.bioUZ) : previous.bioUZ ?? null,
+    bioUZCyrl: Object.hasOwn(payload,'bioUZCyrl') ? localizedTeamText(payload.bioUZCyrl) : previous.bioUZCyrl ?? null,
+    isHeadGuide: roleKind==='guide' && !previous.isOwner && (payload.isHeadGuide ?? previous.isHeadGuide ?? false) === true,
+    guideAvailability: ['available','unavailable','busy'].includes(payload.guideAvailability) ? payload.guideAvailability : previous.guideAvailability ?? 'available',
+    publicRoles: previous.isOwner ? [...new Set(['founder', ...roles])] : roles.filter(r=>r!=='founder')
+  };
+}
+async function saveTeamExtras(env,id,payload,previous) {
+  if(!['bioRU','bioUZ','bioUZCyrl','isHeadGuide','guideAvailability','publicRoles'].some(k=>Object.hasOwn(payload,k)))return;
+  const v=teamExtras(payload,previous);
+  await env.HOTELS_DB.prepare('UPDATE team_members SET bio_ru=?,bio_uz=?,bio_uz_cyrl=?,is_head_guide=?,guide_availability=?,public_roles_json=? WHERE id=?').bind(v.bioRU,v.bioUZ,v.bioUZCyrl,v.isHeadGuide?1:0,v.guideAvailability,JSON.stringify(v.publicRoles),id).run();
+}
 function mapTeamMember(row, admin = true) {
   if (!row) return null;
   const base = {
@@ -3732,6 +3763,12 @@ function mapTeamMember(row, admin = true) {
     whatsapp: row.whatsapp || '',
     instagram: row.instagram || '',
     bio: row.bio || '',
+    bioRU: row.bio_ru ?? null,
+    bioUZ: row.bio_uz ?? null,
+    bioUZCyrl: row.bio_uz_cyrl ?? null,
+    isHeadGuide: row.role_kind==='guide' && Number(row.is_head_guide||0)===1,
+    guideAvailability: row.guide_availability || 'available',
+    publicRoles: teamPublicRoles(row.public_roles_json, Number(row.is_owner||0)===1?['founder','admin']:[row.role_kind||'guide']),
     publicSlug: row.public_slug,
     publicVisible: Number(row.public_visible || 0) === 1,
     active: Number(row.active || 0) === 1,
@@ -3743,6 +3780,7 @@ function mapTeamMember(row, admin = true) {
       : null
   };
   if (admin) base.staffLogin = row.staff_login || null;
+  else { base.phoneUZ = ""; base.phoneSA = ""; base.telegram = ""; base.whatsapp = ""; base.instagram = ""; }
   return base;
 }
 
@@ -3781,6 +3819,7 @@ async function saveBusinessProfileMe(request, env, user) {
   await env.HOTELS_DB.prepare(`
     UPDATE team_members SET first_name=?, last_name=?, role_kind='owner', role_title=?, phone_uz=?, phone_sa=?, telegram=?, whatsapp=?, instagram=?, bio=?, public_slug=?, public_visible=?, active=1, is_owner=1, updated_at=? WHERE id=?
   `).bind(value.firstName, value.lastName, value.roleTitle, value.phoneUZ, value.phoneSA, value.telegram, value.whatsapp, value.instagram, value.bio, value.publicSlug, value.publicVisible ? 1 : 0, now, existing.id).run();
+  await saveTeamExtras(env,existing.id,payload,mapTeamMember(existing,true));
   return businessProfileMe(env, user);
 }
 
@@ -3833,6 +3872,7 @@ async function createTeamMember(request, env) {
     INSERT INTO team_members (id, first_name, last_name, role_kind, role_title, phone_uz, phone_sa, telegram, whatsapp, instagram, bio, public_slug, public_visible, active, is_owner, sort_order, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
   `).bind(id, value.firstName, value.lastName, value.roleKind, value.roleTitle, value.phoneUZ, value.phoneSA, value.telegram, value.whatsapp, value.instagram, value.bio, value.publicSlug, value.publicVisible ? 1 : 0, value.active ? 1 : 0, Number(max?.max_order || 0) + 1, now, now).run();
+  await saveTeamExtras(env,id,payload,{...value,isOwner:false});
   if(value.roleKind==='guide') await saveGuideDetails(env,id,payload);
   return adminTeamMember(env, id);
 }
@@ -3849,6 +3889,7 @@ async function updateTeamMember(request, env, memberID) {
   await env.HOTELS_DB.prepare(`
     UPDATE team_members SET first_name=?, last_name=?, role_kind=?, role_title=?, phone_uz=?, phone_sa=?, telegram=?, whatsapp=?, instagram=?, bio=?, public_slug=?, public_visible=?, active=?, updated_at=? WHERE id=?
   `).bind(value.firstName, value.lastName, row.is_owner ? 'owner' : value.roleKind, value.roleTitle, value.phoneUZ, value.phoneSA, value.telegram, value.whatsapp, value.instagram, value.bio, value.publicSlug, value.publicVisible ? 1 : 0, value.active ? 1 : 0, now, memberID).run();
+  await saveTeamExtras(env,memberID,payload,{...mapTeamMember(row,true),roleKind:row.is_owner?'owner':value.roleKind});
   if(value.roleKind==='guide'&&!row.is_owner) await saveGuideDetails(env,memberID,payload);
   return adminTeamMember(env, memberID);
 }
@@ -4096,15 +4137,23 @@ async function publicTeam(env, parts, url) {
   if (parts.length === 0) {
     const result = await env.HOTELS_DB.prepare(`SELECT * FROM team_members WHERE active=1 AND public_visible=1 ORDER BY is_owner DESC, sort_order ASC, last_name COLLATE NOCASE, first_name COLLATE NOCASE`).all();
     const members = await withGuideDetails(env,(result.results || []).map(row => mapTeamMember(row, false)));
+    const directory = url?.searchParams.get('teamDirectory') === '1';
+    const directoryMember = m => ({...m,phoneUZ:'',phoneSA:'',telegram:'',whatsapp:'',instagram:''});
     const start = url?.searchParams.get('guideStart'), end = url?.searchParams.get('guideEnd');
     if (start || end) {
       if (!validGuideDay(start) || !validGuideDay(end) || start > end) return json({ok:false,error:'INVALID_GUIDE_DATES'},400);
       // Never publish booking IDs, other families or calendar details.
       const busy = await env.HOTELS_DB.prepare(`SELECT DISTINCT a.guide_team_member_id AS id FROM trip_assignments a JOIN pilgrim_trips t ON t.booking_id=a.booking_id WHERE a.guide_team_member_id IS NOT NULL AND ${GUIDE_OCCUPIED_SQL}`).bind(end,start).all();
       const ids = new Set((busy.results || []).map(r=>r.id));
-      return json({ok:true,members:members.filter(m=>m.roleKind==='guide'&&!m.isOwner).map(m=>({...m,guideAvailable:!ids.has(m.id)}))},200,{'Cache-Control':'no-store'});
+      const ranked=members.filter(m=>directory||(m.roleKind==='guide'&&!m.isOwner)).map(m=>{
+        const guide=m.roleKind==='guide'&&!m.isOwner;
+        const status=!guide?null:m.guideAvailability==='unavailable'?'unavailable':m.guideAvailability==='busy'?'busy':ids.has(m.id)?'busy_dates':'available';
+        const item={...m,guideAvailable:guide?status==='available':null,availabilityStatus:status};
+        return directory?directoryMember(item):item;
+      }).sort((a,b)=>Number(b.isHeadGuide)-Number(a.isHeadGuide));
+      return json({ok:true,members:ranked},200,{'Cache-Control':'no-store'});
     }
-    return json({ ok: true, members }, 200, PUBLIC_CACHE_HEADERS);
+    return json({ ok: true, members: directory?members.map(directoryMember):members }, 200, directory?{'Cache-Control':'no-store'}:PUBLIC_CACHE_HEADERS);
   }
   const slug = cleanText(parts[0], 120);
   if (!slug) return json({ ok: false, error: 'INVALID_PROFILE' }, 400);

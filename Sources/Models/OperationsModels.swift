@@ -65,6 +65,12 @@ struct BusinessTeamMember: Codable, Identifiable, Hashable {
     var whatsapp: String
     var instagram: String
     var bio: String
+    var bioRU: String? = nil
+    var bioUZ: String? = nil
+    var bioUZCyrl: String? = nil
+    var isHeadGuide: Bool? = nil
+    var guideAvailability: String? = nil
+    var publicRoles: [String]? = nil
     var publicSlug: String
     var publicVisible: Bool
     var active: Bool
@@ -95,6 +101,12 @@ struct BusinessTeamMemberPayload: Encodable {
     let whatsapp: String
     let instagram: String
     let bio: String
+    let bioRU: String?
+    let bioUZ: String?
+    let bioUZCyrl: String?
+    let isHeadGuide: Bool?
+    let guideAvailability: String?
+    let publicRoles: [String]?
     let publicSlug: String
     let publicVisible: Bool
     let active: Bool
@@ -113,6 +125,12 @@ struct BusinessTeamMemberPayload: Encodable {
         whatsapp = member.whatsapp
         instagram = member.instagram
         bio = member.bio
+        bioRU = member.bioRU
+        bioUZ = member.bioUZ
+        bioUZCyrl = member.bioUZCyrl
+        isHeadGuide = member.isHeadGuide
+        guideAvailability = member.guideAvailability
+        publicRoles = member.publicRoles
         publicSlug = member.publicSlug
         publicVisible = member.publicVisible
         active = member.active

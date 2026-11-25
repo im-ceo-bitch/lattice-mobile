@@ -199,6 +199,9 @@ export async function publicStorefrontFlightBoard(url: URL, db: D1Like | undefin
   if (!validOrigin(origin)) return responseJSON({ ok: false, error: "INVALID_ORIGIN" }, 400);
 
   const today = new Date().toISOString().slice(0, 10);
+  // The Home catalogue explicitly requests the complete published board.
+  // Keep the legacy limit for existing consumers.
+  const completeCatalog = url.searchParams.get("all") === "1";
   // The Flights storefront is a public catalogue, not a route-specific search.
   // Return every future staff-published direct Umrah product across departure
   // cities. `origin` is used only to choose the hotel-card baseline price below.
@@ -216,8 +219,8 @@ export async function publicStorefrontFlightBoard(url: URL, db: D1Like | undefin
         (inbound_origin IS NOT NULL AND
           outbound_destination IN ('MED','JED') AND inbound_origin IN ('MED','JED'))
       )
-    ORDER BY priority ASC, outbound_date ASC, per_traveler_fare ASC
-    LIMIT 300`)
+    ORDER BY priority ASC, outbound_date ASC, per_traveler_fare ASC, id ASC
+    ${completeCatalog ? "" : "LIMIT 300"}`)
     .bind(today)
     .all<CuratedRow>();
 
@@ -230,6 +233,7 @@ export async function publicStorefrontFlightBoard(url: URL, db: D1Like | undefin
     generatedAt: new Date().toISOString(),
     baseline,
     options,
+    ...(completeCatalog ? { catalogComplete: true } : {}),
   });
 }
 

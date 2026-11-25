@@ -120,7 +120,7 @@ struct EmployeesView: View {
     private func employeeRoleLine(_ member: BusinessTeamMember) -> String {
         if member.isOwner { return "Founder · iumrah" }
         if member.roleKind.lowercased() == "guide" {
-            let title = member.roleTitle.isEmpty ? "Гид iumrah" : member.roleTitle
+            let title = member.isHeadGuide == true ? "Главный гид iumrah" : "Персональный гид iumrah"
             return member.experienceYears.map { title + " · стаж \($0) лет" } ?? title
         }
         return member.roleTitle.isEmpty ? roleTitle(member.roleKind) : member.roleTitle
@@ -142,7 +142,7 @@ struct TeamMemberEditorView: View {
 
     var body: some View {
         TeamMemberForm(member: $member, pendingPhotoData: $pendingPhotoData, ownerMode: member.isOwner)
-            .navigationTitle(creating ? "Новый сотрудник" : "Сотрудник")
+            .navigationTitle(creating ? "Новый сотрудник" : "Изменить сотрудника")
             .navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
             .toolbar {
                 if creating { ToolbarItem(placement: .topBarLeading) { Button("Отмена") { dismiss() }.foregroundStyle(BusinessDesign.headerInk) } }

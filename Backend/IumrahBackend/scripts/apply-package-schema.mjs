@@ -40,6 +40,13 @@ export async function ensurePublicShareSchema(query) {
   }
   return statements.length;
 }
+// Idempotent profile fields on the existing team_members table; no row rewrite.
+export async function ensureTeamProfileSchema(query) {
+ const existing=new Set((await query('PRAGMA table_info(team_members)')).map(x=>x.name));
+ if(!existing.has('id')) throw Error('TEAM_MEMBERS_SCHEMA_MISSING');
+ const definitions={bio_ru:'TEXT',bio_uz:'TEXT',bio_uz_cyrl:'TEXT',is_head_guide:"INTEGER NOT NULL DEFAULT 0 CHECK (is_head_guide IN (0,1))",guide_availability:"TEXT NOT NULL DEFAULT 'available' CHECK (guide_availability IN ('available','unavailable','busy'))",public_roles_json:'TEXT'};
+ for(const [name,definition] of Object.entries(definitions)) if(!existing.has(name)) await query(`ALTER TABLE team_members ADD COLUMN ${name} ${definition}`);
+}
 export async function applyPackageSchema(env=process.env,fetcher=fetch,config=JSON.parse(fs.readFileSync(new URL('../wrangler.generated.jsonc',import.meta.url),'utf8'))){
  if(config.name!=='iumrah-backend'||!/^[a-f0-9]{32}$/i.test(env.CLOUDFLARE_ACCOUNT_ID||'')||!env.CLOUDFLARE_API_TOKEN)throw Error('INVALID_SCHEMA_DEPLOY_TARGET');
  for(const [binding,schema] of Object.entries(snapshot)){
@@ -54,6 +61,7 @@ export async function applyPackageSchema(env=process.env,fetcher=fetch,config=JS
   };
   const result=await ensureSchema(query,schema,binding);
   if(binding==='BOOKINGS_DB') await ensurePublicShareSchema(query);
+  if(binding==='HOTELS_DB') await ensureTeamProfileSchema(query);
   console.log(`${binding}: schema verified, created ${result.created} tables, added ${result.added} columns; existing rows preserved.`);
  }
  console.log('Schema readiness only; existing user/booking data parity and R2 migration are NOT verified. Core cutover remains gated.');
