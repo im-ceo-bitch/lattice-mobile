@@ -50,7 +50,10 @@ export function validateIntelligenceBatch(body, currentTime = Date.now()) {
     ids.add(eventId);
     events.push({ eventId, eventName, screen, elementId, occurredAt: new Date(timestamp).toISOString(), durationMs });
   }
-  return { visitorId, sessionId, platform, appVersion, events };
+  // Model/OS are optional coarse technical codes, not hardware identifiers.
+  const model = typeof body.deviceModel === 'string' && /^[A-Za-z0-9_. ,-]{1,48}$/.test(body.deviceModel) ? body.deviceModel : '';
+  const osVersion = code(body.osVersion, 24) || '';
+  return { visitorId, sessionId, platform, appVersion, model, osVersion, events };
 }
 
 export async function intelligenceIngest(request, env) {
@@ -74,6 +77,16 @@ export async function intelligenceIngest(request, env) {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(event.eventId, batch.visitorId, batch.sessionId, event.eventName, event.screen,
       event.elementId, batch.platform, batch.appVersion, event.occurredAt, event.durationMs, now));
+    // Only trust Cloudflare-provided coarse network geography, never client headers.
+    const country = /^[A-Z]{2}$/.test(request.cf?.country || '') && !['XX','T1'].includes(request.cf.country) ? request.cf.country : '';
+    const city = country && typeof request.cf?.city === 'string' ? request.cf.city.replace(/[^\p{L}\p{M} .'-]/gu, '').slice(0,80) : '';
+    statements.unshift(env.HOTELS_DB.prepare(`INSERT INTO intelligence_devices
+      (platform,visitor_id,model,os_version,country,city,last_seen) VALUES (?,?,?,?,?,?,?)
+      ON CONFLICT(platform,visitor_id) DO UPDATE SET
+      model=CASE WHEN excluded.model<>'' THEN excluded.model ELSE model END,
+      os_version=CASE WHEN excluded.os_version<>'' THEN excluded.os_version ELSE os_version END,
+      country=excluded.country, city=excluded.city,last_seen=excluded.last_seen
+      WHERE excluded.last_seen>=last_seen`).bind(batch.platform,batch.visitorId,batch.model,batch.osVersion,country,city,now));
     await env.HOTELS_DB.batch(statements);
   } catch (error) {
     console.error('INTELLIGENCE_INGEST_FAILED', String(error?.message || error));
@@ -91,27 +104,28 @@ function lowerBound(days, reference = Date.now()) {
 }
 
 export async function intelligenceOverview(env, days = 7) {
+  await ensureIntelligenceSchema(env.HOTELS_DB);
   const since = lowerBound(days);
   const [events, names, screens, daily, durations, platforms, dailyPlatform] = await Promise.all([
-    env.HOTELS_DB.prepare(`SELECT COUNT(*) AS events, COUNT(DISTINCT visitor_id) AS visitors,
-      COUNT(DISTINCT session_id) AS sessions FROM intelligence_events WHERE created_at>=?`).bind(since).first(),
-    env.HOTELS_DB.prepare(`SELECT event_name, COUNT(*) AS events, COUNT(DISTINCT visitor_id) AS visitors
-      FROM intelligence_events WHERE created_at>=? GROUP BY event_name ORDER BY events DESC`).bind(since).all(),
-    env.HOTELS_DB.prepare(`SELECT screen, COUNT(*) AS views, COUNT(DISTINCT visitor_id) AS visitors
-      FROM intelligence_events WHERE created_at>=? AND event_name='screen_view' AND screen<>''
+    env.HOTELS_DB.prepare(`SELECT COUNT(*) AS events, COUNT(DISTINCT platform || '|' || visitor_id) AS visitors,
+      COUNT(DISTINCT platform || '|' || visitor_id || '|' || session_id) AS sessions FROM intelligence_external_events WHERE occurred_at>=?`).bind(since).first(),
+    env.HOTELS_DB.prepare(`SELECT event_name, COUNT(*) AS events, COUNT(DISTINCT platform || '|' || visitor_id) AS visitors
+      FROM intelligence_external_events WHERE occurred_at>=? GROUP BY event_name ORDER BY events DESC`).bind(since).all(),
+    env.HOTELS_DB.prepare(`SELECT screen, COUNT(*) AS views, COUNT(DISTINCT platform || '|' || visitor_id) AS visitors
+      FROM intelligence_external_events WHERE occurred_at>=? AND event_name='screen_view' AND screen<>''
       GROUP BY screen ORDER BY views DESC LIMIT 15`).bind(since).all(),
-    env.HOTELS_DB.prepare(`SELECT substr(created_at,1,10) AS day, COUNT(DISTINCT visitor_id) AS visitors,
-      COUNT(*) AS events FROM intelligence_events WHERE created_at>=?
-      GROUP BY substr(created_at,1,10) ORDER BY day ASC`).bind(since).all(),
+    env.HOTELS_DB.prepare(`SELECT substr(occurred_at,1,10) AS day, COUNT(DISTINCT platform || '|' || visitor_id) AS visitors,
+      COUNT(*) AS events FROM intelligence_external_events WHERE occurred_at>=?
+      GROUP BY substr(occurred_at,1,10) ORDER BY day ASC`).bind(since).all(),
     env.HOTELS_DB.prepare(`SELECT screen, AVG(duration_ms) AS avg_duration_ms, COUNT(*) AS exits
-      FROM intelligence_events WHERE created_at>=? AND event_name='screen_exit' AND screen<>''
+      FROM intelligence_external_events WHERE occurred_at>=? AND event_name='screen_exit' AND screen<>''
       AND duration_ms IS NOT NULL GROUP BY screen`).bind(since).all(),
-    env.HOTELS_DB.prepare(`SELECT platform, COUNT(DISTINCT visitor_id) AS visitors,
-      COUNT(DISTINCT session_id) AS sessions, COUNT(*) AS events,
-      COUNT(DISTINCT CASE WHEN event_name='booking_completed' THEN visitor_id END) AS bookings
-      FROM intelligence_events WHERE created_at>=? GROUP BY platform ORDER BY visitors DESC`).bind(since).all(),
-    env.HOTELS_DB.prepare(`SELECT substr(created_at,1,10) AS day, platform, COUNT(DISTINCT visitor_id) AS visitors
-      FROM intelligence_events WHERE created_at>=? GROUP BY substr(created_at,1,10), platform ORDER BY day`).bind(since).all()
+    env.HOTELS_DB.prepare(`SELECT platform, COUNT(DISTINCT platform || '|' || visitor_id) AS visitors,
+      COUNT(DISTINCT platform || '|' || visitor_id || '|' || session_id) AS sessions, COUNT(*) AS events,
+      COUNT(DISTINCT CASE WHEN event_name='booking_completed' THEN platform || '|' || visitor_id END) AS bookings
+      FROM intelligence_external_events WHERE occurred_at>=? GROUP BY platform ORDER BY visitors DESC`).bind(since).all(),
+    env.HOTELS_DB.prepare(`SELECT substr(occurred_at,1,10) AS day, platform, COUNT(DISTINCT platform || '|' || visitor_id) AS visitors
+      FROM intelligence_external_events WHERE occurred_at>=? GROUP BY substr(occurred_at,1,10), platform ORDER BY day`).bind(since).all()
   ]);
   const byName = new Map((names.results || []).map(row => [row.event_name, row]));
   const byScreenDuration = new Map((durations.results || []).map(row => [row.screen, row]));
@@ -134,7 +148,7 @@ async function recentSessions(env, url) {
   const days = daysParam(url);
   const rows = await env.HOTELS_DB.prepare(`
     SELECT session_id, platform, MIN(occurred_at) AS started_at, MAX(occurred_at) AS last_event_at,
-      COUNT(*) AS event_count FROM intelligence_events WHERE created_at>=?
+      COUNT(*) AS event_count FROM intelligence_events WHERE occurred_at>=?
     GROUP BY session_id, platform ORDER BY last_event_at DESC LIMIT 40
   `).bind(lowerBound(days)).all();
   return respond({ ok: true, days, sessions: (rows.results || []).map(row => ({
@@ -150,6 +164,50 @@ async function sessionJourney(env, sessionId) {
   return respond({ ok: true, sessionId, events: (rows.results || []).map(row => ({
     name: row.event_name, screen: row.screen, elementId: row.element_id, at: row.created_at
   })) });
+}
+
+async function audience(env, url) {
+  const days = daysParam(url), since = lowerBound(days);
+  const scope = url.searchParams.get('scope') === 'internal' ? 'internal' : 'external';
+  const internal = scope === 'internal' ? 1 : 0;
+  const offset = Math.max(0, Math.min(10000, Math.trunc(Number(url.searchParams.get('offset')) || 0)));
+  const db = env.HOTELS_DB;
+  const cte = `WITH grouped AS (SELECT e.platform,e.visitor_id,COUNT(*) AS events,COUNT(DISTINCT e.session_id) AS sessions,
+    MIN(e.occurred_at) AS first_at,MAX(e.occurred_at) AS last_at,
+    COUNT(DISTINCT CASE WHEN e.event_name='booking_completed' THEN e.session_id END) AS booking_sessions
+    FROM intelligence_events e WHERE e.occurred_at>=? GROUP BY e.platform,e.visitor_id),
+    audience AS (SELECT g.*,COALESCE(d.internal,0) AS internal,COALESCE(d.model,'') AS model,
+    COALESCE(d.os_version,'') AS os_version,COALESCE(d.country,'') AS country,COALESCE(d.city,'') AS city
+    FROM grouped g LEFT JOIN intelligence_devices d ON d.platform=g.platform AND d.visitor_id=g.visitor_id)`;
+  const [totals, rows, countries, cities, models] = await Promise.all([
+    db.prepare(cte+` SELECT internal,COUNT(*) AS devices,SUM(sessions) AS sessions,SUM(events) AS events FROM audience GROUP BY internal`).bind(since).all(),
+    db.prepare(cte+` SELECT * FROM audience WHERE internal=? ORDER BY last_at DESC,platform,visitor_id LIMIT 51 OFFSET ?`).bind(since,internal,offset).all(),
+    db.prepare(cte+` SELECT country,COUNT(*) AS devices FROM audience WHERE internal=? GROUP BY country ORDER BY devices DESC,country`).bind(since,internal).all(),
+    db.prepare(cte+` SELECT country,city,COUNT(*) AS devices FROM audience WHERE internal=? GROUP BY country,city ORDER BY devices DESC,country,city LIMIT 30`).bind(since,internal).all(),
+    db.prepare(cte+` SELECT platform,model,COUNT(*) AS devices FROM audience WHERE internal=? GROUP BY platform,model ORDER BY devices DESC,platform,model LIMIT 30`).bind(since,internal).all()
+  ]);
+  const total = flag => {const row=(totals.results||[]).find(x=>x.internal===flag);return {devices:count(row?.devices),sessions:count(row?.sessions),events:count(row?.events)};};
+  return respond({ok:true,days,scope,external:total(0),internal:total(1),hasMore:(rows.results||[]).length>50,
+    countries:(countries.results||[]).map(x=>({country:x.country,devices:count(x.devices)})),
+    cities:(cities.results||[]).map(x=>({country:x.country,city:x.city,devices:count(x.devices)})),
+    models:(models.results||[]).map(x=>({platform:x.platform,model:x.model,devices:count(x.devices)})),
+    devices:(rows.results||[]).slice(0,50).map(x=>({visitorId:x.visitor_id,platform:x.platform,model:x.model,osVersion:x.os_version,
+      country:x.country,city:x.city,internal:x.internal===1,events:count(x.events),sessions:count(x.sessions),firstAt:x.first_at,lastAt:x.last_at,bookingSessions:count(x.booking_sessions)}))});
+}
+async function deviceSessions(env,url,platform,visitorId) {
+  const rows=await env.HOTELS_DB.prepare(`SELECT session_id,platform,MIN(occurred_at) AS started_at,MAX(occurred_at) AS last_event_at,
+    COUNT(*) AS event_count FROM intelligence_events WHERE platform=? AND visitor_id=? AND occurred_at>=?
+    GROUP BY session_id,platform ORDER BY last_event_at DESC LIMIT 100`).bind(platform,visitorId,lowerBound(daysParam(url))).all();
+  return respond({ok:true,sessions:(rows.results||[]).map(x=>({sessionId:x.session_id,platform:x.platform,startedAt:x.started_at,lastEventAt:x.last_event_at,eventCount:count(x.event_count)}))});
+}
+async function classifyDevice(request,env,platform,visitorId) {
+  let body; try {body=await request.json();} catch {return respond({ok:false,error:'INVALID_JSON'},400);}
+  if(typeof body?.internal!=='boolean') return respond({ok:false,error:'INVALID_CLASSIFICATION'},400);
+  const exists=await env.HOTELS_DB.prepare('SELECT 1 AS found FROM intelligence_events WHERE platform=? AND visitor_id=? LIMIT 1').bind(platform,visitorId).first();
+  if(!exists) return respond({ok:false,error:'DEVICE_NOT_FOUND'},404);
+  await env.HOTELS_DB.prepare(`INSERT INTO intelligence_devices(platform,visitor_id,internal) VALUES(?,?,?)
+    ON CONFLICT(platform,visitor_id) DO UPDATE SET internal=excluded.internal`).bind(platform,visitorId,body.internal?1:0).run();
+  return respond({ok:true});
 }
 
 async function listReports(env) {
@@ -189,12 +247,17 @@ export async function intelligenceAdmin(request, env, url, user) {
   if (!parts.length && request.method === 'GET') {
     return respond({ ok: true, overview: await intelligenceOverview(env, daysParam(url)) });
   }
+  if (parts.length === 1 && parts[0] === 'audience' && request.method === 'GET') return audience(env,url);
+  if (parts.length === 4 && parts[0] === 'devices' && ['ios','android','web'].includes(parts[1]) && uuid(parts[2])) {
+    if (parts[3] === 'sessions' && request.method === 'GET') return deviceSessions(env,url,parts[1],parts[2]);
+    if (parts[3] === 'classification' && request.method === 'POST') return classifyDevice(request,env,parts[1],parts[2]);
+  }
   if (parts.length === 1 && parts[0] === 'sessions' && request.method === 'GET') return recentSessions(env, url);
   if (parts.length === 2 && parts[0] === 'sessions' && request.method === 'GET') return sessionJourney(env, parts[1]);
   if (parts.length === 1 && parts[0] === 'reports' && request.method === 'GET') return listReports(env);
   if (parts.length === 2 && parts[0] === 'reports' && parts[1] === 'generate' && request.method === 'POST') {
     const result = await runIntelligenceReport(env, { manual: true });
-    return respond(result, result.ok ? 200 : result.code === 'GEMINI_KEY_MISSING' ? 503 : 400);
+    return respond(result.ok ? result : {...result,error:result.code}, result.ok ? 200 : /503|UNAVAILABLE|KEY_MISSING/.test(result.code || '') ? 503 : 400);
   }
   if (parts.length === 1 && parts[0] === 'chat') return intelligenceChat(request, env, url);
   return respond({ ok: false, error: 'NOT_FOUND' }, 404);
@@ -225,6 +288,7 @@ export async function runIntelligenceReport(env, { manual = false, now = new Dat
     // Capped event retention prevents indefinite storage of journeys.
     await env.HOTELS_DB.prepare('DELETE FROM intelligence_events WHERE created_at < ?')
       .bind(lowerBound(90, now.getTime())).run();
+    await env.HOTELS_DB.prepare(`DELETE FROM intelligence_devices WHERE internal=0 AND NOT EXISTS (SELECT 1 FROM intelligence_events e WHERE e.platform=intelligence_devices.platform AND e.visitor_id=intelligence_devices.visitor_id)`).run();
     await env.HOTELS_DB.prepare('DELETE FROM intelligence_reports WHERE created_at < ?')
       .bind(lowerBound(180, now.getTime())).run();
   }
@@ -260,13 +324,13 @@ export async function runIntelligenceReport(env, { manual = false, now = new Dat
     // Previous 7 days are calculated from safe aggregate metrics, not raw journeys.
     const previousStart = lowerBound(14, now.getTime());
     const previousEnd = lowerBound(7, now.getTime());
-    const previousRows = await env.HOTELS_DB.prepare(`SELECT event_name, COUNT(DISTINCT visitor_id) AS visitors,
-      COUNT(*) AS events FROM intelligence_events WHERE created_at>=? AND created_at<?
+    const previousRows = await env.HOTELS_DB.prepare(`SELECT event_name, COUNT(DISTINCT platform || '|' || visitor_id) AS visitors,
+      COUNT(*) AS events FROM intelligence_external_events WHERE occurred_at>=? AND occurred_at<?
       GROUP BY event_name`).bind(previousStart, previousEnd).all();
     const prev = new Map((previousRows.results || []).map(row => [row.event_name, row]));
     const previousTotals = await env.HOTELS_DB.prepare(`SELECT COUNT(*) AS events,
-      COUNT(DISTINCT visitor_id) AS visitors, COUNT(DISTINCT session_id) AS sessions
-      FROM intelligence_events WHERE created_at>=? AND created_at<?`).bind(previousStart, previousEnd).first();
+      COUNT(DISTINCT platform || '|' || visitor_id) AS visitors, COUNT(DISTINCT platform || '|' || visitor_id || '|' || session_id) AS sessions
+      FROM intelligence_external_events WHERE occurred_at>=? AND occurred_at<?`).bind(previousStart, previousEnd).first();
     const previous = {
       visitors: count(previousTotals?.visitors), sessions: count(previousTotals?.sessions), events: count(previousTotals?.events),
       funnel: FUNNEL.map(([name, title]) => ({ event: name, title, visitors: count(prev.get(name)?.visitors) }))

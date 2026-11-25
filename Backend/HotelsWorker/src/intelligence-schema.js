@@ -1,6 +1,7 @@
 // Safety net for existing iumrah-hotels D1. All statements are additive / idempotent.
 // The existing migrations and the single deploy workflow remain unchanged.
 const SQL = [
+  "CREATE TABLE IF NOT EXISTS intelligence_devices (\n platform TEXT NOT NULL, visitor_id TEXT NOT NULL, internal INTEGER NOT NULL DEFAULT 0 CHECK(internal IN (0,1)),\n model TEXT NOT NULL DEFAULT '', os_version TEXT NOT NULL DEFAULT '', country TEXT NOT NULL DEFAULT '', city TEXT NOT NULL DEFAULT '',\n last_seen TEXT NOT NULL DEFAULT '', PRIMARY KEY(platform, visitor_id)\n)",
   "CREATE TABLE IF NOT EXISTS intelligence_events (\n  event_id TEXT PRIMARY KEY,\n  visitor_id TEXT NOT NULL,\n  session_id TEXT NOT NULL,\n  event_name TEXT NOT NULL,\n  screen TEXT NOT NULL DEFAULT '',\n  element_id TEXT NOT NULL DEFAULT '',\n  platform TEXT NOT NULL,\n  app_version TEXT NOT NULL DEFAULT '',\n  occurred_at TEXT NOT NULL,\n  duration_ms INTEGER,\n  created_at TEXT NOT NULL\n)",
   "CREATE INDEX IF NOT EXISTS idx_intelligence_events_created ON intelligence_events(created_at DESC)",
   "CREATE INDEX IF NOT EXISTS idx_intelligence_events_session ON intelligence_events(session_id, occurred_at ASC)",
@@ -20,12 +21,14 @@ export async function ensureIntelligenceSchema(db) {
   if (!promise) {
     promise = (async () => {
       // Validate presence before DDL: normal requests are read-only.
-      const names = ['intelligence_events','intelligence_reports','intelligence_ai_threads','intelligence_ai_messages','intelligence_ai_usage'];
+      const names = ['intelligence_events','intelligence_reports','intelligence_ai_threads','intelligence_ai_messages','intelligence_ai_usage','intelligence_devices'];
       const existing = await db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'intelligence_%'").all();
       const have = new Set((existing.results || []).map(x => x.name));
-      if (names.every(name => have.has(name))) return;
+      const view = await db.prepare("SELECT name FROM sqlite_master WHERE type='view' AND name='intelligence_external_events'").first();
+      if (names.every(name => have.has(name)) && view) return;
       // The baseline schema was missed. Recover only the dedicated Intelligence tables.
       for (const statement of SQL) await db.prepare(statement).run();
+      for (const statement of ["CREATE INDEX IF NOT EXISTS idx_intelligence_events_visitor ON intelligence_events(platform, visitor_id, occurred_at)", "CREATE VIEW IF NOT EXISTS intelligence_external_events AS SELECT e.* FROM intelligence_events e\n WHERE NOT EXISTS (SELECT 1 FROM intelligence_devices d WHERE d.platform=e.platform AND d.visitor_id=e.visitor_id AND d.internal=1)"]) await db.prepare(statement).run();
       const verified = await db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'intelligence_%'").all();
       const finalNames = new Set((verified.results || []).map(x=>x.name));
       if (!names.every(name => finalNames.has(name))) throw new Error('INTELLIGENCE_SCHEMA_UNAVAILABLE');

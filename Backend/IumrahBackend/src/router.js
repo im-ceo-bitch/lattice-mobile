@@ -68,7 +68,7 @@ export function createBackendRouter({hotels, flights, packages, core, requestAer
       if (route === 'services') return publicServices(request,fetch,env);
       if (!['GET','HEAD','OPTIONS'].includes(request.method)) {
         const origin=request.headers.get('origin');
-        if (origin && !['https://iumrah.app','https://iumrah.uz','https://iumrah.us','https://iumrahproject.com','https://iumrah-backend.helloiumrah.workers.dev'].includes(origin)) return json({ok:false,error:'CROSS_ORIGIN_REQUEST'},403);
+        if (origin && !(pathname === '/api/catalog/hotels/intelligence/events' && ['https://www.iumrah.app','https://www.iumrah.uz'].includes(origin)) && !['https://iumrah.app','https://iumrah.uz','https://iumrah.us','https://iumrahproject.com','https://iumrah-backend.helloiumrah.workers.dev'].includes(origin)) return json({ok:false,error:'CROSS_ORIGIN_REQUEST'},403);
       }
       const sharedEnv = requestAeroDataBox ? {...env, IUMRAH_AERO_REQUEST: (endpoint) => requestAeroDataBox(env, endpoint)} : env;
       const ready = coreReady(env,core);

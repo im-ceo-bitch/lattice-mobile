@@ -26,13 +26,14 @@ test('ingestion writes ONLY whitelisted columns, never arbitrary client properti
   const captured = [];
   const env = { HOTELS_DB: {
     prepare(sql) {
+      if (sql.includes("type='view'")) return {async first(){return {name:'intelligence_external_events'};}};
       if (sql.includes('sqlite_master')) {
-        const names = ['intelligence_events','intelligence_reports','intelligence_ai_threads','intelligence_ai_messages','intelligence_ai_usage'];
+        const names = ['intelligence_events','intelligence_reports','intelligence_ai_threads','intelligence_ai_messages','intelligence_ai_usage','intelligence_devices'];
         return { async all() { return { results: names.map(name => ({name})) }; } };
       }
       return { bind(...args) { captured.push({ sql, args }); return { sql, args }; } };
     },
-    async batch(statements) { assert.equal(statements.length, 1); return []; }
+    async batch(statements) { assert.equal(statements.length, 2); return []; }
   } };
   const payload = batch();
   payload.email = 'private@example.com';
@@ -43,9 +44,9 @@ test('ingestion writes ONLY whitelisted columns, never arbitrary client properti
   const response = await intelligenceIngest(request, env);
   assert.equal(response.status, 202);
   assert.equal((await response.json()).accepted, 1);
-  assert.equal(captured.length, 1);
-  assert.ok(!captured[0].args.includes('private@example.com'));
-  assert.ok(!captured[0].args.includes('passport'));
+  assert.equal(captured.length, 2);
+  assert.ok(captured.every(x=>!x.args.includes('private@example.com')));
+  assert.ok(captured.every(x=>!x.args.includes('passport')));
 });
 
 test('anonymous event ingestion rejects malformed data', async () => {
@@ -151,4 +152,37 @@ test('Gemini report gets aggregate-only payload, persists advice and never recei
     globalThis.fetch = originalFetch;
     sqlite.close();
   }
+});
+
+test('device grouping, network geography, historical exclusion and reversible admin classification', async () => {
+  const {sqlite,env}=sqliteD1();
+  const founder=randomUUID(), customer=randomUUID();
+  const ingest=async (visitorId,platform,sessionId,geo={})=>{
+    const payload={...batch(),visitorId,platform,sessionId,deviceModel:platform==='ios'?'iPhone14,4':'SM-A556E',country:'FAKE',internal:true};
+    // Existing metadata contract accepts only safe machine codes.
+    payload.deviceModel=platform==='ios'?'iPhone14.4':'SM-A556E';
+    const req=new Request('https://example.com/api/catalog/hotels/intelligence/events',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)});
+    Object.defineProperty(req,'cf',{value:geo});
+    assert.equal((await intelligenceIngest(req,env)).status,202);
+  };
+  await ingest(founder,'ios',randomUUID(),{country:'UZ',city:'Tashkent'});
+  await ingest(founder,'ios',randomUUID(),{country:'UZ',city:'Tashkent'});
+  await ingest(customer,'android',randomUUID(),{country:'SA',city:'Jeddah'});
+  const admin=async (path,method='GET',body)=>{const url=new URL('https://example.com/api/admin/hotels/intelligence/'+path);return intelligenceAdmin(new Request(url,{method,...(body?{headers:{'content-type':'application/json'},body:JSON.stringify(body)}:{})}),env,url,{role:'superadmin'});};
+  const initial=await (await admin('audience')).json();
+  assert.equal(initial.external.devices,2);assert.equal(initial.external.sessions,3);assert.equal(initial.internal.devices,0);
+  assert.equal(initial.devices.find(x=>x.visitorId===founder).city,'Tashkent');
+  assert.equal(initial.devices.find(x=>x.visitorId===founder).sessions,2);
+  assert.equal((await admin(`devices/ios/${founder}/classification`,'POST',{internal:true})).status,200);
+  assert.equal((await intelligenceOverview(env)).events,1);
+  await ingest(founder,'ios',randomUUID(),{country:'UZ',city:'Tashkent'});
+  assert.equal((await intelligenceOverview(env)).events,1);
+  const internal=await (await admin('audience?scope=internal')).json();
+  assert.equal(internal.internal.devices,1);assert.equal(internal.internal.sessions,3);
+  assert.equal(internal.devices[0].visitorId,founder);assert.equal(internal.countries[0].country,'UZ');
+  assert.equal((await (await admin(`devices/ios/${founder}/sessions`)).json()).sessions.length,3);
+  assert.equal((await admin(`devices/ios/${founder}/classification`,'POST',{internal:false})).status,200);
+  assert.equal((await intelligenceOverview(env)).events,4);
+  assert.equal(sqlite.prepare('SELECT COUNT(*) AS c FROM intelligence_events').get().c,4);
+  sqlite.close();
 });

@@ -14,37 +14,37 @@ async function toolData(env,name,days) {
   const db=env.HOTELS_DB;
   const bound=since(days);
   if(name==='get_overview'){
-    const x=await db.prepare(`SELECT COUNT(*) AS events,COUNT(DISTINCT visitor_id) AS visitors,
-      COUNT(DISTINCT session_id) AS sessions FROM intelligence_events WHERE created_at>=?`).bind(bound).first();
+    const x=await db.prepare(`SELECT COUNT(*) AS events,COUNT(DISTINCT platform || '|' || visitor_id) AS visitors,
+      COUNT(DISTINCT platform || '|' || visitor_id || '|' || session_id) AS sessions FROM intelligence_external_events WHERE occurred_at>=?`).bind(bound).first();
     return {days,visitors:n(x?.visitors),sessions:n(x?.sessions),events:n(x?.events)};
   }
   if(name==='get_funnel'){
-    const x=await db.prepare(`SELECT event_name, COUNT(DISTINCT visitor_id) AS visitors FROM intelligence_events
-      WHERE created_at>=? AND event_name IN ('app_open','onboarding_completed','search_started','flight_selected','hotel_selected','checkout_started','booking_completed')
+    const x=await db.prepare(`SELECT event_name, COUNT(DISTINCT platform || '|' || visitor_id) AS visitors FROM intelligence_external_events
+      WHERE occurred_at>=? AND event_name IN ('app_open','onboarding_completed','search_started','flight_selected','hotel_selected','checkout_started','booking_completed')
       GROUP BY event_name`).bind(bound).all();
     const by=new Map((x.results||[]).map(r=>[r.event_name,n(r.visitors)]));
     return {days,stages:funnelEvents.map(name=>({event:name,visitors:by.get(name)||0})),note:'Unique visitors per stage, not necessarily the same session or a sequential cohort.'};
   }
   if(name==='get_platform_breakdown'){
-    const x=await db.prepare(`SELECT platform,COUNT(DISTINCT visitor_id) AS visitors,
-      COUNT(DISTINCT session_id) AS sessions,COUNT(*) AS events,
-      COUNT(DISTINCT CASE WHEN event_name='booking_completed' THEN visitor_id END) AS bookings
-      FROM intelligence_events WHERE created_at>=? GROUP BY platform`).bind(bound).all();
+    const x=await db.prepare(`SELECT platform,COUNT(DISTINCT platform || '|' || visitor_id) AS visitors,
+      COUNT(DISTINCT platform || '|' || visitor_id || '|' || session_id) AS sessions,COUNT(*) AS events,
+      COUNT(DISTINCT CASE WHEN event_name='booking_completed' THEN platform || '|' || visitor_id END) AS bookings
+      FROM intelligence_external_events WHERE occurred_at>=? GROUP BY platform`).bind(bound).all();
     return {days,platforms:(x.results||[]).map(r=>({platform:r.platform,visitors:n(r.visitors),sessions:n(r.sessions),events:n(r.events),bookings:n(r.bookings)}))};
   }
   if(name==='get_screen_metrics'){
     const x=await db.prepare(`SELECT screen,
-      COUNT(DISTINCT CASE WHEN event_name='screen_view' THEN visitor_id END) AS visitors,
+      COUNT(DISTINCT CASE WHEN event_name='screen_view' THEN platform || '|' || visitor_id END) AS visitors,
       SUM(CASE WHEN event_name='screen_view' THEN 1 ELSE 0 END) AS views,
       AVG(CASE WHEN event_name='screen_exit' THEN duration_ms END) AS avg_ms
-      FROM intelligence_events WHERE created_at>=? AND screen<>''
+      FROM intelligence_external_events WHERE occurred_at>=? AND screen<>''
       GROUP BY screen ORDER BY views DESC LIMIT 15`).bind(bound).all();
     return {days,screens:(x.results||[]).map(r=>({screen:r.screen,visitors:n(r.visitors),views:n(r.views),averageSeconds:r.avg_ms===null?null:Math.round(n(r.avg_ms)/1000)}))};
   }
   if(name==='get_daily_trend'){
-    const x=await db.prepare(`SELECT substr(created_at,1,10) AS day,platform,
-      COUNT(DISTINCT visitor_id) AS visitors,COUNT(*) AS events
-      FROM intelligence_events WHERE created_at>=? GROUP BY substr(created_at,1,10),platform
+    const x=await db.prepare(`SELECT substr(occurred_at,1,10) AS day,platform,
+      COUNT(DISTINCT platform || '|' || visitor_id) AS visitors,COUNT(*) AS events
+      FROM intelligence_external_events WHERE occurred_at>=? GROUP BY substr(occurred_at,1,10),platform
       ORDER BY day`).bind(bound).all();
     return {days,byDayAndPlatform:(x.results||[]).map(r=>({day:r.day,platform:r.platform,visitors:n(r.visitors),events:n(r.events)}))};
   }

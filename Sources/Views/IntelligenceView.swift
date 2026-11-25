@@ -4,7 +4,35 @@ import Charts
 @MainActor
 private final class IntelligenceStore: ObservableObject {
     @Published var overview: IntelligenceOverview?
-    @Published var sessions: [IntelligenceSession] = []
+    @Published var audience: IntelligenceAudience?
+    @Published var audienceDevices: [IntelligenceDevice] = []
+    @Published var scope = "external"
+    @Published var audienceError: String?
+    @Published var audienceLoading = false
+    @Published var externalAudience: IntelligenceAudience?
+    @Published var reportsError: String?
+    @Published var changingDevice = false
+    func loadAudience(append: Bool = false) async {
+        guard !audienceLoading else { return }
+        audienceLoading = true
+        defer { audienceLoading = false }
+        do {
+            let result = try await APIClient.shared.intelligenceAudience(days: days, scope: scope, offset: append ? audienceDevices.count : 0)
+            audience = result
+            if result.scope == "external" { externalAudience = result }
+            audienceDevices = append ? audienceDevices + result.devices : result.devices
+            audienceError = nil
+        } catch { audienceError = intelligenceFailureDescription(error) }
+    }
+    func classify(_ device: IntelligenceDevice) async {
+        guard !changingDevice else { return }
+        changingDevice = true
+        defer { changingDevice = false }
+        do {
+            try await APIClient.shared.intelligenceClassify(device, isInternal: !device.internal)
+            await reload()
+        } catch { audienceError = intelligenceFailureDescription(error) }
+    }
     @Published var reports: [IntelligenceReport] = []
     @Published var days = 7
     @Published var status: IntelligenceStatusResponse?
@@ -21,10 +49,10 @@ private final class IntelligenceStore: ObservableObject {
         // must not hide working conversion charts.
         do { overview = try await APIClient.shared.intelligenceOverview(days: days) }
         catch { warnings.append("Обзор: " + intelligenceFailureDescription(error)) }
-        do { sessions = try await APIClient.shared.intelligenceSessions(days: days) }
-        catch { warnings.append("Сессии: " + intelligenceFailureDescription(error)) }
-        do { reports = try await APIClient.shared.intelligenceReports() }
-        catch { warnings.append("Отчёты AI: " + intelligenceFailureDescription(error)) }
+        await loadAudience()
+        if scope == "internal" { externalAudience = try? await APIClient.shared.intelligenceAudience(days: days, scope: "external") }
+        do { reports = try await APIClient.shared.intelligenceReports(); reportsError = nil }
+        catch { reportsError = intelligenceFailureDescription(error) }
         do { status = try await APIClient.shared.intelligenceStatus() }
         catch { status = nil; warnings.append("Диагностика: " + intelligenceFailureDescription(error)) }
         message = warnings.isEmpty ? nil : warnings.joined(separator: "\n")
@@ -37,9 +65,10 @@ private final class IntelligenceStore: ObservableObject {
         do {
             try await APIClient.shared.generateIntelligenceReport()
             reports = try await APIClient.shared.intelligenceReports()
-            message = nil
+            reportsError = nil
         } catch {
-            message = intelligenceFailureDescription(error)
+            reportsError = intelligenceFailureDescription(error)
+            if let fresh = try? await APIClient.shared.intelligenceReports() { reports = fresh }
         }
     }
 }
@@ -62,7 +91,7 @@ private func intelligenceFailureDescription(_ error: Error) -> String {
             return "Google отклонил Gemini API Key. Проверьте ограничения ключа в Google AI Studio."
         case "GEMINI_HTTP_429", "DAILY_AI_LIMIT":
             return "Достигнут бесплатный лимит Gemini или суточный лимит чата."
-        case "GEMINI_UNAVAILABLE", "GEMINI_EMPTY_RESPONSE", "GEMINI_TOOL_LIMIT":
+        case "GEMINI_HTTP_503", "GEMINI_REPORT_FAILED", "GEMINI_UNAVAILABLE", "GEMINI_EMPTY_RESPONSE", "GEMINI_TOOL_LIMIT":
             return "Gemini не смог сформировать ответ. Проверьте Workers Observability."
         default: return apiError.localizedDescription
         }
@@ -72,7 +101,7 @@ private func intelligenceFailureDescription(_ error: Error) -> String {
 
 private enum IntelligencePage: String, CaseIterable, Identifiable {
     case overview = "Обзор"
-    case journey = "Сессии"
+    case journey = "Аудитория"
     case gemini = "Отчёты AI"
     case chat = "AI-чат"
     var id: String { rawValue }
@@ -161,7 +190,7 @@ struct IntelligenceView: View {
                 .foregroundStyle(.secondary)
                 .accessibilityElement(children: .combine)
             }
-            Text("Вся статистика поступает с вашего сервера. Пока клиентское приложение не отправляет события, показатели останутся пустыми.")
+            Text("Установки и браузеры, а не идентифицированные люди. Отмеченные тесты исключаются из обзора и новых AI-отчётов.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -178,25 +207,34 @@ struct IntelligenceView: View {
                 Text("30 дней").tag(30)
             }
             .pickerStyle(.segmented)
+            .disabled(store.loading || store.changingDevice || store.audienceLoading)
             .onChange(of: store.days) { _, _ in Task { await store.reload() } }
 
             if let data = store.overview {
                 HStack(spacing: 10) {
-                    intelligenceMetric("Посетители", value: data.visitors, icon: "person.2")
+                    intelligenceMetric("Установки", value: data.visitors, icon: "person.2")
                     intelligenceMetric("Сеансы", value: data.sessions, icon: "clock.arrow.circlepath")
                 }
                 HStack(spacing: 10) {
                     intelligenceMetric("События", value: data.events, icon: "cursorarrow.click.2")
-                    intelligenceMetric("Брони", value: data.funnel.first(where: { $0.event == "booking_completed" })?.visitors ?? 0, icon: "checkmark.circle")
+                    intelligenceMetric("С бронью (событие)", value: data.funnel.first(where: { $0.event == "booking_completed" })?.visitors ?? 0, icon: "checkmark.circle")
                 }
 
+                if let audience = store.audience {
+                    HStack {
+                        Label("Тесты исключены", systemImage: "checkmark.shield")
+                        Spacer()
+                        Text("\(audience.internal.devices) уст. · \(audience.internal.sessions) сеансов")
+                    }.font(.caption).foregroundStyle(.secondary).padding(14).businessCard(radius: 18)
+                }
                 dailyTrafficChart(data: data)
+                if let audience = store.externalAudience, audience.days == data.days { geography(audience) }
                 platformBreakdownChart(data: data)
                 platformTrendChart(data: data)
 
                 VStack(alignment: .leading, spacing: 17) {
                     Text("Путь к бронированию").font(.headline)
-                    Text("Уникальные посетители на каждом этапе за выбранный период. Этапы не обязательно принадлежат одной сессии.")
+                    Text("Уникальные установки на каждом этапе за выбранный период. Этапы не обязательно принадлежат одной сессии.")
                         .font(.caption).foregroundStyle(.secondary)
                     let scale = max(1, data.funnel.map(\.visitors).max() ?? 1)
                     ForEach(data.funnel) { step in
@@ -266,12 +304,15 @@ struct IntelligenceView: View {
                         AreaMark(x: .value("День", point.day), y: .value("Посетители", point.visitors))
                             .foregroundStyle(Color(red: 0.40, green: 0.21, blue: 0.85).opacity(0.12))
                         LineMark(x: .value("День", point.day), y: .value("Посетители", point.visitors))
-                            .interpolationMethod(.catmullRom)
+                            .interpolationMethod(.linear)
                             .foregroundStyle(Color(red: 0.40, green: 0.21, blue: 0.85))
                         PointMark(x: .value("День", point.day), y: .value("Посетители", point.visitors))
                             .foregroundStyle(Color(red: 0.40, green: 0.21, blue: 0.85))
                     }
                     .chartYScale(domain: 0...max(1, (data.daily.map(\.visitors).max() ?? 1)))
+                    .chartXAxis { AxisMarks(values: .automatic(desiredCount: 4)) { value in
+                        AxisGridLine(); AxisTick(); AxisValueLabel { if let day = value.as(String.self) { Text(String(day.suffix(5))) } }
+                    } }
                     .frame(height: 185)
                 }
             }
@@ -293,6 +334,7 @@ struct IntelligenceView: View {
                             .foregroundStyle(by: .value("Платформа", item.displayName))
                             .cornerRadius(6)
                     }
+                    .chartForegroundStyleScale(["iOS": Color.blue, "Android": Color.green, "Web": Color.purple])
                     .frame(height: 150)
                 }
                 ForEach(["ios", "android", "web"], id: \.self) { platform in
@@ -304,7 +346,7 @@ struct IntelligenceView: View {
                             .font(.subheadline.weight(.medium))
                         Spacer()
                         if let matched {
-                            Text("\(matched.visitors) пользователей · \(matched.bookings) броней")
+                            Text("\(matched.visitors) уст. · \(matched.bookings) броней")
                                 .font(.caption).foregroundStyle(.secondary)
                         } else {
                             Text("Нет событий").font(.caption).foregroundStyle(.tertiary)
@@ -323,8 +365,12 @@ struct IntelligenceView: View {
                     Chart(series) { item in
                         LineMark(x: .value("День", item.day), y: .value("Посетители", item.visitors))
                             .foregroundStyle(by: .value("Платформа", item.platformName))
-                            .interpolationMethod(.catmullRom)
+                            .interpolationMethod(.linear)
                     }
+                    .chartForegroundStyleScale(["iOS": Color.blue, "Android": Color.green, "Web": Color.purple])
+                    .chartXAxis { AxisMarks(values: .automatic(desiredCount: 4)) { value in
+                        AxisGridLine(); AxisTick(); AxisValueLabel { if let day = value.as(String.self) { Text(String(day.suffix(5))) } }
+                    } }
                     .frame(height: 190)
                 } else {
                     empty("Пока нет данных по платформам.")
@@ -334,38 +380,70 @@ struct IntelligenceView: View {
             .businessCard(radius: 24)
     }
 
+    private func geography(_ audience: IntelligenceAudience) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("География аудитории").font(.headline)
+            Text("Последняя известная сеть установки, приблизительно. VPN может изменить страну и город.").font(.caption).foregroundStyle(.secondary)
+            ForEach(audience.countries.prefix(8)) { country in
+                HStack { Text(country.label); Spacer(); Text(country.devices.formatted()).monospacedDigit() }
+            }
+            if audience.countries.isEmpty { empty("Данных пока нет") }
+            Divider()
+            Text("Города").font(.subheadline.bold())
+            ForEach(audience.cities.prefix(8)) { city in
+                HStack {
+                    Text(city.city.isEmpty ? "Город неизвестен (\(city.country.isEmpty ? "—" : city.country))" : "\(city.city) · \(city.country)")
+                    Spacer(); Text(city.devices.formatted()).monospacedDigit()
+                }.font(.subheadline)
+            }
+        }.padding(19).businessCard(radius: 24)
+    }
     private var journeys: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Последние сессии").font(.title3.bold())
-            Text("Псевдонимные сессии без персональных и платёжных данных. Выход в фон не означает удаление приложения.")
-                .font(.footnote).foregroundStyle(.secondary)
-            if store.sessions.isEmpty {
-                empty("Сессий пока нет.")
-            } else {
-                ForEach(store.sessions) { session in
-                    NavigationLink {
-                        IntelligenceJourneyView(sessionId: session.sessionId)
-                    } label: {
-                        HStack(spacing: 12) {
-                            Image(systemName: session.platform == "ios" ? "iphone.gen3" : "smartphone")
-                                .font(.title3)
-                                .frame(width: 36)
-                            VStack(alignment: .leading, spacing: 5) {
-                                Text("Сессия \(String(session.sessionId.prefix(8)))")
-                                    .font(.subheadline.weight(.semibold))
-                                Text("\(session.platform.uppercased()) · \(session.eventCount) событий")
-                                    .font(.caption).foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Text(String(session.lastEventAt.prefix(16)).replacingOccurrences(of: "T", with: " "))
-                                .font(.caption2).foregroundStyle(.secondary)
-                            Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
-                        }
-                        .foregroundStyle(.primary)
-                        .padding(16)
-                        .businessCard(radius: 20)
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Аудитория и устройства").font(.title3.bold())
+            Picker("Период", selection: $store.days) { Text("7 дней").tag(7); Text("14 дней").tag(14); Text("30 дней").tag(30) }
+                .pickerStyle(.segmented).disabled(store.loading || store.changingDevice || store.audienceLoading)
+                .onChange(of: store.days) { _, _ in Task { await store.reload() } }
+            Picker("Аудитория", selection: $store.scope) { Text("Не отмечены как тесты").tag("external"); Text("Тесты").tag("internal") }
+                .pickerStyle(.segmented).disabled(store.loading || store.changingDevice || store.audienceLoading)
+                .onChange(of: store.scope) { _, _ in Task { await store.reload() } }
+            if let error = store.audienceError { Text(error).font(.footnote).foregroundStyle(.red) }
+            if let data = store.audience, data.scope == store.scope {
+                let total = data.scope == "internal" ? data.internal : data.external
+                HStack {
+                    intelligenceMetric("Установки", value: total.devices, icon: "smartphone")
+                    intelligenceMetric("Сеансы", value: total.sessions, icon: "clock")
+                }
+                geography(data)
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Модели устройств").font(.headline)
+                    ForEach(data.models.prefix(10)) { model in
+                        HStack { Text(model.model.isEmpty ? "\(model.platform.uppercased()) · неизвестно" : model.model); Spacer(); Text(model.devices.formatted()) }
                     }
-                    .buttonStyle(.plain)
+                }.padding(19).businessCard(radius: 24)
+                Text("Установки за период").font(.headline)
+                Text("Откройте карточку, чтобы просмотреть сеансы или исключить собственную установку. ID не является аппаратным идентификатором.").font(.caption).foregroundStyle(.secondary)
+                ForEach(store.audienceDevices) { device in
+                    NavigationLink {
+                        IntelligenceDeviceDetail(device: device, days: store.days, store: store)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 7) {
+                            HStack {
+                                Image(systemName: device.platform == "web" ? "globe" : "smartphone").font(.title2)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(device.title).font(.subheadline.bold())
+                                    Text(device.location).font(.caption).foregroundStyle(.secondary)
+                                }
+                                Spacer(); Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
+                            }
+                            Text("\(device.sessions) сеансов · \(device.events) событий · ID \(device.visitorId.prefix(8))").font(.caption).foregroundStyle(.secondary)
+                            Text("Последняя активность: \(String(device.lastAt.prefix(16)).replacingOccurrences(of: "T", with: " ")) UTC").font(.caption2).foregroundStyle(.secondary)
+                        }.padding(16).businessCard(radius: 20).foregroundStyle(.primary)
+                    }.buttonStyle(.plain).disabled(store.loading || store.changingDevice || store.audienceLoading)
+                }
+                if store.audienceDevices.isEmpty { empty("Установок за период нет.") }
+                if data.hasMore {
+                    Button("Показать ещё") { Task { await store.loadAudience(append: true) } }.disabled(store.loading || store.changingDevice || store.audienceLoading)
                 }
             }
         }
@@ -373,6 +451,8 @@ struct IntelligenceView: View {
 
     private var advisor: some View {
         VStack(alignment: .leading, spacing: 14) {
+            if let error = store.reportsError { Text(error).font(.footnote).foregroundStyle(.red) }
+            Text("Ранее созданные отчёты могут содержать тестовую активность. Создайте новый после разметки устройств.").font(.caption).foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 14) {
                 HStack(spacing: 9) {
                     Image(systemName: "sparkles").foregroundStyle(Color(red: 0.40, green: 0.21, blue: 0.85))
@@ -499,7 +579,7 @@ private struct IntelligenceJourneyView: View {
                             .foregroundStyle(.secondary)
                             .frame(width: 24)
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(event.name.replacingOccurrences(of: "_", with: " "))
+                            Text(["app_open":"Открыл приложение", "app_first_open":"Первый запуск", "app_background":"Ушёл в фон", "screen_view":"Открыл экран", "screen_exit":"Покинул экран", "search_started":"Начал поиск", "search_results":"Получил результаты", "flight_selected":"Выбрал рейс", "hotel_selected":"Выбрал отель", "checkout_started":"Начал оформление", "booking_submitted":"Отправил заявку", "booking_completed":"Завершил бронирование", "error":"Ошибка", "tap":"Нажатие"][event.name] ?? event.name)
                                 .font(.subheadline.weight(.semibold))
                             if !event.screen.isEmpty { Text(event.screen).font(.subheadline) }
                             if !event.elementId.isEmpty { Text("Элемент: \(event.elementId)").font(.caption).foregroundStyle(.secondary) }
@@ -663,6 +743,60 @@ private struct IntelligenceChatView: View {
             entries.removeAll(where: { $0.id == userEntry.id })
             draft = message
             notice = intelligenceFailureDescription(error)
+        }
+    }
+}
+
+private struct IntelligenceDeviceDetail: View {
+    let device: IntelligenceDevice
+    let days: Int
+    @ObservedObject var store: IntelligenceStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var sessions: [IntelligenceSession] = []
+    @State private var error: String?
+    @State private var loading = true
+    @State private var confirm = false
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text(device.title).font(.title2.bold())
+                Text(device.location).foregroundStyle(.secondary)
+                Text("ID: \(device.visitorId)").font(.caption.monospaced()).textSelection(.enabled)
+                if !device.osVersion.isEmpty { Text("ОС: \(device.osVersion)") }
+                Text("\(device.sessions) сеансов · \(device.events) событий")
+                Button(device.internal ? "Вернуть в общую аналитику" : "Это моё тестовое устройство") { confirm = true }
+                    .buttonStyle(.borderedProminent).disabled(store.changingDevice)
+                Text("Разметка применяется ко всем сохранённым событиям этой установки. История не удаляется.").font(.caption).foregroundStyle(.secondary)
+                if let error = store.audienceError { Text(error).foregroundStyle(.red).font(.caption) }
+                Text("История сеансов (до 100)").font(.headline)
+                if loading { ProgressView() }
+                if let error { Text(error).foregroundStyle(.red) }
+                ForEach(sessions) { session in
+                    NavigationLink {
+                        IntelligenceJourneyView(sessionId: session.sessionId)
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading) {
+                                Text(String(session.startedAt.prefix(16)).replacingOccurrences(of: "T", with: " ") + " UTC")
+                                Text("\(session.eventCount) событий").font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer(); Image(systemName: "chevron.right")
+                        }.padding(14).businessCard(radius: 18)
+                    }.buttonStyle(.plain)
+                }
+            }.padding(16)
+        }
+        .navigationTitle("Устройство")
+        .confirmationDialog("Изменить классификацию установки?", isPresented: $confirm, titleVisibility: .visible) {
+            Button(device.internal ? "Вернуть в аналитику" : "Исключить тестовую установку") {
+                Task { await store.classify(device); if store.audienceError == nil { dismiss() } }
+            }
+            Button("Отмена", role: .cancel) {}
+        }
+        .task {
+            defer { loading = false }
+            do { sessions = try await APIClient.shared.intelligenceDeviceSessions(device, days: days) }
+            catch { self.error = intelligenceFailureDescription(error) }
         }
     }
 }

@@ -8,7 +8,7 @@ import { intelligenceAdmin, validateIntelligenceBatch } from '../src/intelligenc
 
 function envDatabase(){
   const db = new DatabaseSync(':memory:');
-  for(const filename of ['0044_business_intelligence.sql','0045_intelligence_ai_agent.sql']){
+  for(const filename of ['0044_business_intelligence.sql','0045_intelligence_ai_agent.sql','0046_intelligence_devices.sql']){
     db.exec(readFileSync(new URL(`../migrations/${filename}`,import.meta.url),'utf8'));
   }
   function prepare(sql){

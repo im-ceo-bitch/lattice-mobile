@@ -11069,7 +11069,7 @@ function json(value, status = 200, extraHeaders) {
 
 function corsHeaders(request) {
   const origin = request.headers.get('origin') || '';
-  const allowed = origin === 'https://iumrah.app' || origin === 'https://www.iumrah.app';
+  const allowed = origin === 'https://iumrah.app' || origin === 'https://www.iumrah.app' || (new URL(request.url).pathname === '/api/catalog/hotels/intelligence/events' && ['https://iumrah.uz','https://www.iumrah.uz'].includes(origin));
   return {
     'access-control-allow-origin': allowed ? origin : 'https://iumrah.app',
     'access-control-allow-credentials': 'true',
