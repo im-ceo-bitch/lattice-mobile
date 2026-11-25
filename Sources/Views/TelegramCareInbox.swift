@@ -91,13 +91,14 @@ struct TelegramCareInbox: View {
     }
 }
 
-private struct TelegramCareConversation: View {
+struct TelegramCareConversation: View {
     let thread: TelegramCareThread
     @State private var detail: TelegramCareDetail?
     @State private var draft = ""
     @State private var busy = false
     @State private var error: String?
     @State private var failedID: String?
+    @FocusState private var focused: Bool
     var body: some View {
         VStack(spacing: 0) {
             HStack {
@@ -123,11 +124,13 @@ private struct TelegramCareConversation: View {
             }
             if let error { Text(error).font(.footnote).foregroundStyle(.secondary).padding(8) }
             HStack {
-                TextField("Сообщение", text: $draft, axis: .vertical).lineLimit(1...5).textFieldStyle(.roundedBorder).onChange(of: draft) { _, _ in failedID = nil }
+                TextField("Сообщение", text: $draft, axis: .vertical).focused($focused).lineLimit(1...5).textFieldStyle(.roundedBorder).onChange(of: draft) { _, _ in failedID = nil }
                 Button { send() } label: { Image(systemName: "arrow.up.circle.fill").font(.system(size: 30)) }.disabled(busy || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }.padding(12)
         }
         .navigationTitle(thread.name)
+        .toolbar { ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("Готово") { focused = false } } }
+        .scrollDismissesKeyboard(.interactively)
         .navigationBarTitleDisplayMode(.inline)
         .task { await load(); while !Task.isCancelled { try? await Task.sleep(for: .seconds(5)); if !Task.isCancelled && !busy { await load() } } }
     }

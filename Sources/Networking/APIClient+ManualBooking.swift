@@ -54,7 +54,7 @@ extension APIClient {
         var editor = draft
         editor.clientName = ""; editor.lastName = nil; editor.phone = ""; editor.email = nil; editor.telegram = ""; editor.notes = ""; editor.sendEmail = nil
         editor.requestSecret = nil; editor.receipt = nil; editor.offerReceipt = nil; editor.submissionMode = nil
-        editor.builderStage = nil; editor.builderFlightPhase = nil; editor.builderHotelPhase = nil; editor.builderFinishAsOffer = nil
+        editor.conciergeID = nil; editor.preferredStart = nil; editor.preferredEnd = nil; editor.builderStage = nil; editor.builderFlightPhase = nil; editor.builderHotelPhase = nil; editor.builderFinishAsOffer = nil
         let editorDraft = String(decoding: try JSONEncoder().encode(editor), as: UTF8.self)
         var payload: [String: Any] = ["booking":booking,"manualDetails":details,"cost":cost,"requestSecret":draft.requestSecret ?? "","lang":draft.language ?? "ru","email":draft.email ?? "","sendEmail":draft.sendEmail ?? false,"hours":draft.offerHours ?? 24,"editorDraft":editorDraft]
         if let mode = draft.submissionMode { payload["mode"] = mode }

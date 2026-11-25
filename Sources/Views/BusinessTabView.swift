@@ -5,6 +5,9 @@ final class BusinessNavigationStore: ObservableObject {
     @Published var selection: BusinessWorkspaceSection = .overview
     @Published var bookingFilterRequest: String?
     @Published var unreadChatCount = 0
+    @Published var openFlightCatalog = false
+    @Published var openRequests = false
+    func showRequests() { openRequests = true; selection = .bookings }
     func openBookings(filter: String = "all") { bookingFilterRequest = filter; selection = .bookings }
 
 
@@ -15,6 +18,8 @@ final class BusinessNavigationStore: ObservableObject {
 
 enum BusinessWorkspaceSection: String, Identifiable, CaseIterable, Hashable {
     case overview
+    case create
+    case account
     case bookings
     case chats
     case flights
@@ -34,7 +39,9 @@ enum BusinessWorkspaceSection: String, Identifiable, CaseIterable, Hashable {
     var title: String {
         switch self {
         case .overview: return "Обзор"
-        case .bookings: return "Бронирования"
+        case .create: return "Создать"
+        case .account: return "Аккаунт"
+        case .bookings: return "Поездки"
         case .chats: return "Чаты"
         case .flights: return "Каталоги"
         case .intelligence: return "Аналитика"
@@ -53,6 +60,8 @@ enum BusinessWorkspaceSection: String, Identifiable, CaseIterable, Hashable {
     var systemImage: String {
         switch self {
         case .overview: return "square.grid.2x2.fill"
+        case .create: return "plus.circle"
+        case .account: return "person.crop.circle"
         case .bookings: return "suitcase.rolling.fill"
         case .chats: return "message.fill"
         case .flights: return "square.stack"
@@ -70,11 +79,11 @@ enum BusinessWorkspaceSection: String, Identifiable, CaseIterable, Hashable {
     }
 
     static let primary: [BusinessWorkspaceSection] = [
-        .overview, .bookings, .chats, .flights
+        .overview, .bookings, .create, .chats, .account
     ]
 
     static let administration: [BusinessWorkspaceSection] = [
-        .intelligence, .profile, .security, .sessions, .employees, .archive, .payments, .ziyarats, .notifications
+        .flights, .intelligence, .profile, .security, .sessions, .employees, .archive, .payments, .ziyarats, .notifications
     ]
 }
 
@@ -95,7 +104,7 @@ struct BusinessTabView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .iumrahBusinessFlightPriceOpen)) { _ in
-            navigation.navigate(to: .flights)
+            navigation.openFlightCatalog = true; navigation.navigate(to: .account)
         }
         .onReceive(NotificationCenter.default.publisher(for: .iumrahBusinessOfferOpen)) { _ in navigation.navigate(to: .bookings) }
         .onReceive(NotificationCenter.default.publisher(for: .iumrahBusinessBookingOpen)) { _ in
@@ -108,43 +117,50 @@ struct BusinessTabView: View {
             if BusinessNotificationRoute.pendingBooking != nil || BusinessNotificationRoute.pendingOffer != nil { navigation.navigate(to: .bookings) }
             else if BusinessNotificationRoute.pendingChat != nil { navigation.navigate(to: .chats) }
             else if UserDefaults.standard.string(forKey: "iumrah.price.pendingFlightKey") != nil {
-                navigation.navigate(to: .flights)
+                navigation.openFlightCatalog = true; navigation.navigate(to: .account)
             }
         }
     }
 }
 
 private struct BusinessCompactTabView: View {
+    @EnvironmentObject private var auth: AuthStore
+    @StateObject private var sidebar = BusinessSidebarStore()
     @EnvironmentObject private var navigation: BusinessNavigationStore
 
     var body: some View {
-        BusinessSidebarHost {
+        Group {
             TabView(selection: $navigation.selection) {
                 NavigationStack { OverviewView() }
                     .tag(BusinessWorkspaceSection.overview)
                     .tabItem { Label("Обзор", systemImage: "square.grid.2x2.fill") }
                 NavigationStack { BookingsView() }
                     .tag(BusinessWorkspaceSection.bookings)
-                    .tabItem { Label("Брони", systemImage: "suitcase.rolling.fill") }
+                    .tabItem { Label("Поездки", systemImage: "suitcase.rolling.fill") }
+                NavigationStack { UmrahBuilderView(owner: auth.user?.login ?? "", embedded: true) }
+                    .tag(BusinessWorkspaceSection.create)
+                    .tabItem { Label("Создать", systemImage: "plus.circle") }
                 NavigationStack { ChatsView() }
                     .tag(BusinessWorkspaceSection.chats)
                     .tabItem { Label("Чаты", systemImage: "message.fill") }
                     .badge(navigation.unreadChatCount)
-                NavigationStack { BusinessCatalogsView() }
-                    .tag(BusinessWorkspaceSection.flights)
-                    .tabItem { Label("Каталоги", systemImage: "square.stack") }
+                NavigationStack { BusinessAccountHome() }
+                    .tag(BusinessWorkspaceSection.account)
+                    .tabItem { Label("Аккаунт", systemImage: "person.crop.circle") }
             }
+            .environmentObject(sidebar)
+            .environment(\.businessUsesPersistentSidebar, true)
             .tint(BusinessDesign.ink)
             .onAppear {
                 // A compact iPad window can inherit a desktop-only selection.
                 if !BusinessWorkspaceSection.primary.contains(navigation.selection) {
-                    navigation.selection = .overview
+                    navigation.selection = .account
                 }
             }
             .onChange(of: navigation.selection) { _, value in
                 // Admin destinations live in the compact drawer rather than tabs.
                 if !BusinessWorkspaceSection.primary.contains(value) {
-                    navigation.selection = .overview
+                    navigation.selection = .account
                 }
             }
         }
@@ -225,6 +241,8 @@ private struct BusinessWorkspaceView: View {
     private func workspaceDestination(_ section: BusinessWorkspaceSection) -> some View {
         switch section {
         case .overview: OverviewView()
+        case .create: UmrahBuilderView(owner: auth.user?.login ?? "", embedded: true)
+        case .account: BusinessAccountHome()
         case .bookings: BookingsView()
         case .chats: ChatsView()
         case .flights: BusinessCatalogsView()
@@ -251,10 +269,9 @@ struct BusinessNavigationCommands: Commands {
                 .keyboardShortcut("1", modifiers: .command)
             Button("Бронирования") { navigation.navigate(to: .bookings) }
                 .keyboardShortcut("2", modifiers: .command)
-            Button("Чаты") { navigation.navigate(to: .chats) }
-                .keyboardShortcut("3", modifiers: .command)
-            Button("Каталоги") { navigation.navigate(to: .flights) }
-                .keyboardShortcut("4", modifiers: .command)
+            Button("Создать") { navigation.navigate(to: .create) }.keyboardShortcut("3", modifiers: .command)
+            Button("Чаты") { navigation.navigate(to: .chats) }.keyboardShortcut("4", modifiers: .command)
+            Button("Аккаунт") { navigation.navigate(to: .account) }.keyboardShortcut("5", modifiers: .command)
 
             Divider()
 

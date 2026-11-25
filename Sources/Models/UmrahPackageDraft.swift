@@ -67,6 +67,9 @@ struct UmrahPackageDraft: Codable, Equatable {
     var builderHotelPhase: Int? = nil
     var builderOrigin: String? = nil
     var builderFinishAsOffer: Bool? = nil
+    var preferredStart: String? = nil
+    var preferredEnd: String? = nil
+    var conciergeID: String? = nil
     var discount: String? = nil
     var flightFares: [String: Double]? = nil
     var selectedFareKeys: [String: String]? = nil
@@ -207,15 +210,24 @@ struct UmrahPackageDraft: Codable, Equatable {
     }
 }
 
+struct BusinessSavedUmrahDraft: Codable, Identifiable {
+    var id = UUID()
+    var updatedAt = Date()
+    let draft: UmrahPackageDraft
+}
+
 @MainActor
 final class UmrahDraftStore: ObservableObject {
     @Published var draft = UmrahPackageDraft()
     @Published var storageError: String?
+    @Published private(set) var savedDrafts: [BusinessSavedUmrahDraft] = []
+    private var archiveReadable = true
     private let ownerKey: String
     private var file: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("UmrahBusinessDraft-\(ownerKey).json")
     }
+    private var archiveFile: URL { file.deletingLastPathComponent().appendingPathComponent("UmrahBusinessDraftArchive-\(ownerKey).json") }
     init(owner: String, initial: UmrahPackageDraft? = nil) {
         if let initial { draft = initial }
         ownerKey = SHA256.hash(data: Data(owner.utf8)).map { String(format: "%02x", $0) }.joined()
@@ -224,7 +236,34 @@ final class UmrahDraftStore: ObservableObject {
                 draft = try JSONDecoder().decode(UmrahPackageDraft.self, from: Data(contentsOf: file))
             }
         } catch { storageError = "Не удалось прочитать черновик: \(error.localizedDescription)" }
+        do {
+            if FileManager.default.fileExists(atPath: archiveFile.path) { savedDrafts = try JSONDecoder().decode([BusinessSavedUmrahDraft].self, from: Data(contentsOf: archiveFile)) }
+        } catch { archiveReadable = false; storageError = "Не удалось прочитать список черновиков." }
     }
+    private func writeArchive(_ values: [BusinessSavedUmrahDraft]) -> Bool {
+        guard archiveReadable else { storageError = "Архив черновиков недоступен. Запись остановлена для защиты данных."; return false }
+        do {
+            try FileManager.default.createDirectory(at: archiveFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try JSONEncoder().encode(values).write(to: archiveFile, options: [.atomic, .completeFileProtection])
+            var url = archiveFile; var attrs = URLResourceValues(); attrs.isExcludedFromBackup = true; try url.setResourceValues(attrs)
+            savedDrafts = values; storageError = nil; return true
+        } catch { storageError = "Не удалось сохранить архив: \(error.localizedDescription)"; return false }
+    }
+    func archiveAndStartNew() -> Bool {
+        guard draft.requestSecret == nil, draft.receipt == nil, draft.offerReceipt == nil else { return false }
+        guard writeArchive([BusinessSavedUmrahDraft(draft: draft)] + savedDrafts) else { return false }
+        draft = UmrahPackageDraft(); save(); return storageError == nil
+    }
+    func openSaved(_ entry: BusinessSavedUmrahDraft) -> Bool {
+        guard draft.requestSecret == nil, draft.receipt == nil, draft.offerReceipt == nil else { return false }
+        // Snapshot active first so both drafts survive an interrupted switch.
+        guard writeArchive([BusinessSavedUmrahDraft(draft: draft)] + savedDrafts.filter { $0.id != entry.id } + [entry]) else { return false }
+        draft = entry.draft; save()
+        guard storageError == nil else { return false }
+        return writeArchive(savedDrafts.filter { $0.id != entry.id })
+    }
+    func deleteSaved(_ entry: BusinessSavedUmrahDraft) { _ = writeArchive(savedDrafts.filter { $0.id != entry.id }) }
+
     func save() {
         do {
             try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)

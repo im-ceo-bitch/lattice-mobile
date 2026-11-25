@@ -7,7 +7,7 @@ struct BusinessCatalogsView: View {
             VStack(alignment: .leading, spacing: 16) {
                 BusinessPageHeading(title: "Каталоги", subtitle: "Источники и компоненты умры")
                 NavigationLink { FlightCurationView(tabMode: true, catalogMode: true) } label: { row("Авиабилеты", "Umrah Direct Flights · мониторинг", "airplane") }
-                NavigationLink { HotelsView(catalogMode: true) } label: { row("Отели", "Мекка и Медина", "building.2") }
+                NavigationLink { BusinessNuiteeHotelsView() } label: { row("Отели", "Мекка и Медина", "building.2") }
                 NavigationLink { ZiyaratsView() } label: { row("Зияраты", "Управление экскурсиями", "map") }
             }.businessAdaptiveReadableWidth().padding(16)
         }

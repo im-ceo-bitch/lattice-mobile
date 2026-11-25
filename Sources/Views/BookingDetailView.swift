@@ -76,6 +76,10 @@ struct BookingDetailView: View {
         }.padding(18).businessCard(radius: 22)
     }
 
+    private func dismissBookingKeyboard() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+
     private var hasUnsavedOperations: Bool {
         guard let operation = detail?.operation else { return false }
         return status != operation.tripStatus || paymentStatus != operation.paymentStatus || confirmationNumber != operation.confirmationNumber || internalNotes != operation.internalNotes
@@ -160,6 +164,14 @@ struct BookingDetailView: View {
             } else {
                 ContentUnavailableView("Бронь недоступна", systemImage: "suitcase.rolling", description: Text(errorMessage ?? "Не удалось загрузить данные."))
                     .padding(.top, 60)
+            }
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .onChange(of: workspace) { _, _ in dismissBookingKeyboard() }
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Готово") { dismissBookingKeyboard() }
             }
         }
         .background(BusinessDesign.background)

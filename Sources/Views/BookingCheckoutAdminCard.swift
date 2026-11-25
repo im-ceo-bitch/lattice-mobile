@@ -11,6 +11,8 @@ struct BookingCheckoutAdminCard: View {
     var financesOnly = false
     let onReload: () -> Void
 
+    private enum PaymentField: Hashable { case visaCard, visaHolder, humoCard, humoHolder, instructions, documentTitle, documentReference }
+    @FocusState private var paymentFocus: PaymentField?
     @State private var visaCard = ""
     @State private var visaHolder = ""
     @State private var humoCard = ""
@@ -162,7 +164,10 @@ struct BookingCheckoutAdminCard: View {
         .businessCard(radius: 28)
         .onAppear { loadDraft() }
         .task { if financesOnly { await loadPaymentTemplates() } }
-        .onChange(of: checkout?.payment) { _, _ in loadDraft() }
+        .onChange(of: checkout?.payment) { old, _ in
+            // A background booking refresh must not overwrite an unsaved payment form.
+            if !saving, paymentFocus == nil, old.map({ paymentMatches($0) }) ?? true { loadDraft() }
+        }
         .onChange(of: paymePhoto) { _, item in
             guard let item else { return }
             Task { await uploadQR(item) }
@@ -431,8 +436,8 @@ struct BookingCheckoutAdminCard: View {
                 }
             }
 
-            paymentField(title: "Visa · номер карты", text: $visaCard, icon: "creditcard")
-            paymentField(title: "Visa · получатель", text: $visaHolder, icon: "person")
+            paymentField(title: "Visa · номер карты", text: $visaCard, icon: "creditcard", field: .visaCard)
+            paymentField(title: "Visa · получатель", text: $visaHolder, icon: "person", field: .visaHolder)
 
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 6) {
@@ -452,18 +457,20 @@ struct BookingCheckoutAdminCard: View {
                 }
             }
 
-            paymentField(title: "Humo · номер карты", text: $humoCard, icon: "creditcard")
-            paymentField(title: "Humo · получатель", text: $humoHolder, icon: "person")
+            paymentField(title: "Humo · номер карты", text: $humoCard, icon: "creditcard", field: .humoCard)
+            paymentField(title: "Humo · получатель", text: $humoHolder, icon: "person", field: .humoHolder)
 
             VStack(alignment: .leading, spacing: 7) {
                 Text("Инструкция паломнику").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                 TextField("Например: после оплаты прикрепите чек ниже", text: $instructions, axis: .vertical)
+                    .focused($paymentFocus, equals: .instructions)
                     .lineLimit(2...5)
                     .padding(13)
                     .background(BusinessDesign.secondarySurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
 
             Button {
+                paymentFocus = nil
                 Task { await savePayment() }
             } label: {
                 HStack {
@@ -537,8 +544,8 @@ struct BookingCheckoutAdminCard: View {
                             .font(.subheadline).disabled((replaceDocument?.slots ?? []).contains(item.key) || saving)
                     }
                 }
-                paymentField(title: "Название для клиента", text: $documentTitle, icon: "text.alignleft")
-                paymentField(title: documentReferenceTitle, text: $documentReference, icon: "number")
+                paymentField(title: "Название для клиента", text: $documentTitle, icon: "text.alignleft", field: .documentTitle)
+                paymentField(title: documentReferenceTitle, text: $documentReference, icon: "number", field: .documentReference)
                 Button { showDocumentImporter = true } label: {
                     Label("Выбрать и проверить PDF или фото", systemImage: "doc.badge.plus")
                         .font(.headline).foregroundStyle(BusinessDesign.onPrimaryControl).frame(maxWidth: .infinity).frame(minHeight: 52)
@@ -649,12 +656,19 @@ struct BookingCheckoutAdminCard: View {
         .background(BusinessDesign.secondarySurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
-    private func paymentField(title: String, text: Binding<String>, icon: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+    private func paymentField(title: String, text: Binding<String>, icon: String, field: PaymentField) -> some View {
+        let numeric = field == .visaCard || field == .humoCard
+        return VStack(alignment: .leading, spacing: 6) {
             Text(title).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
             HStack(spacing: 10) {
                 Image(systemName: icon).foregroundStyle(.secondary)
-                TextField(title, text: text).textInputAutocapitalization(.never)
+                TextField(title, text: text)
+                    .keyboardType(numeric ? .numberPad : .default)
+                    .textInputAutocapitalization(numeric ? .never : .words)
+                    .autocorrectionDisabled(numeric)
+                    .focused($paymentFocus, equals: field)
+                    .submitLabel(.done)
+                    .onSubmit { paymentFocus = nil }
             }
             .padding(.horizontal, 13).frame(height: 48)
             .background(BusinessDesign.secondarySurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
@@ -664,6 +678,10 @@ struct BookingCheckoutAdminCard: View {
     private func compactRow(_ title: String, _ value: String) -> some View {
         HStack { Text(title).foregroundStyle(.secondary); Spacer(); Text(value.isEmpty ? "—" : value).fontWeight(.semibold).textSelection(.enabled) }
             .font(.subheadline)
+    }
+
+    private func paymentMatches(_ p: BusinessPaymentInstructions) -> Bool {
+        visaCard == p.visaCardNumber && visaHolder == p.visaHolder && humoCard == p.humoCardNumber && humoHolder == p.humoHolder && instructions == p.instructions
     }
 
     private func loadDraft() {
@@ -703,10 +721,14 @@ struct BookingCheckoutAdminCard: View {
     @MainActor private func savePayment() async {
         saving = true; error = nil
         do {
-            _ = try await APIClient.shared.savePaymentInstructions(
+            let updated = try await APIClient.shared.savePaymentInstructions(
                 bookingID: bookingID,
                 payload: BusinessPaymentInstructionsPayload(visaCardNumber: visaCard, visaHolder: visaHolder, humoCardNumber: humoCard, humoHolder: humoHolder, instructions: instructions)
             )
+            // Keep the returned canonical values, not an earlier refresh snapshot.
+            visaCard = updated.payment.visaCardNumber; visaHolder = updated.payment.visaHolder
+            humoCard = updated.payment.humoCardNumber; humoHolder = updated.payment.humoHolder
+            instructions = updated.payment.instructions
             onReload()
         } catch { self.error = error.localizedDescription }
         saving = false

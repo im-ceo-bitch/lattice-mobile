@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct UmrahBuilderView: View {
     @Environment(\.dismiss) private var dismiss
@@ -6,8 +7,15 @@ struct UmrahBuilderView: View {
     @StateObject private var store: UmrahDraftStore
 
     private let editingOffer: BusinessOffer?
+    private let embedded: Bool
+    private let pushed: Bool
+    @State private var studioHome = true
+    @State private var conciergeReady = false
+    @State private var deletingDraft: BusinessSavedUmrahDraft?
+    @State private var confirmDeleteDraft = false
     @State private var finishAsOffer: Bool
-    init(owner: String, editingOffer: BusinessOffer? = nil, initial: UmrahPackageDraft? = nil, preferOffer: Bool = false) {
+    init(owner: String, editingOffer: BusinessOffer? = nil, initial: UmrahPackageDraft? = nil, preferOffer: Bool = false, embedded: Bool = false, pushed: Bool = false) {
+        self.embedded = embedded; self.pushed = pushed
         self.editingOffer = editingOffer
         _finishAsOffer = State(initialValue: preferOffer || editingOffer != nil)
         _store = StateObject(wrappedValue: UmrahDraftStore(owner: editingOffer.map { owner + ":" + $0.id + ":" + String($0.revision) } ?? owner, initial: initial))
@@ -17,13 +25,10 @@ struct UmrahBuilderView: View {
     private var hotelPhase: Int { store.draft.builderHotelPhase == 1 && store.draft.includeMedina ? 1 : 0 }
     private func go(_ stage: Int) {
         let target = min(5, max(0, stage))
-        store.draft.builderStage = min(target, store.draft.firstIncompleteBuilderStage); error = nil
-        if store.draft.builderStage == 1 {
-            if store.draft.outbound == nil { store.draft.builderFlightPhase = 0 }
-            else if store.draft.inbound == nil { store.draft.builderFlightPhase = 1 }
-        }
-        if store.draft.builderStage == 2 && store.draft.stayIssue(store.draft.makkah) != nil { store.draft.builderHotelPhase = 0 }
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        store.draft.builderStage = target; error = nil; studioHome = false
     }
+
     private func back() {
         error = nil
         if step == 1 && flightPhase > 0 { store.draft.builderFlightPhase = flightPhase - 1 }
@@ -43,13 +48,14 @@ struct UmrahBuilderView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     Color.clear.frame(height: 0).id("top")
-                    BusinessPageHeading(title: store.draft.offerReceipt != nil ? "Предложение" : store.draft.receipt != nil ? "Бронирование" : store.draft.requestSecret != nil ? (store.draft.submissionMode == "offer" ? "Предложение" : "Бронирование") : steps[step], subtitle: editingOffer == nil ? "Создание индивидуальной умры" : "Редактирование предложения")
-                    if store.draft.requestSecret == nil && store.draft.offerReceipt == nil && store.draft.receipt == nil {
-                        builderRail
+                    BusinessPageHeading(title: store.draft.offerReceipt != nil ? "Предложение" : store.draft.receipt != nil ? "Бронирование" : store.draft.requestSecret != nil ? (store.draft.submissionMode == "offer" ? "Предложение" : "Бронирование") : studioHome ? "Создать умру" : steps[step], subtitle: editingOffer == nil ? "Создание индивидуальной умры" : "Редактирование предложения")
+                    if !studioHome && store.draft.requestSecret == nil && store.draft.offerReceipt == nil && store.draft.receipt == nil {
+                        Button { studioHome = true; error = nil } label: { Label("Все компоненты поездки", systemImage: "square.grid.2x2") }.buttonStyle(BusinessActionStyle(primary: false))
                     }
                     if let offer = store.draft.offerReceipt { offerReceiptView(offer) }
                     else if let receipt = store.draft.receipt { receiptView(receipt) }
                     else if store.draft.requestSecret != nil { pendingView }
+                    else if studioHome { studioDashboard }
                     else { switch step {
                     case 0: parameters
                     case 1: UmrahFlightStep(draft: $store.draft)
@@ -64,6 +70,7 @@ struct UmrahBuilderView: View {
             }
             .scrollDismissesKeyboard(.interactively)
             .onChange(of: step) { _, _ in reader.scrollTo("top", anchor: .top) }
+            .onChange(of: studioHome) { _, _ in reader.scrollTo("top", anchor: .top) }
             .onChange(of: flightPhase) { _, _ in reader.scrollTo("top", anchor: .top) }
             .onChange(of: hotelPhase) { _, _ in reader.scrollTo("top", anchor: .top) }
             .onChange(of: error) { _, value in if value != nil { reader.scrollTo("validation", anchor: .bottom) } }
@@ -73,22 +80,22 @@ struct UmrahBuilderView: View {
         .businessNavigationSurface()
         .toolbar {
             ToolbarItem(placement: .principal) { BusinessBrandLogo(width: 150, foreground: .white).frame(height: 36) }
-            ToolbarItem(placement: .topBarLeading) { Button("Закрыть") { store.save(); if store.storageError == nil { dismiss() } }.foregroundStyle(.white) }
+            ToolbarItem(placement: .topBarLeading) { if !embedded && !pushed { Button("Закрыть") { store.save(); if store.storageError == nil { dismiss() } }.foregroundStyle(.white) } }
+            ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("Готово") { UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil) } }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu { Button("Сохранить черновик") { store.save(); saved = store.storageError == nil }; if editingOffer == nil { Button("Начать заново", role: .destructive) { restart = true }.disabled(store.draft.requestSecret != nil && store.draft.receipt == nil && store.draft.offerReceipt == nil) } } label: { Image(systemName: "ellipsis.circle").foregroundStyle(.white) }
             }
         }
         .confirmationDialog("Удалить текущий черновик?", isPresented: $restart, titleVisibility: .visible) {
-            Button("Начать заново", role: .destructive) { store.draft = UmrahPackageDraft(); go(0); store.save() }.disabled(submitting)
+            Button("Начать заново", role: .destructive) { store.draft = UmrahPackageDraft(); go(0); studioHome = true; store.save() }.disabled(submitting)
         }
-        .safeAreaInset(edge: .bottom) { if store.draft.requestSecret == nil && store.draft.offerReceipt == nil && store.draft.receipt == nil { footer } }
+        .safeAreaInset(edge: .bottom) { if !studioHome && store.draft.requestSecret == nil && store.draft.offerReceipt == nil && store.draft.receipt == nil { footer } }
         .environment(\.locale, Locale(identifier: "ru_RU"))
         .onChange(of: scenePhase) { _, phase in if phase != .active { store.save() } }
         .onDisappear { store.save() }
          .onChange(of: store.draft) { _, _ in store.save() }
         .onAppear {
-            if store.draft.builderStage == nil { go(editingOffer != nil ? store.draft.firstIncompleteBuilderStage : 0) }
-            else { go(step) }
+            if store.draft.builderStage == nil { store.draft.builderStage = 0 }
             if editingOffer == nil, let savedMode = store.draft.builderFinishAsOffer { finishAsOffer = savedMode }
         }
         .onChange(of: finishAsOffer) { _, value in store.draft.builderFinishAsOffer = value }
@@ -101,11 +108,54 @@ struct UmrahBuilderView: View {
         .confirmationDialog(editingOffer == nil ? "Создать предложение?" : "Обновить предложение?", isPresented: $showOfferConfirmation, titleVisibility: .visible) {
             Button(editingOffer == nil ? "Создать предложение" : "Обновить предложение") { Task { await submitOffer() } }
         } message: { Text("Наличие не резервируется. Клиент сможет принять актуальную версию по той же ссылке.") }
+        .confirmationDialog("Удалить сохранённый черновик?", isPresented: $confirmDeleteDraft) { Button("Удалить", role: .destructive) { if let deletingDraft { store.deleteSaved(deletingDraft) }; deletingDraft = nil }; Button("Отмена", role: .cancel) { deletingDraft = nil } }
         .alert("Черновик сохранён", isPresented: $saved) {
             Button("Хорошо", role: .cancel) { }
         } message: { Text("Пакет сохранён на этом устройстве.") }
     }
 
+    private var studioDashboard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            UmrahPanel(title: "Черновик поездки") {
+                Text("\(store.draft.travelers) чел. · \(store.draft.comfort)").font(.title2.bold())
+                if let start = store.draft.preferredStart { Text("Желаемые даты: \(start) — \(store.draft.preferredEnd ?? "уточнить")").font(.caption).foregroundStyle(.secondary) }
+                if !store.draft.clientName.isEmpty { Text(store.draft.clientName + " " + (store.draft.lastName ?? "")).font(.subheadline) }
+                let complete = (0..<5).filter { store.draft.builderIssue(at: $0) == nil }.count
+                ProgressView(value: Double(complete), total: 5).tint(BusinessDesign.ink)
+                Text("Готово \(complete) из 5 разделов · автосохранение на устройстве").font(.caption).foregroundStyle(.secondary)
+            }
+            if embedded {
+                Button { if store.archiveAndStartNew() { studioHome = true; finishAsOffer = false } } label: { Label("Сохранить и начать новый", systemImage: "plus.square.on.square") }.buttonStyle(BusinessActionStyle(primary: false))
+                if !store.savedDrafts.isEmpty {
+                    DisclosureGroup("Сохранённые черновики · \(store.savedDrafts.count)") {
+                        ForEach(store.savedDrafts) { entry in
+                            HStack {
+                                Button { if store.openSaved(entry) { studioHome = true; finishAsOffer = store.draft.builderFinishAsOffer ?? false } } label: {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(entry.draft.clientName.isEmpty ? "\(entry.draft.travelers) чел. · \(entry.draft.comfort)" : entry.draft.clientName).font(.headline)
+                                        Text(entry.updatedAt.formatted(date: .abbreviated, time: .shortened)).font(.caption).foregroundStyle(.secondary)
+                                    }.frame(maxWidth: .infinity, alignment: .leading)
+                                }.buttonStyle(.plain)
+                                Button(role: .destructive) { deletingDraft = entry; confirmDeleteDraft = true } label: { Image(systemName: "trash").frame(width: 44, height: 44) }.buttonStyle(.plain)
+                            }.padding(.vertical, 5)
+                        }
+                    }.padding(14).businessCard(radius: 18)
+                }
+            }
+            UmrahPanel(title: "Компоненты") {
+                reviewRow("Параметры", detail: "\(store.draft.travelers) чел. · \(store.draft.comfort)", symbol: "person.2", stage: 0)
+                reviewRow("Рейс туда", detail: store.draft.outbound.map(UmrahAirportLabel.route) ?? "Выбрать рейс", symbol: "airplane.departure", stage: 1, phase: 0)
+                reviewRow("Рейс обратно", detail: store.draft.inbound.map(UmrahAirportLabel.route) ?? "Выбрать рейс", symbol: "airplane.arrival", stage: 1, phase: 1)
+                reviewRow("Цена перелёта", detail: store.draft.flightPrice.isEmpty ? "Указать цену на человека" : "$" + store.draft.flightPrice, symbol: "creditcard", stage: 1, phase: 2)
+                reviewRow("Мекка", detail: store.draft.makkah.id.isEmpty ? "Выбрать отель" : stayReview(store.draft.makkah), symbol: "bed.double", stage: 2, phase: 0)
+                if store.draft.includeMedina { reviewRow("Медина", detail: store.draft.medina.id.isEmpty ? "Выбрать отель" : stayReview(store.draft.medina), symbol: "bed.double", stage: 2, phase: 1) }
+                reviewRow("Транспорт и услуги", detail: store.draft.vehicle, symbol: "car", stage: 3)
+                reviewRow("Стоимость", detail: store.draft.saleTotal.map { $0.formatted(.currency(code: "USD")) } ?? "Ещё не рассчитана", symbol: "creditcard", stage: 4)
+            }
+            if let total = store.draft.saleTotal { Text(total, format: .currency(code: "USD")).font(.largeTitle.bold()).monospacedDigit() }
+            Button("Проверить и оформить") { go(5) }.buttonStyle(BusinessActionStyle())
+        }
+    }
     private var builderRail: some View {
         VStack(alignment: .leading, spacing: BusinessDesign.Space.xs) {
             BusinessStageRail(titles: steps, symbols: ["person.2", "airplane", "bed.double", "car", "creditcard", "doc.text"], current: step, maximumReachable: store.draft.firstIncompleteBuilderStage, goBack: go)
@@ -200,6 +250,7 @@ struct UmrahBuilderView: View {
                 } else { Text("—").font(.headline).foregroundStyle(BusinessDesign.muted).accessibilityLabel("Стоимость ещё не рассчитана") }
             }
             if let issue = currentIssue { Text(issue).font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading) }
+            if step == 5 && store.draft.firstIncompleteBuilderStage < 5 { Button("Исправить незаполненный раздел") { go(store.draft.firstIncompleteBuilderStage) }.font(.subheadline.weight(.semibold)) }
             if step < 5 && store.draft.firstIncompleteBuilderStage == 5 {
                 Button("Вернуться к оформлению") { go(5) }.font(.caption.weight(.semibold)).tint(BusinessDesign.ink)
             }
@@ -337,7 +388,7 @@ struct UmrahBuilderView: View {
             if !receipt.shareURL.isEmpty, let url = URL(string: receipt.shareURL) { ShareLink(item: url) { Label("Отправить ссылку", systemImage: "square.and.arrow.up") }.buttonStyle(BusinessActionStyle()); Link("Предпросмотр поездки", destination: url).buttonStyle(BusinessActionStyle(primary: false)) }
             Button("Проверить отправку и ID") { Task { await submit() } }.disabled(submitting)
             NavigationLink("Открыть бронирование") { BookingDetailView(bookingID: receipt.bookingID) }
-            Button("Создать новую умру") { store.draft = UmrahPackageDraft(); go(0); store.save() }.disabled(submitting)
+            Button("Создать новую умру") { store.draft = UmrahPackageDraft(); go(0); studioHome = true; store.save() }.disabled(submitting)
         }
     }
     @MainActor private func submit() async {
@@ -372,9 +423,13 @@ struct UmrahBuilderView: View {
                 ShareLink(item: url) { Label("Поделиться предложением", systemImage: "square.and.arrow.up") }.buttonStyle(BusinessActionStyle())
                 if let preview = offerPreviewURL(url) { Link("Предпросмотр без учёта просмотра", destination: preview) }
             }
+            if let requestID = store.draft.conciergeID {
+                Button(conciergeReady ? "Заявка отмечена готовой" : "Отметить заявку: предложение готово") { Task { do { try await APIClient.shared.changeConciergeRequest(id: requestID, status: "READY"); error = nil; conciergeReady = true } catch { self.error = error.localizedDescription } } }.buttonStyle(BusinessActionStyle(primary: false)).disabled(conciergeReady)
+            }
             NavigationLink("Управление предложением") { BusinessOfferDetailView(id: offer.id) }.buttonStyle(BusinessActionStyle(primary: false))
-            Button(editingOffer == nil ? "Создать новую умру" : "Готово") {
-                if editingOffer != nil { dismiss() } else { store.draft = UmrahPackageDraft(); go(0); store.save() }
+            if editingOffer == nil && store.draft.conciergeID == nil { Button("Дублировать пакет") { var copy = store.draft; copy.requestSecret = nil; copy.offerReceipt = nil; copy.receipt = nil; copy.submissionMode = nil; copy.clientName = ""; copy.lastName = nil; copy.phone = ""; copy.email = nil; copy.telegram = ""; copy.notes = ""; copy.sendEmail = false; copy.flightPrice = ""; copy.flightFares = nil; copy.selectedFareKeys = nil; copy.selectedFareKinds = nil; copy.makkah.price = ""; copy.medina.price = ""; store.draft = copy; studioHome = true; store.save() }.buttonStyle(BusinessActionStyle(primary: false)) }
+            Button(editingOffer == nil && store.draft.conciergeID == nil ? "Создать новую умру" : "Готово") {
+                if editingOffer != nil || store.draft.conciergeID != nil { dismiss() } else { store.draft = UmrahPackageDraft(); go(0); studioHome = true; store.save() }
             }
         }
     }
@@ -462,6 +517,7 @@ private struct UmrahFlightStep: View {
             if phase == 2 {
                 fareConfirmation
             } else {
+                if let preferred = direction == 0 ? draft.preferredStart : draft.preferredEnd { Text("Желаемая дата: " + preferred).font(.caption).foregroundStyle(.secondary) }
                 if phase == 1, let outbound = draft.outbound {
                     Label(UmrahAirportLabel.route(outbound), systemImage: "checkmark.circle.fill").font(.subheadline).foregroundStyle(BusinessDesign.securityBlue)
                 }
@@ -511,11 +567,17 @@ private struct UmrahFlightStep: View {
             }
             if let error { Label(error, systemImage: "exclamationmark.circle").font(.subheadline).foregroundStyle(.red) }
         }
-        .task { origin = draft.builderOrigin ?? draft.outbound?.legs.first?.origin ?? "Все"; resetManual(); if phase != 2 { await load(); catalogLoaded = true } }
+        .task { origin = draft.builderOrigin ?? draft.outbound?.legs.first?.origin ?? "Все"; resetManual(); applyPreferredDate(); if phase != 2 { await load(); catalogLoaded = true } }
         .onChange(of: phase) { _, value in
-            error = nil; filterDate = false; airport = "Все"; candidates = []; key = ""; showFilters = false; resetManual()
+            error = nil; filterDate = false; airport = "Все"; candidates = []; key = ""; showFilters = false; resetManual(); applyPreferredDate()
             if value != 2 && !catalogLoaded { Task { await load(); catalogLoaded = true } }
         }
+    }
+    private func applyPreferredDate() {
+        let raw = direction == 0 ? draft.preferredStart : draft.preferredEnd
+        guard let raw else { return }
+        let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.dateFormat = "yyyy-MM-dd"; formatter.timeZone = TimeZone(identifier: direction == 0 ? "Asia/Tashkent" : "Asia/Riyadh")
+        if let value = formatter.date(from: raw) { searchDate = value; filterDate = true }
     }
     private func sourceButton(_ title: String, index: Int) -> some View {
         Button { source = index } label: {
@@ -533,7 +595,7 @@ private struct UmrahFlightStep: View {
             HStack(spacing: 4) { if completed && phase != index { Image(systemName: "checkmark.circle.fill") }; Text(title).font(.subheadline.weight(.semibold)) }
                 .frame(maxWidth: .infinity, minHeight: 44).foregroundStyle(phase == index ? BusinessDesign.onAccent : completed ? BusinessDesign.securityBlue : BusinessDesign.ink)
                 .background(phase == index ? BusinessDesign.accent : BusinessDesign.secondarySurface, in: RoundedRectangle(cornerRadius: 12))
-        }.buttonStyle(.plain).accessibilityAddTraits(phase == index ? .isSelected : []).disabled(index == 1 && draft.outbound == nil || index == 2 && (draft.outbound == nil || draft.inbound == nil))
+        }.buttonStyle(.plain).accessibilityAddTraits(phase == index ? .isSelected : [])
     }
     private var fareConfirmation: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -775,37 +837,17 @@ private struct UmrahMoneyField: View {
 
 private struct UmrahHotelStep: View {
     @Binding var draft: UmrahPackageDraft
-    @State private var hotels: [HotelListItem] = []
-    @State private var loading = false
-    @State private var error: String?
     private var medinaPhase: Bool { draft.includeMedina && draft.builderHotelPhase == 1 }
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 8) {
-                cityButton("Мекка", phase: 0, completed: draft.stayIssue(draft.makkah) == nil)
-                if draft.includeMedina { cityButton("Медина", phase: 1, completed: draft.stayIssue(draft.medina) == nil) }
-            }
-            if let arrival = draft.arrival, let departure = draft.departure {
-                Text("Поездка: \(UmrahPackageDraft.stayCalendar.dateComponents([.day], from: UmrahPackageDraft.stayCalendar.startOfDay(for: arrival), to: UmrahPackageDraft.stayCalendar.startOfDay(for: departure)).day ?? 0) ночей · все ночи должны быть покрыты").font(.caption).foregroundStyle(.secondary)
-            }
-            if loading { ProgressView("Загрузка отелей…") }
-            if let error { Text(error).foregroundStyle(.red); Button("Повторить") { Task { await load() } } }
-            if medinaPhase {
-                UmrahStayEditor(title: "Медина", stay: $draft.medina, travelers: draft.travelers, hotels: hotels.filter { city($0.city) == "medina" }).id("medina")
-            } else {
-                UmrahStayEditor(title: "Мекка", stay: $draft.makkah, travelers: draft.travelers, hotels: hotels.filter { city($0.city) == "makkah" }).id("makkah")
-            }
-            if draft.includeMedina { Text("Даты Мекки и Медины должны идти подряд, без пропусков и пересечений.").font(.caption).foregroundStyle(.secondary) }
-        }
-        .task { seedDates(); await load() }
-    }
-    private func cityButton(_ title: String, phase: Int, completed: Bool) -> some View {
-        let active = medinaPhase == (phase == 1)
-        return Button { draft.builderHotelPhase = phase } label: {
-            HStack { if completed && !active { Image(systemName: "checkmark.circle.fill") }; Text(title).font(.subheadline.weight(.semibold)) }
-                .frame(maxWidth: .infinity, minHeight: 44).foregroundStyle(active ? BusinessDesign.onAccent : completed ? BusinessDesign.securityBlue : BusinessDesign.ink)
-                .background(active ? BusinessDesign.accent : BusinessDesign.secondarySurface, in: RoundedRectangle(cornerRadius: 12))
-        }.buttonStyle(.plain).accessibilityAddTraits(active ? .isSelected : []).disabled(phase == 1 && draft.stayIssue(draft.makkah) != nil)
+            Picker("Город", selection: Binding(get: { medinaPhase ? 1 : 0 }, set: { draft.builderHotelPhase = $0 })) {
+                Text("Мекка").tag(0); if draft.includeMedina { Text("Медина").tag(1) }
+            }.pickerStyle(.segmented)
+            if draft.arrival == nil || draft.departure == nil { Text("Можно выбрать отель заранее. Для итогового расчёта подтвердите даты рейсов.").font(.caption).foregroundStyle(.secondary) }
+            if medinaPhase { UmrahStayEditor(title: "Медина", city: "madinah", stay: $draft.medina, travelers: draft.travelers).id("medina") }
+            else { UmrahStayEditor(title: "Мекка", city: "makkah", stay: $draft.makkah, travelers: draft.travelers).id("makkah") }
+            if draft.includeMedina { Text("Даты двух городов должны идти подряд, без пропусков и пересечений.").font(.caption).foregroundStyle(.secondary) }
+        }.task { seedDates() }
     }
     private func seedDates() {
         guard let arrival = draft.arrival, let departure = draft.departure else { return }
@@ -826,96 +868,54 @@ private struct UmrahHotelStep: View {
             draft.medina.checkIn = split; draft.medina.checkOut = end
         }
     }
-    private func city(_ raw: String) -> String {
-        let value = raw.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-        if ["makkah", "mecca", "мекка", "макка"].contains(value) { return "makkah" }
-        if ["medina", "madinah", "медина"].contains(value) { return "medina" }
-        return value
-    }
-    @MainActor private func load() async {
-        loading = true; error = nil
-        defer { loading = false }
-        do { hotels = try await APIClient.shared.hotels() }
-        catch { self.error = "Не удалось загрузить отели: \(error.localizedDescription)" }
-    }
 }
 
 private struct UmrahStayEditor: View {
     let title: String
+    let city: String
     @Binding var stay: UmrahPackageDraft.Stay
     let travelers: Int
-    let hotels: [HotelListItem]
     @State private var picker = false
-    @State private var search = ""
-    @State private var rooms: [HotelAdminDetailRoom] = []
-    @State private var priceMode = 1
+    private var datesValid: Bool { stay.nights > 0 }
     var body: some View {
         UmrahPanel(title: title) {
             if !stay.id.isEmpty {
                 HStack(spacing: 12) {
                     UmrahRemoteImage(raw: stay.imageURL).frame(width: 86, height: 72).clipShape(RoundedRectangle(cornerRadius: 12))
-                    VStack(alignment: .leading, spacing: 4) { Text(stay.name).font(.headline); if let stars = stay.stars { Text("\(stars) ★").font(.caption).foregroundStyle(.secondary) } }
+                    VStack(alignment: .leading) { Text(stay.name).font(.headline); Text(stay.stars.map { "\($0) ★" } ?? "Категория не указана").font(.caption).foregroundStyle(.secondary) }
                     Spacer()
-                    Button("Изменить") { picker = true }.font(.subheadline.weight(.semibold)).tint(BusinessDesign.ink)
                 }
+                if !stay.id.hasPrefix("lp") { Text("Отель из сохранённого пакета. Для новой подборки используйте Nuitee.").font(.caption).foregroundStyle(.secondary) }
             }
-            if stay.id.isEmpty { Button { picker = true } label: { Label("Выбрать отель", systemImage: "building.2") }.buttonStyle(BusinessActionStyle(primary: false)).tint(BusinessDesign.ink) }
+            Button { picker = true } label: { Label(stay.id.isEmpty ? "Выбрать отель" : "Изменить отель", systemImage: "building.2") }.buttonStyle(BusinessActionStyle(primary: false))
             DatePicker("Заселение", selection: $stay.checkIn, displayedComponents: .date)
             DatePicker("Выселение", selection: $stay.checkOut, displayedComponents: .date)
-            Text("\(stay.nights) ночей").font(.caption).foregroundStyle(stay.nights > 0 ? Color.secondary : Color.red)
+            Text("\(stay.nights) ночей").font(.caption).foregroundStyle(datesValid ? Color.secondary : Color.red)
             Stepper("Номера: \(stay.rooms)", value: $stay.rooms, in: 1...6)
-            if !rooms.isEmpty { Picker("Категория номера", selection: $stay.room) { Text("Выбрать").tag(""); ForEach(rooms) { Text($0.name).tag($0.name) } } }
-            TextField("Категория номера / размещение", text: $stay.room)
-            Picker("Питание", selection: $stay.meals) {
-                ForEach(["Без питания", "Завтрак", "Завтрак и ужин", "Завтрак, обед и ужин"], id: \.self) { Text($0) }
-            }
-            Picker("Стоимость", selection: $priceMode) { Text("Цена из базы").tag(0); Text("Своя цена").tag(1) }.pickerStyle(.segmented)
-            if priceMode == 0 { Button("Перенести подходящую цену") { applyCachedPrice() }; Text("Только свежая цена для тех же дат, количества номеров и гостей. Категорию номера и питание подтвердите самостоятельно.").font(.caption).foregroundStyle(.secondary) }
+            if stay.id.hasPrefix("lp") && stay.rooms == 1 && datesValid {
+                BusinessNuiteeRatePanel(id: stay.id, checkIn: stay.checkIn, checkOut: stay.checkOut, guests: travelers, select: { rate in
+                    stay.room = rate.roomName; stay.meals = rate.mealPlan.isEmpty ? "Уточнить питание" : rate.mealPlan
+                    stay.price = String(format: "%.2f", rate.price)
+                })
+            } else if stay.rooms > 1 { Text("API тарифов поддерживает один номер. Для нескольких номеров введите подтверждённую общую цену вручную.").font(.caption).foregroundStyle(.secondary) }
+            TextField("Категория номера / размещение", text: Binding(get: { stay.room }, set: { if stay.room != $0 { stay.room = $0; stay.price = "" } }))
+            TextField("Питание", text: Binding(get: { stay.meals }, set: { if stay.meals != $0 { stay.meals = $0; stay.price = "" } }))
             UmrahMoneyField(title: "Все номера · весь срок · USD", text: $stay.price)
-            if let amount = UmrahPackageDraft.amount(stay.price), amount > 0, stay.nights > 0 { Text("\(amount / Double(stay.nights) / Double(stay.rooms), format: .currency(code: "USD")) / номер / ночь").font(.caption).foregroundStyle(.secondary) }
-        }
-        .task(id: stay.id) {
-            rooms = []
-            if !stay.id.isEmpty, let detail = try? await APIClient.shared.hotelDetail(id: stay.id), detail.id == stay.id { rooms = detail.rooms }
+            Text("Цена для индивидуального предложения, не подтверждение бронирования.").font(.caption).foregroundStyle(.secondary)
+            if let amount = UmrahPackageDraft.amount(stay.price), amount > 0, datesValid { Text("\(amount / Double(stay.nights) / Double(stay.rooms), format: .currency(code: "USD")) / номер / ночь").font(.caption).foregroundStyle(.secondary) }
         }
         .onChange(of: stay.checkIn) { _, _ in stay.price = "" }
         .onChange(of: stay.checkOut) { _, _ in stay.price = "" }
         .onChange(of: stay.rooms) { _, _ in stay.price = "" }
-        .onChange(of: stay.room) { _, _ in stay.price = "" }
-        .onChange(of: stay.meals) { _, _ in stay.price = "" }
         .environment(\.calendar, UmrahPackageDraft.stayCalendar)
         .environment(\.timeZone, TimeZone(identifier: "Asia/Riyadh")!)
-        .sheet(isPresented: $picker) {
-            NavigationStack {
-                List(hotels.filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) }) { hotel in
-                    Button {
-                        stay.id = hotel.id; stay.name = hotel.name; stay.imageURL = hotel.coverImageURL; stay.stars = hotel.stars
-                        stay.price = ""; stay.room = ""; stay.meals = "Без питания"; priceMode = 1; picker = false
-                    } label: {
-                        HStack(spacing: 14) {
-                            UmrahRemoteImage(raw: hotel.coverImageURL).frame(width: 80, height: 64).clipShape(RoundedRectangle(cornerRadius: 12))
-                            VStack(alignment: .leading, spacing: 5) {
-                                Text(hotel.name).font(.headline)
-                                Text("\(hotel.stars.map { "\($0) ★ · " } ?? "")\(hotel.city)").font(.caption).foregroundStyle(.secondary)
-                            }
-                        }.foregroundStyle(BusinessDesign.ink)
-                    }
-                }
-                .overlay { if hotels.isEmpty { ContentUnavailableView("Нет отелей в каталоге", systemImage: "building.2", description: Text("Нет доступных отелей. Проверьте подключение нового гостиничного API или выберите существующее размещение.")) } }
-                .searchable(text: $search, prompt: "Название отеля")
-                .navigationTitle("Отели · \(title)").navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
-                .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Закрыть") { picker = false }.foregroundStyle(BusinessDesign.headerInk) } }
-            }
+        .navigationDestination(isPresented: $picker) {
+            BusinessNuiteeHotelsView(fixedCity: city, onSelect: { hotel in
+                stay.id = hotel.id; stay.name = hotel.name; stay.stars = hotel.starCount; stay.imageURL = hotel.photo
+                stay.room = ""; stay.meals = "Без питания"; stay.price = ""; picker = false
+            })
         }
     }
-    private func applyCachedPrice() {
-        let formatter = DateFormatter(); formatter.dateFormat = "yyyy-MM-dd"; formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.timeZone = TimeZone(identifier: "Asia/Riyadh")
-        guard let cached = hotels.first(where: { $0.id == stay.id })?.price,
-              cached.status == "fresh", let expires = UmrahPackageDraft.date(cached.expiresAt), expires > Date(), cached.checkIn == formatter.string(from: stay.checkIn), cached.checkOut == formatter.string(from: stay.checkOut), cached.rooms == stay.rooms, cached.adults == travelers,
-              let amount = cached.quoteTotalUSD, amount > 0 else { stay.price = ""; return }
-        stay.price = String(format: "%.2f", amount)
-    }
-
 }
 
 private struct UmrahRemoteImage: View {

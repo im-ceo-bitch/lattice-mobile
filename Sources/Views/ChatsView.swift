@@ -13,13 +13,33 @@ private enum ChatFilter: String, CaseIterable, Identifiable {
     case new = "Новые"
     case active = "В процессе"
     case completed = "Завершённые"
+    case app = "Приложение"
+    case telegram = "Telegram"
+    case archive = "Архив"
     var id: String { rawValue }
+}
+
+private enum BusinessInboxItem: Identifiable {
+    case app(ChatThread), telegram(TelegramCareThread)
+    var id: String { switch self { case .app(let t): return "app:" + t.id; case .telegram(let t): return "tg:" + t.id } }
+    var date: String { switch self { case .app(let t): return t.lastMessageAt; case .telegram(let t): return t.updatedAt } }
 }
 
 struct ChatsView: View {
     @Environment(\.businessAdaptiveLayout) private var layout
     @EnvironmentObject private var navigation: BusinessNavigationStore
+    @EnvironmentObject private var auth: AuthStore
+    @State private var archivedThreads: [String: String] = [:]
+    @State private var archiveAccount: String?
+    @State private var pendingArchive: ChatThread?
+    @State private var showArchiveConfirmation = false
     @State private var search = ""
+    @State private var telegramThreads: [TelegramCareThread] = []
+    @State private var telegramError: String?
+    @State private var telegramArchive: [String: String] = [:]
+    @State private var pinned: Set<String> = []
+    @State private var telegramGeneration = UUID()
+    @State private var selectedTelegram: TelegramCareThread?
 
     @State private var threads: [ChatThread] = []
     @State private var bookings: [BookingSummary] = []
@@ -57,6 +77,7 @@ struct ChatsView: View {
         .searchable(text: $search, prompt: "Имя, iumrah ID или номер брони")
         .overlay { if loading && !hasLoadedThreads { ProgressView() } }
         .task { await load(); openPendingChat() }
+        .task { while !Task.isCancelled { await loadTelegram(); try? await Task.sleep(for: .seconds(15)) } }
         .onReceive(NotificationCenter.default.publisher(for: .iumrahBusinessChatOpen)) { _ in
             Task { await load(); openPendingChat() }
         }
@@ -76,31 +97,138 @@ struct ChatsView: View {
             if phase == .active { Task { await load() } }
         }
         .onChange(of: filter) { _, _ in
+            if let selectedTelegram, !filteredTelegram.contains(where: { $0.id == selectedTelegram.id }) { self.selectedTelegram = nil }
             guard layout.supportsTwoPaneWorkspace else { return }
             if let selectedThread,
                !filteredThreads.contains(where: { $0.id == selectedThread.id }) {
                 self.selectedThread = filteredThreads.first
             }
         }
-        .refreshable { await load() }
+        .refreshable { await load(); await loadTelegram() }
+        .confirmationDialog("Убрать чат из основного списка?", isPresented: $showArchiveConfirmation, titleVisibility: .visible) {
+            Button("Убрать в архив", role: .destructive) { if let thread = pendingArchive { archive(thread) }; pendingArchive = nil }
+            Button("Отмена", role: .cancel) { pendingArchive = nil }
+        } message: { Text("Переписка и бронирования сохранятся. Архив действует только на этом устройстве. Новое сообщение вернёт чат в основной список.") }
     }
 
     private func openPendingChat() {
         guard let key = BusinessNotificationRoute.pendingChat,
               let thread = threads.first(where: { $0.id == key || $0.booking?.id == key || $0.relatedBookings.contains(where: { $0.id == key }) }) else { return }
+        restore(thread)
         filter = .all; search = ""
-        if layout.supportsTwoPaneWorkspace { selectedThread = thread } else { pushedThread = thread }
+        if layout.supportsTwoPaneWorkspace { selectedTelegram = nil; selectedThread = thread } else { pushedThread = thread }
         BusinessNotificationRoute.pendingChat = nil
     }
 
     private var compactWorkspace: some View {
-        ScrollView {
-            threadListContent(navigates: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 14)
+        List {
+            threadListHeader
+                .listRowSeparator(.hidden).listRowBackground(Color.clear)
+            if filteredThreads.isEmpty && filteredTelegram.isEmpty && !loading {
+                ContentUnavailableView(search.isEmpty ? emptyTitle : "Ничего не найдено", systemImage: "message", description: Text(search.isEmpty ? emptySubtitle : "Измените поисковый запрос."))
+                    .listRowSeparator(.hidden).listRowBackground(Color.clear)
+            }
+            ForEach(inboxItems) { item in
+                switch item {
+                case .telegram(let thread):
+                    NavigationLink { TelegramCareConversation(thread: thread) } label: { telegramRow(thread) }
+                        .listRowSeparator(.hidden).listRowBackground(Color.clear)
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) { Button { toggleTelegramArchive(thread) } label: { Label(isTelegramArchived(thread) ? "Вернуть" : "В архив", systemImage: "archivebox") }.tint(.gray) }
+                        .contextMenu { Button(isTelegramArchived(thread) ? "Вернуть" : "В архив") { toggleTelegramArchive(thread) }; Button(pinned.contains(item.id) ? "Открепить" : "Закрепить") { togglePin(item.id) } }
+                case .app(let thread):
+                    NavigationLink { ChatConversationView(thread: thread) } label: { appRow(thread) }
+                        .listRowSeparator(.hidden).listRowBackground(Color.clear)
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            if isArchived(thread) { Button { restore(thread) } label: { Label("Вернуть", systemImage: "arrow.uturn.backward") }.tint(.gray) }
+                            else { Button { pendingArchive = thread; showArchiveConfirmation = true } label: { Label("В архив", systemImage: "archivebox") }.tint(.gray) }
+                        }.contextMenu { threadActions(thread) }
+                }
+            }
         }
-        .contentMargins(.horizontal, 18, for: .scrollContent)
-        .scrollIndicators(.hidden)
+        .listStyle(.plain).scrollContentBackground(.hidden)
+        .scrollDismissesKeyboard(.interactively)
+    }
+
+    private var inboxItems: [BusinessInboxItem] {
+        (filteredThreads.map(BusinessInboxItem.app) + filteredTelegram.map(BusinessInboxItem.telegram)).sorted { a,b in
+            let ap = pinned.contains(a.id), bp = pinned.contains(b.id)
+            if ap != bp { return ap }
+            return a.date == b.date ? a.id < b.id : a.date > b.date
+        }
+    }
+    private func appRow(_ thread: ChatThread) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack { Text("Приложение").font(.caption).foregroundStyle(.secondary); if pinned.contains("app:" + thread.id) { Image(systemName: "pin.fill").font(.caption).foregroundStyle(.secondary) }; Spacer() }
+            ThreadCard(thread: thread, showsChevron: false)
+        }
+    }
+    private var filteredTelegram: [TelegramCareThread] {
+        guard filter == .all || filter == .telegram || filter == .archive else { return [] }
+        return telegramThreads.filter { thread in
+            (filter == .archive ? isTelegramArchived(thread) : !isTelegramArchived(thread)) && (search.isEmpty || thread.name.localizedCaseInsensitiveContains(search) || thread.preview.localizedCaseInsensitiveContains(search))
+        }.sorted { a,b in
+            let ap = pinned.contains("tg:" + a.id), bp = pinned.contains("tg:" + b.id)
+            return ap == bp ? a.updatedAt > b.updatedAt : ap
+        }
+    }
+    private func isTelegramArchived(_ thread: TelegramCareThread) -> Bool { telegramArchive[thread.id] == thread.updatedAt }
+    private func toggleTelegramArchive(_ thread: TelegramCareThread) {
+        bindArchive(); guard let account = archiveAccount else { return }
+        if isTelegramArchived(thread) { telegramArchive.removeValue(forKey: thread.id) } else { telegramArchive[thread.id] = thread.updatedAt }
+        UserDefaults.standard.set(telegramArchive, forKey: "iumrah.business.telegramArchive." + account)
+        if selectedTelegram?.id == thread.id { selectedTelegram = nil }
+    }
+    private func togglePin(_ id: String) {
+        bindArchive(); guard let account = archiveAccount else { return }
+        if pinned.contains(id) { pinned.remove(id) } else { pinned.insert(id) }
+        UserDefaults.standard.set(Array(pinned), forKey: "iumrah.business.chatPins." + account)
+    }
+    private func telegramRow(_ thread: TelegramCareThread) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "paperplane.circle.fill").font(.largeTitle).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack { Text(thread.name).font(.headline); if pinned.contains("tg:" + thread.id) { Image(systemName: "pin.fill").font(.caption) }; Spacer(); Text(thread.mode == "human" ? "Оператор" : "Авто").font(.caption).foregroundStyle(.secondary) }
+                Text("Telegram · " + thread.preview).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
+            }
+        }.padding(12).businessCard(radius: 18)
+    }
+    @MainActor private func loadTelegram() async {
+        bindArchive(); let account = archiveAccount; let token = UUID(); telegramGeneration = token
+        do { let values = try await APIClient.shared.telegramCareThreads(); guard telegramGeneration == token, archiveAccount == account, !Task.isCancelled else { return }; telegramThreads = values; telegramError = nil }
+        catch { if telegramGeneration == token && !Task.isCancelled { telegramError = "Не удалось обновить диалоги" } }
+    }
+    private var archiveKey: String? { archiveAccount.map { "iumrah.business.chatArchive.v1." + $0 } }
+    private func bindArchive() {
+        let account = auth.user?.login
+        guard account != archiveAccount else { return }
+        archiveAccount = account
+        telegramThreads = []; selectedTelegram = nil
+        telegramArchive = account.flatMap { UserDefaults.standard.dictionary(forKey: "iumrah.business.telegramArchive." + $0) as? [String:String] } ?? [:]
+        pinned = Set(account.flatMap { UserDefaults.standard.stringArray(forKey: "iumrah.business.chatPins." + $0) } ?? [])
+        archivedThreads = archiveKey.flatMap { UserDefaults.standard.dictionary(forKey: $0) as? [String: String] } ?? [:]
+    }
+    private func persistArchive() {
+        if let key = archiveKey { UserDefaults.standard.set(archivedThreads, forKey: key) }
+    }
+    private func isArchived(_ thread: ChatThread) -> Bool { archivedThreads[thread.id] == thread.lastMessageAt }
+    private func archive(_ thread: ChatThread) {
+        bindArchive()
+        guard archiveAccount != nil else { return }
+        archivedThreads[thread.id] = thread.lastMessageAt
+        persistArchive()
+        if selectedThread?.id == thread.id { selectedThread = filteredThreads.first }
+    }
+    private func restore(_ thread: ChatThread) {
+        if archivedThreads.removeValue(forKey: thread.id) != nil { persistArchive() }
+        if filter == .archive, selectedThread?.id == thread.id { selectedThread = filteredThreads.first }
+    }
+    @ViewBuilder private func threadActions(_ thread: ChatThread) -> some View {
+        Button(pinned.contains("app:" + thread.id) ? "Открепить" : "Закрепить") { togglePin("app:" + thread.id) }
+        if isArchived(thread) {
+            Button { restore(thread) } label: { Label("Вернуть из архива", systemImage: "arrow.uturn.backward") }
+        } else {
+            Button { pendingArchive = thread; showArchiveConfirmation = true } label: { Label("Убрать из списка", systemImage: "archivebox") }
+        }
     }
 
     private var desktopWorkspace: some View {
@@ -117,7 +245,8 @@ struct ChatsView: View {
             Divider()
 
             Group {
-                if let selectedThread {
+                if let selectedTelegram { TelegramCareConversation(thread: selectedTelegram).id(selectedTelegram.id) }
+                else if let selectedThread {
                     BusinessAdaptivePaneHost {
                         ChatConversationView(thread: selectedThread)
                     }
@@ -135,22 +264,11 @@ struct ChatsView: View {
         }
     }
 
-    @ViewBuilder
-    private func threadListContent(navigates: Bool) -> some View {
-        LazyVStack(alignment: .leading, spacing: 14) {
+    private var threadListHeader: some View {
+        VStack(alignment: .leading, spacing: 14) {
             BusinessPageHeading(title: "Чаты", subtitle: "Персональная переписка с паломниками")
 
-            NavigationLink { TelegramCareInbox() } label: {
-                HStack(spacing: 12) {
-                    Image(systemName: "paperplane.fill").font(.title2)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Telegram Care").font(.headline)
-                        Text("Обращения до и после бронирования").font(.caption).foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Image(systemName: "chevron.right").foregroundStyle(.secondary)
-                }.padding(16).background(BusinessDesign.secondarySurface, in: RoundedRectangle(cornerRadius: 20))
-            }.buttonStyle(.plain)
+            if let telegramError { Label("Telegram: " + telegramError, systemImage: "exclamationmark.circle").font(.caption).foregroundStyle(.secondary) }
             filterBar
 
             if let errorMessage {
@@ -162,33 +280,26 @@ struct ChatsView: View {
                     .background(BusinessDesign.secondarySurface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
             }
 
-            if filteredThreads.isEmpty && !loading {
+        }
+    }
+
+    @ViewBuilder
+    private func threadListContent(navigates: Bool) -> some View {
+        LazyVStack(alignment: .leading, spacing: 14) {
+            threadListHeader
+            if filteredThreads.isEmpty && filteredTelegram.isEmpty && !loading {
                 ContentUnavailableView(search.isEmpty ? emptyTitle : "Ничего не найдено", systemImage: "message", description: Text(search.isEmpty ? emptySubtitle : "Измените поисковый запрос."))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 42)
             } else {
-                ForEach(filteredThreads) { thread in
-                    if navigates {
-                        NavigationLink { ChatConversationView(thread: thread) } label: {
-                            ThreadCard(thread: thread)
-                        }
-                        .buttonStyle(.plain)
-                    } else {
-                        Button {
-                            selectedThread = thread
-                        } label: {
-                            ThreadCard(thread: thread, showsChevron: false)
-                        }
-                        .buttonStyle(.plain)
-                        .background(
-                            selectedThread?.id == thread.id
-                                ? BusinessDesign.secondarySurface.opacity(0.55)
-                                : Color.clear,
-                            in: RoundedRectangle(cornerRadius: 26, style: .continuous)
-                        )
-                        .contextMenu {
-                            Button("Открыть") { selectedThread = thread }
-                        }
+                ForEach(inboxItems) { item in
+                    switch item {
+                    case .telegram(let thread):
+                        Button { selectedTelegram = thread; selectedThread = nil } label: { telegramRow(thread) }.buttonStyle(.plain)
+                            .contextMenu { Button(isTelegramArchived(thread) ? "Вернуть" : "В архив") { toggleTelegramArchive(thread) }; Button(pinned.contains(item.id) ? "Открепить" : "Закрепить") { togglePin(item.id) } }
+                    case .app(let thread):
+                        Button { selectedTelegram = nil; selectedThread = thread } label: { appRow(thread) }.buttonStyle(.plain)
+                            .contextMenu { threadActions(thread) }
                     }
                 }
             }
@@ -202,8 +313,8 @@ struct ChatsView: View {
                     Button { withAnimation(.snappy(duration: 0.25)) { filter = item } } label: {
                         HStack(spacing: 6) {
                             Text(item.rawValue)
-                            if item == .new {
-                                let count = threads.filter(\.unreadForStaff).count
+                            if item == .new || item == .archive {
+                                let count = threads.filter { $0.unreadForStaff && (item == .archive ? isArchived($0) : !isArchived($0)) }.count
                                 if count > 0 {
                                     Text("\(count)")
                                         .font(.caption2.bold())
@@ -227,17 +338,23 @@ struct ChatsView: View {
     }
 
     private var scopedThreads: [ChatThread] {
+        let main = threads.filter { !isArchived($0) }
         switch filter {
-        case .all: return threads
-        case .new: return threads.filter(\.unreadForStaff)
-        case .active: return threads.filter { !isCompleted($0.booking) }
-        case .completed: return threads.filter { isCompleted($0.booking) }
+        case .all, .app: return main
+        case .telegram: return []
+        case .new: return main.filter(\.unreadForStaff)
+        case .active: return main.filter { !isCompleted($0.booking) }
+        case .completed: return main.filter { isCompleted($0.booking) }
+        case .archive: return threads.filter { isArchived($0) }
         }
     }
     private var filteredThreads: [ChatThread] {
         let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
         return scopedThreads.filter { thread in
             query.isEmpty || [thread.pilgrimName ?? businessPilgrimName(thread.booking), thread.pilgrimID ?? "", thread.booking?.bookingDisplayNumber ?? "", thread.lastMessagePreview].contains { $0.localizedCaseInsensitiveContains(query) }
+        }.sorted { a,b in
+            let ap = pinned.contains("app:" + a.id), bp = pinned.contains("app:" + b.id)
+            return ap == bp ? a.lastMessageAt > b.lastMessageAt : ap
         }
     }
 
@@ -249,22 +366,25 @@ struct ChatsView: View {
 
     private var emptyTitle: String {
         switch filter {
-        case .all: return "Чатов пока нет"
+        case .all, .app, .telegram: return "Чатов пока нет"
         case .new: return "Новых сообщений нет"
         case .active: return "Активных чатов нет"
         case .completed: return "Завершённых чатов нет"
+        case .archive: return "Архив пуст"
         }
     }
 
     private var emptySubtitle: String {
         switch filter {
-        case .all: return "Здесь появятся диалоги с паломниками."
+        case .all, .app, .telegram: return "Здесь появятся диалоги с клиентами."
         case .new: return "Непрочитанные сообщения появятся здесь."
         case .active, .completed: return "Чаты сгруппированы по статусу связанной поездки."
+        case .archive: return "Убранные из списка чаты можно восстановить. Архив локальный."
         }
     }
 
     @MainActor private func load() async {
+        bindArchive()
         let generation = UUID()
         loadGeneration = generation
         if threads.isEmpty { loading = true }
@@ -302,12 +422,15 @@ struct ChatsView: View {
                     unreadForStaff: cloud.unreadForStaff
                 )
             }
+            // Only a changed last-message timestamp restores an archived thread.
+            for thread in threads where archivedThreads[thread.id] != nil && !isArchived(thread) { archivedThreads.removeValue(forKey: thread.id) }
+            persistArchive()
             if !hasLoadedThreads, threads.filter(\.unreadForStaff).isEmpty, filter == .new { filter = .active }
             hasLoadedThreads = true
             navigation.unreadChatCount = threads.filter(\.unreadForStaff).count
             if layout.supportsTwoPaneWorkspace {
                 if let selectedThread,
-                   let refreshed = threads.first(where: { $0.id == selectedThread.id }) {
+                   let refreshed = filteredThreads.first(where: { $0.id == selectedThread.id }) {
                     self.selectedThread = refreshed
                 } else {
                     selectedThread = filteredThreads.first

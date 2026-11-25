@@ -39,6 +39,7 @@ struct BookingsView: View {
     @State private var create = false
 
     @State private var showOffers = false
+    @State private var showRequests = false
     @State private var bookings: [BookingSummary] = []
     @State private var loading = true
     @State private var hasLoadedBookings = false
@@ -72,9 +73,10 @@ struct BookingsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Picker("Раздел", selection: $showOffers) { Text("Бронирования").tag(false); Text("Предложения").tag(true) }
+            Picker("Раздел", selection: Binding(get: { showRequests ? 0 : showOffers ? 1 : 2 }, set: { value in showRequests = value == 0; showOffers = value == 1; search = "" })) { Text("Заявки").tag(0); Text("Предложения").tag(1); Text("Брони").tag(2) }
                 .pickerStyle(.segmented).padding(.horizontal, 16).padding(.vertical, 10)
-            if showOffers { BusinessOffersView(search: search) }
+            if showRequests { ConciergeRequestsView(embedded: true, externalSearch: search) }
+            else if showOffers { BusinessOffersView(search: search) }
             else if layout.supportsTwoPaneWorkspace { desktopWorkspace }
             else { compactList }
         }
@@ -89,31 +91,31 @@ struct BookingsView: View {
         }
         .toolbar {
             ToolbarItem(placement: .topBarLeading) { BusinessSidebarButton() }
-            ToolbarItem(placement: .topBarTrailing) { Button { create = true } label: { Image(systemName: "plus").foregroundStyle(.white) }.accessibilityLabel("Создать умру") }
+            ToolbarItem(placement: .topBarTrailing) { Button { navigation.navigate(to: .create) } label: { Image(systemName: "plus").foregroundStyle(.white) }.accessibilityLabel("Создать умру") }
             ToolbarItem(placement: .principal) {
                 BusinessBrandLogo(width: 150, foreground: .white).frame(height: 36)
             }
         }
         .overlay {
-            if !showOffers && (loading && bookings.isEmpty) {
+            if !showRequests && !showOffers && (loading && bookings.isEmpty) {
                 ZStack {
                     BusinessDesign.background.opacity(0.72).ignoresSafeArea()
                     ProgressView()
                 }
             }
         }
-        .searchable(text: $search, prompt: showOffers ? "Package ID, отель или бронь" : "Имя, номер брони, iumrah ID")
-        .sheet(isPresented: $create, onDismiss: { Task { await load() } }) { NavigationStack { UmrahBuilderView(owner: auth.user?.login ?? "", preferOffer: showOffers) } }
-        .onAppear { applyFilterRequest() }
+        .searchable(text: $search, prompt: showRequests ? "Имя, телефон, ID, город" : showOffers ? "Package ID, отель или бронь" : "Имя, номер брони, iumrah ID")
+        .onAppear { applyFilterRequest(); applyRequests() }
+        .onChange(of: navigation.openRequests) { _, _ in applyRequests() }
         .onChange(of: navigation.bookingFilterRequest) { _, _ in applyFilterRequest() }
-        .task { if BusinessNotificationRoute.pendingOffer != nil { showOffers = true }; myMemberID = (try? await APIClient.shared.businessProfile())?.id; await load(); openPendingBooking() }
+        .task { if BusinessNotificationRoute.pendingOffer != nil { showRequests = false; showOffers = true }; myMemberID = (try? await APIClient.shared.businessProfile())?.id; await load(); openPendingBooking() }
         .onReceive(NotificationCenter.default.publisher(for: .iumrahBusinessBookingOpen)) { notification in
-            showOffers = false
+            showRequests = false; showOffers = false
             pendingBookingID = notification.object as? String
             Task { await load(); openPendingBooking() }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .iumrahBusinessOfferOpen)) { _ in showOffers = true; search = "" }
-        .onChange(of: scenePhase) { _, phase in if phase == .active { if BusinessNotificationRoute.pendingOffer != nil { showOffers = true }; openPendingBooking() } }
+        .onReceive(NotificationCenter.default.publisher(for: .iumrahBusinessOfferOpen)) { _ in showRequests = false; showOffers = true; search = "" }
+        .onChange(of: scenePhase) { _, phase in if phase == .active { if BusinessNotificationRoute.pendingOffer != nil { showRequests = false; showOffers = true }; openPendingBooking() } }
         .onReceive(NotificationCenter.default.publisher(for: bookingOperationsChangedNotification)) { _ in
             Task { await load() }
         }
@@ -133,15 +135,16 @@ struct BookingsView: View {
 
     }
 
+    private func applyRequests() { if navigation.openRequests { showRequests = true; showOffers = false; search = ""; navigation.openRequests = false } }
     private func applyFilterRequest() {
         guard let raw = navigation.bookingFilterRequest else { return }
         navigation.bookingFilterRequest = nil
-        search = ""; showOffers = false; taskFilter = nil; mineOnly = false; filter = BookingListFilter(rawValue: raw) ?? .all
+        search = ""; showRequests = false; showOffers = false; taskFilter = nil; mineOnly = false; filter = BookingListFilter(rawValue: raw) ?? .all
     }
     private func openPendingBooking() {
         guard let id = pendingBookingID ?? BusinessNotificationRoute.pendingBooking,
               let booking = bookings.first(where: { $0.id == id }) else { return }
-        showOffers = false; filter = .all; taskFilter = nil; mineOnly = false; search = ""; selectedBooking = booking
+        showRequests = false; showOffers = false; filter = .all; taskFilter = nil; mineOnly = false; search = ""; selectedBooking = booking
         pendingBookingID = nil; BusinessNotificationRoute.pendingBooking = nil
     }
 

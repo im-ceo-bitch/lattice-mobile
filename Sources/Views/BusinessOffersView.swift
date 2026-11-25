@@ -22,13 +22,6 @@ struct BusinessOffersView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 BusinessPageHeading(title: "Предложения", subtitle: "Персональные пакеты и продажи")
-                Button { showConcierge = true } label: {
-                    HStack(spacing: 12) {
-                        Image(systemName: "bubble.left.and.bubble.right.fill").foregroundStyle(BusinessDesign.ink).font(.title2).frame(width: 44, height: 44).background(BusinessDesign.secondarySurface, in: RoundedRectangle(cornerRadius: 15))
-                        VStack(alignment: .leading, spacing: 4) { Text("iumrah Concierge").font(.headline); Text("Входящие заявки на индивидуальный расчёт").font(.caption).foregroundStyle(.secondary) }
-                        Spacer(); Image(systemName: "chevron.right").foregroundStyle(.secondary)
-                    }.padding(16).frame(maxWidth: .infinity, alignment: .leading).businessCard(radius: 20)
-                }.buttonStyle(.plain)
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                     metric("Активные", String(offers.filter(\.active).count))
                     metric("Просмотренные", String(offers.filter { $0.firstViewedAt != nil }.count))
@@ -59,9 +52,8 @@ struct BusinessOffersView: View {
         .onChange(of: scenePhase) { _, phase in if phase == .active { Task { await load(); openPending() } } }
         .onReceive(NotificationCenter.default.publisher(for: .iumrahBusinessOfferChanged)) { _ in Task { await load(); openPending() } }
         .onReceive(NotificationCenter.default.publisher(for: .iumrahBusinessOfferOpen)) { _ in Task { await load(); openPending() } }
-        .sheet(isPresented: $showConcierge) { NavigationStack { ConciergeRequestsView() } }
-        .sheet(item: $selected, onDismiss: { Task { await load() } }) { offer in
-            NavigationStack { BusinessOfferDetailView(id: offer.id, modal: true) }
+        .navigationDestination(isPresented: Binding(get: { selected != nil }, set: { if !$0 { selected = nil; Task { await load() } } })) {
+            if let offer = selected { BusinessOfferDetailView(id: offer.id) }
         }
     }
     private func metric(_ title: String, _ value: String) -> some View {
@@ -176,7 +168,7 @@ struct BusinessOfferDetailView: View {
                     }
                     Section { Text("Будет создана заявка на проверку наличия. Оплата пока не требуется.").font(.caption); Button("Создать бронирование") { if let offer = detail?.offer { Task { await convert(offer) } } }.disabled(working || firstName.trimmingCharacters(in: .whitespaces).isEmpty || lastName.trimmingCharacters(in: .whitespaces).isEmpty || phone.range(of: #"^\+[1-9][0-9]{7,14}$"#, options: .regularExpression) == nil) }
                     if let error { Text(error).foregroundStyle(.red) }
-                }.navigationTitle("Бронирование").navigationBarTitleDisplayMode(.inline).businessNavigationSurface().toolbar { ToolbarItem(placement: .cancellationAction) { Button("Закрыть") { accept = false }.foregroundStyle(BusinessDesign.headerInk) } }
+                }.navigationTitle("Бронирование").navigationBarTitleDisplayMode(.inline).businessNavigationSurface().scrollDismissesKeyboard(.interactively).toolbar { ToolbarItem(placement: .cancellationAction) { Button("Закрыть") { accept = false }.foregroundStyle(BusinessDesign.headerInk) }; ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("Готово") { UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil) } } }
             }
         }
         .confirmationDialog("Отозвать предложение?", isPresented: $revoke, titleVisibility: .visible) { Button("Отозвать", role: .destructive) { if let offer = detail?.offer { Task { await action(offer, "revoke") } } } } message: { Text("Ссылка перестанет открываться. Это действие не отменяет уже созданные бронирования.") }
@@ -190,6 +182,8 @@ struct BusinessOfferDetailView: View {
 
 
 struct ConciergeRequestsView: View {
+    var embedded = false
+    var externalSearch = ""
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var auth: AuthStore
     @State private var requests: [ConciergeCareRequest] = []
@@ -209,7 +203,7 @@ struct ConciergeRequestsView: View {
     private func closed(_ item: ConciergeCareRequest) -> Bool { ["COMPLETED", "CANCELLED"].contains(item.status) }
     private var selected: ConciergeCareRequest? { requests.first { $0.id == selectedID } }
     private var visible: [ConciergeCareRequest] {
-        let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
+        let query = (embedded ? externalSearch : search).trimmingCharacters(in: .whitespacesAndNewlines)
         return requests.filter { item in
             let matches = filter == "all" || (filter == "active" && !closed(item)) || (filter == "closed" && closed(item)) || item.status == filter
             return matches && (query.isEmpty || [item.id, item.contact_name, item.contact_phone, item.contact_telegram ?? "", item.origin_code].contains { $0.localizedCaseInsensitiveContains(query) })
@@ -221,7 +215,8 @@ struct ConciergeRequestsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: BusinessDesign.Space.md) {
-                BusinessPageHeading(title: "Concierge", subtitle: "Входящие заявки на индивидуальный расчёт")
+                BusinessPageHeading(title: "Заявки на расчёт", subtitle: "Запросы клиентов до бронирования")
+                if !embedded { TextField("Имя, телефон, ID, город", text: $search).textFieldStyle(.roundedBorder) }
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                     metric("Новые", count: requests.filter { $0.status == "CARE_REQUEST" }.count, filter: "CARE_REQUEST")
                     metric("Активные", count: requests.filter { !closed($0) }.count, filter: "active")
@@ -250,30 +245,27 @@ struct ConciergeRequestsView: View {
             }.businessAdaptiveReadableWidth().padding(BusinessDesign.Space.page)
         }
         .background(BusinessDesign.background)
-        .navigationTitle("Заявки Concierge").navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
-        .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Готово") { dismiss() }.foregroundStyle(BusinessDesign.headerInk) } }
-        .searchable(text: $search, prompt: "Имя, телефон, ID, город")
+        .navigationTitle("Заявки на расчёт").navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
+        .toolbar { ToolbarItem(placement: .topBarTrailing) { if !embedded { Button("Готово") { dismiss() }.foregroundStyle(BusinessDesign.headerInk) } } }
         .task { await load() }.refreshable { await load() }
-        .sheet(isPresented: Binding(get: { selectedID != nil }, set: { if !$0 { selectedID = nil } })) {
-            NavigationStack {
+        .navigationDestination(isPresented: Binding(get: { selectedID != nil }, set: { if !$0 { selectedID = nil } })) {
                 Group {
                     if let item = selected { requestDetail(item) }
                     else { ContentUnavailableView("Заявка недоступна", systemImage: "doc.text") }
                 }
-                .navigationTitle("Заявка Concierge").navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
-                .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Готово") { selectedID = nil }.foregroundStyle(BusinessDesign.headerInk) } }
+                .navigationTitle("Заявка на расчёт").navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
                 .confirmationDialog("Подтвердить действие?", isPresented: $showConfirm, titleVisibility: .visible) {
                     Button("Подтвердить", role: confirmStatus == "CANCELLED" ? .destructive : nil) {
                         if let item = selected, let state = confirmStatus { Task { await update(item, state) } }
                     }
                     Button("Назад", role: .cancel) { confirmStatus = nil }
                 } message: { Text("Состояние заявки будет изменено. Бронирование автоматически не создаётся.") }
-                .sheet(isPresented: $showBuilder, onDismiss: { Task { await load() } }) {
+                .onChange(of: showBuilder) { _, value in if !value { Task { await load() } } }
+                .navigationDestination(isPresented: $showBuilder) {
                     if let item = selected {
-                        NavigationStack { UmrahBuilderView(owner: (auth.user?.login ?? "") + ":concierge:" + item.id, initial: draft(for: item), preferOffer: true) }
+                        UmrahBuilderView(owner: (auth.user?.login ?? "") + ":concierge:" + item.id, initial: draft(for: item), preferOffer: true, pushed: true)
                     }
                 }
-            }
         }
     }
     private func metric(_ title: String, count: Int, filter value: String) -> some View {
@@ -343,13 +335,14 @@ struct ConciergeRequestsView: View {
                     VStack(alignment: .leading, spacing: 10) {
                         Label("Работа с заявкой", systemImage: "checklist").font(BusinessDesign.TypeStyle.title)
                         if working == item.id { ProgressView().frame(maxWidth: .infinity) }
-                        if (1...6).contains(item.adults + item.children + item.infants), (1...6).contains(item.rooms) {
-                            Button { showBuilder = true } label: { Label("Подготовить предложение", systemImage: "doc.badge.plus") }.buttonStyle(BusinessActionStyle())
+                        if item.children == 0 && item.infants == 0 && (1...6).contains(item.adults), (1...6).contains(item.rooms) {
+                            Button { showBuilder = true } label: { Label("Открыть расчёт / продолжить черновик", systemImage: "doc.badge.plus") }.buttonStyle(BusinessActionStyle())
                                 .disabled(working != nil)
-                            Text("Откроется отдельный черновик с параметрами заявки. Рейсы, отели и цены нужно подобрать. Статус заявки изменяется вручную.").font(.caption).foregroundStyle(BusinessDesign.muted)
+                            Text("Контакты и пожелания перенесутся в черновик. Даты рейсов и наличие нужно подтвердить.").font(.caption).foregroundStyle(BusinessDesign.muted)
                         } else {
-                            Text("Для этой группы требуется отдельный расчёт: конфигуратор поддерживает до 6 паломников и 6 номеров.").font(.caption).foregroundStyle(BusinessDesign.muted)
+                            Text("Для этой группы требуется отдельный расчёт: текущий контракт Business поддерживает до 6 взрослых и 6 номеров; детей нельзя считать взрослыми автоматически.").font(.caption).foregroundStyle(BusinessDesign.muted)
                         }
+                        DisclosureGroup("Другие действия со статусом") {
                         ForEach(states.indices, id: \.self) { index in
                             let state = states[index]
                             if state.0 != item.status {
@@ -358,6 +351,7 @@ struct ConciergeRequestsView: View {
                                     else { Task { await update(item, state.0) } }
                                 } label: { Text(state.1) }.buttonStyle(BusinessActionStyle(primary: false)).disabled(working != nil)
                             }
+                        }
                         }
                     }.padding(BusinessDesign.Space.md).businessCard()
                 }
@@ -386,8 +380,13 @@ struct ConciergeRequestsView: View {
         draft.includeMedina = item.scope != "makkahOnly"
         if let stars = item.hotel_class { draft.comfort = stars >= 5 ? "Premium" : stars >= 3 ? "Standard" : "Economy" }
         draft.builderFinishAsOffer = true
-        // Dates are request preferences, not verified flight/hotel dates. They remain in Concierge.
-        // Contacts stay in Concierge; no automatic transmission or status changes.
+        let names = item.contact_name.split(separator: " ", maxSplits: 1).map(String.init)
+        draft.clientName = names.first ?? ""; draft.lastName = names.count > 1 ? names[1] : nil
+        draft.phone = item.contact_phone; draft.telegram = item.contact_telegram ?? ""; draft.language = item.locale
+        draft.preferredStart = item.exact_start_date; draft.preferredEnd = item.exact_end_date
+        draft.notes = item.notes ?? ""
+        draft.conciergeID = item.id
+        // No notification or inventory booking is triggered by opening a draft.
         return draft
     }
     @MainActor private func load() async {

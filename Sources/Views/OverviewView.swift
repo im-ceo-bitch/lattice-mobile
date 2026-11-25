@@ -6,6 +6,7 @@ import UIKit
 final class OverviewStore: ObservableObject {
     @Published var bookings: [BookingSummary] = []
     @Published var unreadChats = 0
+    @Published var newRequests: Int?
     @Published var ignavUsage: IgnavUsageSnapshot?
     @Published var loading = false
     @Published var recentSecurityEvent: BusinessSecurityLoginEvent?
@@ -27,6 +28,7 @@ final class OverviewStore: ObservableObject {
         async let bookingsTask = APIClient.shared.bookings()
         async let chatsTask = APIClient.shared.businessChatThreads()
         async let usageTask = APIClient.shared.ignavUsage()
+        async let requestsTask = APIClient.shared.conciergeRequests()
         var failed: [String] = []
         let newBookings = try? await bookingsTask
         guard !Task.isCancelled, refreshGeneration == generation else { return }
@@ -40,6 +42,9 @@ final class OverviewStore: ObservableObject {
         guard !Task.isCancelled, refreshGeneration == generation else { return }
         if let newUsage { ignavUsage = newUsage }
         else { failed.append("Ignav") }
+        let requests = try? await requestsTask
+        guard !Task.isCancelled, refreshGeneration == generation else { return }
+        if let requests { newRequests = requests.filter { $0.status == "CARE_REQUEST" }.count } else { failed.append("заявки") }
         refreshWarning = failed.isEmpty ? nil : "Не обновлено: " + failed.joined(separator: ", ") + ". Показаны последние доступные данные."
     }
 }
@@ -86,15 +91,15 @@ struct OverviewView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Индивидуальная умра").font(BusinessDesign.TypeStyle.section)
                     Text("Соберите пакет, отправьте предложение или оформите бронирование.").font(.subheadline).foregroundStyle(.secondary)
-                    Button { showUmrahBuilder = true } label: { Label("Создать умру", systemImage: "plus") }.buttonStyle(BusinessActionStyle())
+                    Button { navigation.navigate(to: .create) } label: { Label("Создать умру", systemImage: "plus") }.buttonStyle(BusinessActionStyle())
                 }.padding(18).businessCard(radius: BusinessDesign.Radius.hero)
 
-                Button { showConcierge = true } label: {
+                Button { navigation.showRequests() } label: {
                     HStack(spacing: 12) {
                         Image(systemName: "bubble.left.and.bubble.right").font(.title2).frame(width: 44, height: 44).background(BusinessDesign.secondarySurface, in: RoundedRectangle(cornerRadius: 15))
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("iumrah Concierge").font(.headline)
-                            Text("Входящие заявки на индивидуальный расчёт").font(.caption).foregroundStyle(BusinessDesign.muted)
+                            Text("Заявки на расчёт").font(.headline)
+                            Text(store.newRequests.map { "Новых: \($0) · открыть список" } ?? "Входящие запросы на расчёт").font(.caption).foregroundStyle(BusinessDesign.muted)
                         }
                         Spacer(); Image(systemName: "chevron.right").foregroundStyle(BusinessDesign.muted)
                     }.foregroundStyle(BusinessDesign.ink).padding(BusinessDesign.Space.md).businessCard()
@@ -118,7 +123,7 @@ struct OverviewView: View {
                         .buttonStyle(.plain)
                     }
                     Button { navigation.openBookings() } label: { Label("Все бронирования", systemImage: "arrow.right") }.buttonStyle(BusinessActionStyle(primary: false))
-                    if store.hasLoadedBookings && store.bookings.isEmpty && !store.loading { Text("Заявок пока нет.").foregroundStyle(.secondary).padding(.vertical, 30).frame(maxWidth: .infinity) }
+                    if store.hasLoadedBookings && store.bookings.isEmpty && !store.loading { Text("Бронирований пока нет.").foregroundStyle(.secondary).padding(.vertical, 30).frame(maxWidth: .infinity) }
                 }
                 .padding(18).businessCard(radius: 28)
                 DisclosureGroup("Служебные инструменты") {
@@ -134,9 +139,7 @@ struct OverviewView: View {
         .navigationBarTitleDisplayMode(.inline)
         .businessNavigationSurface()
         .safeAreaInset(edge: .top, spacing: 0) { BusinessWorldMapHeader() }
-        .sheet(isPresented: $showConcierge) { NavigationStack { ConciergeRequestsView() } }
         .sheet(isPresented: $showPush) { NavigationStack { BusinessPushDiagnosticsView() } }
-        .sheet(isPresented: $showUmrahBuilder) { NavigationStack { UmrahBuilderView(owner: auth.user?.login ?? "") } }
         .toolbar {
             ToolbarItem(placement: .topBarLeading) { BusinessSidebarButton() }
             ToolbarItem(placement: .principal) { BusinessBrandLogo(width: 150, foreground: .white).frame(height: 36) }
