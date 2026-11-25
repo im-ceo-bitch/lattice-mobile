@@ -1,0 +1,74 @@
+{
+  "base": "2fc09ed552f4fe724c0018812b171fe0adc9d3d3",
+  "cumulative_from": "Workspace 3.0",
+  "files": [
+    {
+      "path": "BUSINESS_MANAGER_UX_20261125.md",
+      "sha256": "348a96e966aaf6d49e9160c773ec0da99793937df6aaa419644f6e23965efb8b"
+    },
+    {
+      "path": "BUSINESS_WORKSPACE_3_20261125.md",
+      "sha256": "3fc84d9a5c262dc5fab392b2036d7e0bba992df751abe79314aeae5158e0a053"
+    },
+    {
+      "path": "Sources/Models/UmrahPackageDraft.swift",
+      "sha256": "d11470559c30d95d52eae2a6dee34385805532d955b4728c29e94d9a7b833830"
+    },
+    {
+      "path": "Sources/Networking/APIClient+ManualBooking.swift",
+      "sha256": "7d8ce5dbd960a1d4ef94c82333dd85991ec84a4a6afbcafe9e4825cb9127fba5"
+    },
+    {
+      "path": "Sources/Views/BookingCheckoutAdminCard.swift",
+      "sha256": "32da265344363f408d0d6391621c74501032a4c139ba89c0d5b419917423cffe"
+    },
+    {
+      "path": "Sources/Views/BookingDetailView.swift",
+      "sha256": "f4084111b15eb5fd4e79b856c00ec44ba565fc150293b74dde8aebb3691e903d"
+    },
+    {
+      "path": "Sources/Views/BookingsView.swift",
+      "sha256": "2596463af92e3fa083bc569e4cc6dc7d42bac28ea0516a2e079476c406114936"
+    },
+    {
+      "path": "Sources/Views/BusinessAccountHome.swift",
+      "sha256": "53d5cd98c853ceae4db7735f776c0ebf0292cfd453fc678705990054415f23de"
+    },
+    {
+      "path": "Sources/Views/BusinessCatalogsView.swift",
+      "sha256": "a47c19c6ab1da6d10c3f9108026d72365ec3c3bae7be88d9e4ba72e3db405bd6"
+    },
+    {
+      "path": "Sources/Views/BusinessNuiteeHotelsView.swift",
+      "sha256": "78b56a4e91181a2d1b41f75b2a9c409b7ac6fd883844343857573647cee7b0d3"
+    },
+    {
+      "path": "Sources/Views/BusinessOffersView.swift",
+      "sha256": "503bc1ab8353e57a610c54c2d9e021ebaa33e5aef2b732ad73aa3031750bbf5e"
+    },
+    {
+      "path": "Sources/Views/BusinessTabView.swift",
+      "sha256": "f4cc8ba3b00ade6f337d15585678a52d6e3a1a0807d7880f9ccec45b8d9a1ee0"
+    },
+    {
+      "path": "Sources/Views/ChatsView.swift",
+      "sha256": "26d1d4e5d553c0d5fad7c28d34f65f71b385693ab979f9c58ddd439e89233827"
+    },
+    {
+      "path": "Sources/Views/OverviewView.swift",
+      "sha256": "f1ce5c5233286305cd0faa700c8ecdc9d152ce807f918c3cd650e03eae897739"
+    },
+    {
+      "path": "Sources/Views/TelegramCareInbox.swift",
+      "sha256": "628cd955fc64b105495826fba024164364f139d3eea52316f3461775bb6a3449"
+    },
+    {
+      "path": "Sources/Views/UmrahBuilderView.swift",
+      "sha256": "592f836e32dcb15af53c17a28cff5b9fe9e4363ed789ffc1ba968b3ba252a715"
+    },
+    {
+      "path": "BUSINESS_UMRAH_STUDIO_4_20261125.md",
+      "sha256": "d9d2492008efff0e4125bbc415da8c49b71a38eb14a14333f8e4a7060af00072"
+    }
+  ]
+}

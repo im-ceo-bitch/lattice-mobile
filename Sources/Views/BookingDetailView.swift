@@ -76,6 +76,10 @@ struct BookingDetailView: View {
         }.padding(18).businessCard(radius: 22)
     }
 
+    private func dismissBookingKeyboard() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+
     private var hasUnsavedOperations: Bool {
         guard let operation = detail?.operation else { return false }
         return status != operation.tripStatus || paymentStatus != operation.paymentStatus || confirmationNumber != operation.confirmationNumber || internalNotes != operation.internalNotes
@@ -160,6 +164,14 @@ struct BookingDetailView: View {
             } else {
                 ContentUnavailableView("Бронь недоступна", systemImage: "suitcase.rolling", description: Text(errorMessage ?? "Не удалось загрузить данные."))
                     .padding(.top, 60)
+            }
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .onChange(of: workspace) { _, _ in dismissBookingKeyboard() }
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Готово") { dismissBookingKeyboard() }
             }
         }
         .background(BusinessDesign.background)
@@ -988,13 +1000,6 @@ struct BookingDetailView: View {
                     }
                 }
                 Text(guide?.displayName ?? "Гид не назначен").font(.headline)
-                if let preferred = detail.assignment?.preferredGuideID {
-                    Text("Выбор клиента: " + (detail.assignment?.preferredGuideName ?? "Профиль недоступен"))
-                        .font(.caption.weight(.semibold))
-                    if detail.assignment?.guideIsPrimary == true || guide?.id != preferred {
-                        Text("Требуется подтверждение назначения").font(.caption2).foregroundStyle(.secondary)
-                    }
-                }
                 if let title = guide?.roleTitle, !title.isEmpty { Text(title).font(.caption).foregroundStyle(.secondary) }
             }
             Spacer()
@@ -1604,7 +1609,7 @@ private struct HotelAssignmentPicker: View {
                 bookingID: bookingID,
                 makkahHotelID: city == "Makkah" ? hotel.id : assignment?.makkahHotelID,
                 madinahHotelID: city == "Madinah" ? hotel.id : assignment?.madinahHotelID,
-                guideID: assignment?.guideIsPrimary == true ? nil : assignment?.guideID
+                guideID: assignment?.guideID
             )
             onSaved(); dismiss()
         } catch { errorMessage = error.localizedDescription }
@@ -1633,13 +1638,12 @@ private struct GuideAssignmentPicker: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(guide.displayName).font(.headline).foregroundStyle(.primary)
                             Text(guide.roleTitle.isEmpty ? "Гид iumrah" : guide.roleTitle).font(.caption).foregroundStyle(.secondary)
-                            if assignment?.preferredGuideID == guide.id { Text("Выбор клиента").font(.caption.weight(.semibold)).foregroundStyle(.primary) }
                         }
                         Spacer()
                         if savingID == guide.id { ProgressView() }
-                        else if assignment?.guideID == guide.id && assignment?.guideIsPrimary == false { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green) }
+                        else if assignment?.guideID == guide.id { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green) }
                     }
-                }.buttonStyle(.plain).disabled(savingID != nil)
+                }.buttonStyle(.plain)
             }
         }
         .listStyle(.plain).navigationTitle("Выбрать гида").navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
@@ -1659,10 +1663,7 @@ private struct GuideAssignmentPicker: View {
         do {
             _ = try await APIClient.shared.updateBookingAssignment(bookingID: bookingID, makkahHotelID: assignment?.makkahHotelID, madinahHotelID: assignment?.madinahHotelID, guideID: guide.id)
             onSaved(); dismiss()
-        } catch {
-            let message = error.localizedDescription
-            errorMessage = message.contains("GUIDE_BUSY_ON_DATES") ? "Гид уже назначен другой семье на пересекающиеся даты. Выберите другого гида." : message
-        }
+        } catch { errorMessage = error.localizedDescription }
         savingID = nil
     }
 
