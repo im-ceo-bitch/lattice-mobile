@@ -1,3 +1,4 @@
+import { departureDay, flightExpired } from "./flight-expiration.mjs";
 import type { Env } from "./env";
 import { acquireFlightSearchLock, readFlightSearchCache, releaseFlightSearchLock, storeFlightSearchCache, type NormalizedFlightSearch } from "./flight-cache";
 
@@ -119,6 +120,7 @@ function normalizeRequestLeg(raw: LegBody) {
   if (!DATE.test(departureDate)) throw new Error("INVALID_DATE");
   const parsedDate = new Date(`${departureDate}T00:00:00Z`);
   if (!Number.isFinite(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== departureDate) throw new Error("INVALID_DATE");
+  if (departureDate < departureDay(Date.now(), origin)) throw new Error("FLIGHT_DATE_EXPIRED");
   if (raw.max_stops !== undefined && raw.max_stops !== null && maxStops === undefined) throw new Error("INVALID_MAX_STOPS");
   if (raw.departure_time_range !== undefined && raw.departure_time_range !== null && timeRange === undefined) throw new Error("INVALID_TIME_RANGE");
 
@@ -403,6 +405,7 @@ function normalizeItinerary(
   const legs = itinerary.legs.map((leg, index) => normalizeResponseLeg(leg, request.legs[index], typeof itinerary.cabin_class === "string" ? itinerary.cabin_class : request.cabin_class));
   if (legs.some((leg) => leg === null)) return null;
   const safeLegs = legs as NonNullable<(typeof legs)[number]>[];
+  if (flightExpired({legs: safeLegs})) return null;
 
   const bags = itinerary.bags && typeof itinerary.bags === "object" ? {
     carry_on: Number.isInteger(itinerary.bags.carry_on) && Number(itinerary.bags.carry_on) >= 0 ? Number(itinerary.bags.carry_on) : null,
@@ -718,7 +721,7 @@ export async function searchIgnavFlights(request: Request, env: Env): Promise<Re
     await recordSuccessfulIgnavRequest(env, observedAt).catch(() => undefined);
     const itineraries = (upstream.itineraries ?? [])
       .map((itinerary, index) => normalizeItinerary(itinerary, body, observedAt, index))
-      .filter((value): value is NonNullable<typeof value> => value !== null);
+      .filter((value): value is NonNullable<typeof value> => value !== null && !flightExpired(value));
 
     const payload = {
       ok: true,

@@ -1,3 +1,4 @@
+import { flightExpired } from "../../IumrahBackend/package-engine/src/flight-expiration.mjs";
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -67,7 +68,7 @@ function mockEnv() {
 }
 function createSubject() {
   const sandbox = {
-    crypto:webcrypto, TextEncoder, Response, Request, URL, console,
+    crypto:webcrypto, TextEncoder, Response, Request, URL, console, flightExpired,
     validLocalDate(v) {return /^\d{4}-\d{2}-\d{2}$/.test(String(v)) ? String(v) : '';},
     cleanText(v,max=1000) {return String(v??'').trim().slice(0,max)||null;},
     businessStaffLogin(user) {return user?.owner;},
@@ -94,7 +95,7 @@ test('permanent public URL survives repeated provisioning and serves live saved 
   const status=await (await s.businessFlightSyncStatus(env,user)).json();
   assert.equal(status.accessURL,a.accessURL);
   const update={flights:[{
-    id:'t1', comparison_key:'TAS-JED-C6321-2026-10-20', from:'TAS',to:'JED',date:'2026-10-20',
+    id:'t1', comparison_key:'TAS-JED-C6321-2099-10-20', from:'TAS',to:'JED',date:'2099-10-20',
     price:{amount:400,currency:'USD'}, flight_numbers:['C6321'], airline_codes:['C6'],
     legs:[{origin:'TAS',destination:'JED',flight_number:'C6321',airline:'Centrum Air',stops:0}]
   }]};
@@ -104,7 +105,7 @@ test('permanent public URL survives repeated provisioning and serves live saved 
   assert.equal(html.status,200);
   assert.match(html.headers.get('content-type'),/text\/html/);
   assert.match(html.headers.get('cache-control'),/no-store/);
-  assert.match(await html.text(),/TAS-JED-C6321-2026-10-20/);
+  assert.match(await html.text(),/TAS-JED-C6321-2099-10-20/);
   const raw=await s.publicBusinessFlightSyncStableFeed(env,new URL(a.accessURL+'.json'));
   const payload=await raw.json();
   assert.equal(payload.flight_count,1);
@@ -148,9 +149,9 @@ test('an empty or suspiciously truncated client upload cannot destroy a saved pu
   const s = createSubject(), env = mockEnv(), user = {owner:'keeper'};
   const access = await (await s.rotateBusinessFlightSyncAccess(env,user)).json();
   const makeOffer = (n) => ({
-    id:`t${n}`, from:'MED',to:'TAS',date:`2026-11-${String(n).padStart(2,'0')}`,
+    id:`t${n}`, from:'MED',to:'TAS',date:`2099-11-${String(n).padStart(2,'0')}`,
     price:{amount:250,currency:'USD'}, flight_numbers:['C6332'],
-    legs:[{origin:'MED',destination:'TAS',flight_number:'C6332',departure_at:`2026-11-${String(n).padStart(2,'0')}T17:55:00Z`}]
+    legs:[{origin:'MED',destination:'TAS',flight_number:'C6332',departure_at:`2099-11-${String(n).padStart(2,'0')}T17:55:00Z`}]
   });
   const originals = Array.from({length:12},(_,i) => makeOffer(i+1));
   const post = async (flights) => s.saveBusinessFlightSyncSnapshot(

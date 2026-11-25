@@ -1,3 +1,4 @@
+import { flightExpired } from "./flight-expiration.mjs";
 import type { D1Like } from "./d1";
 import { curatedCalendarRows } from "./curated-flights";
 
@@ -145,6 +146,7 @@ export async function readFlightSearchCache(db: D1Like, body: NormalizedFlightSe
   if (!row) return null;
   try {
     const payload = JSON.parse(row.response_json) as Record<string, unknown>;
+    if (Array.isArray(payload.itineraries)) payload.itineraries = payload.itineraries.filter(item => !flightExpired(item, now.getTime()));
     return {
       ...payload,
       cache: {

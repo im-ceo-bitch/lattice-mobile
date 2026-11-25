@@ -1,3 +1,4 @@
+import { flightExpired } from "./flight-expiration.mjs";
 import type { D1Like } from "./d1";
 
 const IATA_AIRPORT = /^[A-Z]{3}$/;
@@ -308,11 +309,10 @@ function mapAdminRow(row: CuratedRow) {
   };
 }
 
-// Independent, read-only backup: no schema initialization, synchronization,
-// publication or deletion. Includes every row marked published, even past dates.
-async function readPublishedBackupRows(db: D1Like): Promise<CuratedRow[]> {
+// Independent, read-only export; expired offers are never exported.
+async function readPublishedBackupRows(db: D1Like): Promise<CuratedRow[] | null> {
   const table = await db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='curated_flight_offers'").first<{name: string}>();
-  if (!table) return [];
+  if (!table) return null;
   const rows: CuratedRow[] = [];
   let cursor: string | null = null;
   for (;;) {
@@ -332,7 +332,7 @@ async function readPublishedBackupRows(db: D1Like): Promise<CuratedRow[]> {
 
 type D1LikeResult = { results?: CuratedRow[]; success?: boolean };
 
-function backupFlight(row: CuratedRow, today: string) {
+function backupFlight(row: CuratedRow) {
   const offer = mapAdminRow(row);
   const itinerary = offer.itinerary as (CuratedItinerary & { price_type?: string; source_url?: string }) | null;
   const normalized = normalizeItinerary(itinerary);
@@ -353,13 +353,13 @@ function backupFlight(row: CuratedRow, today: string) {
     source_candidate_id: row.source_candidate_id, source_provider: row.source_provider,
     cabin_class: row.cabin_class, fingerprint: row.fingerprint, published: true,
     updated_at: row.updated_at, created_at: row.created_at,
-    expired: row.outbound_date < today || Boolean(row.inbound_date && row.inbound_date < today),
+    expired: false,
   };
 }
 
 export async function exportPublishedFlightsAdmin(db: D1Like | undefined, legacyDB: D1Like | undefined, login: string): Promise<Response> {
   const now = new Date().toISOString();
-  const today = new Date(Date.now() + 5 * 3600000).toISOString().slice(0, 10);
+  const cutoff = Date.now();
   const response = (flights: unknown[], source: string, snapshotUpdatedAt: string | null = null) => {
     return new Response(JSON.stringify({
       ok: true, type: "iumrah_business_published_flights", version: 1, read_only: true,
@@ -380,7 +380,7 @@ export async function exportPublishedFlightsAdmin(db: D1Like | undefined, legacy
     if (!candidate) continue;
     try {
       const rows = await readPublishedBackupRows(candidate);
-      if (rows.length) return response(rows.map(row => backupFlight(row, today)), source);
+      if (rows !== null) return response(rows.filter(row => !flightExpired(row, cutoff)).map(backupFlight), source);
     } catch (error) { console.warn("FLIGHT_EXPORT_DATABASE_READ_FAILED", source, String(error)); }
   }
   // The previous sync snapshot is independent of the current curated table and
@@ -394,7 +394,7 @@ export async function exportPublishedFlightsAdmin(db: D1Like | undefined, legacy
       if (row?.snapshot_updated_at) {
         const parsed = JSON.parse(row.snapshot_json) as {flights?: unknown[]};
         if (Array.isArray(parsed.flights) && parsed.flights.length && parsed.flights.every(f => f && typeof f === "object" && typeof (f as {id?: unknown}).id === "string")) {
-          return response(parsed.flights, "saved_sync_snapshot", row.snapshot_updated_at);
+          return response(parsed.flights.filter(f => !flightExpired(f, cutoff)), "saved_sync_snapshot", row.snapshot_updated_at);
         }
       }
     } catch (error) { console.warn("FLIGHT_EXPORT_SNAPSHOT_READ_FAILED", String(error)); }
@@ -405,19 +405,20 @@ export async function exportPublishedFlightsAdmin(db: D1Like | undefined, legacy
 export async function listCuratedFlightsAdmin(db: D1Like | undefined, legacyDB?: D1Like): Promise<Response> {
   if (!db) return json({ ok: false, error: "HOTELS_DB_NOT_CONFIGURED" }, 503);
   await ensureCuratedFlightSchema(db);
-  const today = new Date(Date.now() + 5 * 3600000).toISOString().slice(0, 10);
+  const today = new Date().toISOString().slice(0, 10);
   const result = await db.prepare(`SELECT * FROM curated_flight_offers
     WHERE outbound_date >= ? AND (inbound_date IS NULL OR inbound_date >= ?)
     ORDER BY published DESC, priority ASC, outbound_date ASC, per_traveler_fare ASC
     LIMIT 500`).bind(today,today).all<CuratedRow>();
-  const rows = result.results ?? [];
+  const rows = (result.results ?? []).filter(row => !flightExpired(row));
   // Detect the documented migration mismatch without exposing or silently
   // republishing legacy offers. Explicit recovery is a separate operator task.
   if (!rows.length && legacyDB && legacyDB !== db) {
     const table = await legacyDB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='curated_flight_offers'").first<{name: string}>();
     if (table) {
-      const legacy = await legacyDB.prepare(`SELECT COUNT(*) AS n FROM curated_flight_offers WHERE published=1 AND outbound_date>=? AND (inbound_date IS NULL OR inbound_date>=?)`).bind(today,today).first<{n: number}>();
-      if (Number(legacy?.n ?? 0)>0) return json({ok:false,error:"CURATED_CATALOG_MIGRATION_REQUIRED",legacyCount:Number(legacy?.n)},409);
+      const legacyRows = await readPublishedBackupRows(legacyDB);
+      const legacyCount = (legacyRows ?? []).filter(row => !flightExpired(row)).length;
+      if (legacyCount > 0) return json({ok:false,error:"CURATED_CATALOG_MIGRATION_REQUIRED",legacyCount},409);
     }
   }
   return json({ ok: true, offers: rows.map(mapAdminRow) });
@@ -430,6 +431,7 @@ export async function saveCuratedFlightAdmin(request: Request, db: D1Like | unde
   if (!payload) return json({ ok: false, error: "INVALID_JSON" }, 400);
   const itinerary = normalizeItinerary(payload.itinerary);
   if (!itinerary) return json({ ok: false, error: "INVALID_CURATED_ITINERARY" }, 400);
+  if (flightExpired(itinerary)) return json({ ok: false, error: "CURATED_FLIGHT_EXPIRED" }, 409);
   const offerType = normalizeOfferType(itinerary.offer_type, itinerary.legs.length);
   const journeyRole = normalizeJourneyRole(itinerary.journey_role, offerType);
   itinerary.offer_type = offerType;
@@ -582,7 +584,7 @@ export async function publicCuratedFlightRecommendations(url: URL, db: D1Like | 
       .all<CuratedRow>();
   }
 
-  const recommendations = (result.results ?? []).map((row) => {
+  const recommendations = (result.results ?? []).filter(row => !flightExpired(row)).map((row) => {
     const itinerary = normalizeItinerary(parseJSON<unknown>(row.itinerary_json, null));
     if (!itinerary) return null;
     const offerType = canonicalOfferType(itinerary, row.offer_type);
@@ -634,7 +636,7 @@ export async function curatedCalendarRows(
   await ensureCuratedFlightSchema(db);
   const result = await db.prepare(`SELECT outbound_date, inbound_date,
       per_traveler_fare * ? AS min_total_fare, per_traveler_fare AS min_per_traveler_fare,
-      currency, observed_at
+      currency, observed_at, itinerary_json, outbound_origin, inbound_origin
     FROM curated_flight_offers
     WHERE published = 1
       AND journey_role = 'complete'
@@ -655,9 +657,9 @@ export async function curatedCalendarRows(
       min_total_fare: number;
       min_per_traveler_fare: number;
       currency: string;
-      observed_at: string;
+      observed_at: string; itinerary_json: string; outbound_origin: string; inbound_origin: string | null;
     }>();
-  return result.results ?? [];
+  return (result.results ?? []).filter(row => !flightExpired(row)).map(({itinerary_json, outbound_origin, inbound_origin, ...row}) => row);
 }
 type PublishedResolvePayload = {
   completeID?: unknown;
@@ -691,8 +693,9 @@ function validExpectedAirport(value: unknown): string | null {
 }
 
 async function publishedRow(db: D1Like, id: string): Promise<CuratedRow | null> {
-  return await db.prepare(`SELECT * FROM curated_flight_offers WHERE id=? AND published=1 LIMIT 1`)
+  const row = await db.prepare(`SELECT * FROM curated_flight_offers WHERE id=? AND published=1 LIMIT 1`)
     .bind(id).first<CuratedRow>();
+  return row && !flightExpired(row) ? row : null;
 }
 
 /**

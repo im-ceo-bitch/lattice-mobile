@@ -1,3 +1,4 @@
+import { purgeExpiredFlightCatalog } from "../package-engine/src/flight-expiration.mjs";
 import { fcmConfigured } from '../../HotelsWorker/src/fcm.js';
 import {botConfigured,telegramRetrySecret,notifyTelegramStatus} from '../core/lib/telegram-native.js';
 import {runCore} from '../core/runtime.js';
@@ -123,6 +124,12 @@ export function createBackendRouter({hotels, flights, packages, core, requestAer
         if (!Number.isFinite(date.getTime())) return;
         const h=date.getUTCHours(),m=date.getUTCMinutes();
         const jobs=[];
+        if (m % 15 === 0) jobs.push(async()=>{
+          for (const db of new Set([env.HOTELS_DB, env.BOOKINGS_DB])) {
+            const counts=await purgeExpiredFlightCatalog(db);
+            if(Object.values(counts).some(n=>n>0)) console.log("FLIGHT_CATALOG_HARD_DELETE",JSON.stringify(counts));
+          }
+        });
         if(coreReady(env,core)&&dispatchCreationNotifications)jobs.push(()=>dispatchCreationNotifications(env));
         if(coreReady(env,core)&&env.DEVSMS_API_TOKEN&&retryBookingSMSStatuses)jobs.push(()=>retryBookingSMSStatuses(env));
         if(retryBookingPushOutbox&&(env.APNS_PRIVATE_KEY||fcmConfigured(env)))jobs.push(()=>retryBookingPushOutbox(env));

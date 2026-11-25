@@ -1,3 +1,4 @@
+import { flightExpired } from "./flight-expiration.mjs";
 import { resolveNuiteePackageHotels, type NuiteePackageRoom } from "./nuitee-hotels";
 import type { Env } from "./env";
 import { readFlightSearchCache, type NormalizedFlightSearch } from "./flight-cache";
@@ -112,7 +113,7 @@ async function resolveCuratedFare(providerItineraryId: string, travelerCount: nu
       `SELECT id,per_traveler_fare,currency,observed_at,published,itinerary_json
        FROM curated_flight_offers WHERE id=?1 AND published=1 LIMIT 1`,
     ).bind(id).first<CuratedRow>();
-    if (!row) throw new Error("CURATED_FLIGHT_NOT_FOUND");
+    if (!row || flightExpired(row)) throw new Error("CURATED_FLIGHT_NOT_FOUND");
     rows.push(row);
   }
   const currencies = new Set(rows.map((row) => String(row.currency ?? "").toUpperCase()));
@@ -538,7 +539,7 @@ async function resolveCuratedSchedule(providerItineraryId: string, env: Env): Pr
     const row = await env.HOTELS_DB.prepare(
       "SELECT itinerary_json FROM curated_flight_offers WHERE id=?1 AND published=1 LIMIT 1",
     ).bind(id).first<{ itinerary_json: string }>();
-    if (!row) return null;
+    if (!row || flightExpired(row)) return null;
     try {
       const itinerary = JSON.parse(row.itinerary_json || "{}") as { legs?: ScheduleLeg[] };
       const legs = Array.isArray(itinerary.legs) ? itinerary.legs : [];

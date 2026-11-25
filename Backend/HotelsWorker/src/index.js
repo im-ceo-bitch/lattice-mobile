@@ -1,3 +1,4 @@
+import { flightExpired } from "../../IumrahBackend/package-engine/src/flight-expiration.mjs";
 import { careAdmin } from "../../IumrahBackend/core/telegram/care.js";
 import { tripSummaryForSnapshot } from "../../IumrahBackend/package-engine/src/trip-summary-pricing.mjs";
 import { normalizeClientPushToken, clientPushProvider, fcmConfigured, deliverClientPushRows, sendFCM } from './fcm.js';
@@ -3027,7 +3028,7 @@ async function businessFlightSyncStatus(env, user) {
     // A fixed public URL is returned whenever the feed is enabled.
     // Fetching the URL never needs a session, API key or cookie.
     accessURL: row && Number(row.enabled) === 1 ? await businessFlightSyncStableURL(owner) : null,
-    flightCount: actualSnapshot ? actualSnapshot.flights.length : 0,
+    flightCount: actualSnapshot ? actualSnapshot.flights.filter(f => !flightExpired(f)).length : 0,
     snapshotUpdatedAt: row?.snapshot_updated_at || null,
     createdAt: row?.created_at || null,
     updatedAt: row?.updated_at || null,
@@ -3096,8 +3097,9 @@ async function saveBusinessFlightSyncSnapshot(request, env, user) {
     return json({ ok: false, error: 'FLIGHT_SYNC_TOO_MANY_FLIGHTS', max: BUSINESS_FLIGHT_SYNC_MAX_FLIGHTS }, 400);
   }
 
-  const flights = payload.flights.map(normalizedFlightSyncItem).filter(Boolean);
-  if (flights.length !== payload.flights.length) {
+  const normalized = payload.flights.map(normalizedFlightSyncItem).filter(Boolean);
+  const flights = normalized.filter(f => !flightExpired(f));
+  if (normalized.length !== payload.flights.length) {
     return json({ ok: false, error: 'FLIGHT_SYNC_INVALID_FLIGHT', accepted: flights.length, received: payload.flights.length }, 400);
   }
 
@@ -3107,7 +3109,7 @@ async function saveBusinessFlightSyncSnapshot(request, env, user) {
   // This endpoint does not offer a force/clear flag, intentionally.
   const previous = parseBusinessFlightSnapshot(existing);
   if (!previous) return json({ ok: false, error: 'FLIGHT_SYNC_STORED_SNAPSHOT_CORRUPT' }, 503);
-  const previousCount = previous.flights.length;
+  const previousCount = previous.flights.filter(f => !flightExpired(f)).length;
   if (previousCount > 0 && flights.length === 0) {
     return json({ ok: false, error: 'FLIGHT_SYNC_EMPTY_SNAPSHOT_REJECTED', previousCount }, 409);
   }
@@ -3157,7 +3159,7 @@ function businessFlightSyncPayload(row) {
   const snapshot = parseBusinessFlightSnapshot(row);
   // Corrupt snapshots are never reported as successfully synchronized EMPTY.
   if (!snapshot) return null;
-  const flights = snapshot.flights;
+  const flights = snapshot.flights.filter(f => !flightExpired(f));
   return {
     ok: true,
     type: 'iumrah_business_published_flights',

@@ -1,3 +1,4 @@
+import { flightExpired } from "./flight-expiration.mjs";
 import type { D1Like } from "./d1";
 import { ensureCuratedFlightSchema } from "./curated-flights";
 
@@ -224,7 +225,7 @@ export async function publicStorefrontFlightBoard(url: URL, db: D1Like | undefin
     .bind(today)
     .all<CuratedRow>();
 
-  const options = (result.results ?? []).map(mapRow).filter((value): value is PublicOption => value !== null);
+  const options = (result.results ?? []).filter(row => !flightExpired(row)).map(mapRow).filter((value): value is PublicOption => value !== null);
   const baseline = chooseBaseline(options, origin);
 
   return responseJSON({

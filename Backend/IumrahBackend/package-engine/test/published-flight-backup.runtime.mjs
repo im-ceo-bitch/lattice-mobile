@@ -22,21 +22,22 @@ function db(rows=[],snapshots={},options={}){
 }
 const snap={snapshot_json:JSON.stringify({version:1,flights:[{id:'saved-1',from:'TAS',to:'JED',price:{amount:123,currency:'USD'}}]}),snapshot_updated_at:'2026-11-13T10:00:00Z'};
 
-test('exports all published rows without UI limit, including past rows, excludes drafts and private staff login',async()=>{
+test('exports all published rows without UI limit, excluding past rows, excludes drafts and private staff login',async()=>{
  const rows=Array.from({length:521},(_,i)=>row(String(i).padStart(4,'0')));
- rows.push(row('past',{outbound_date:'2020-01-01'}),row('draft',{published:0}));
+ rows.push(row('past',{outbound_date:'2020-01-01',itinerary_json:JSON.stringify({legs:[{departure_at:'2020-01-01T01:00:00Z',origin:'TAS'}]})}),row('draft',{published:0}));
  const canonical=db(rows); const legacy=db([row('legacy')]);
  const result=await exportPublishedFlightsAdmin(canonical,legacy,'owner');const data=await result.json();
  assert.equal(result.status,200);assert.match(result.headers.get('content-disposition'),/attachment/);assert.equal(result.headers.get('cache-control'),'no-store');
- assert.equal(data.export_source,'canonical_database');assert.equal(data.flight_count,522);assert.equal(new Set(data.flights.map(f=>f.id)).size,522);
- assert.equal(data.flights.find(f=>f.id==='past').expired,true);assert.equal(data.flights.some(f=>f.id==='draft'),false);
+ assert.equal(data.export_source,'canonical_database');assert.equal(data.flight_count,521);assert.equal(new Set(data.flights.map(f=>f.id)).size,521);
+ assert.equal(data.flights.some(f=>f.id==='past'),false);
+ assert.ok(data.flights.every(f=>f.expired===false));assert.equal(data.flights.some(f=>f.id==='draft'),false);
  assert.equal(data.flights[0].price.amount,250);assert.equal(data.flights[0].total_fare,500);assert.equal(data.flights[0].legs[0].flight_number,'HY333');
  assert.equal(JSON.stringify(data).includes('private-staff-login'),false);assert.equal(legacy.queries.length,0);assert.equal(data.requires_price_recheck,true);
 });
 
-test('empty canonical export reads legacy D1 without republishing',async()=>{
+test('empty canonical export does not resurrect legacy D1',async()=>{
  const result=await exportPublishedFlightsAdmin(db(),db([row('legacy')]),'owner');const data=await result.json();
- assert.equal(data.export_source,'legacy_database');assert.equal(data.sync_state,'backup');assert.equal(data.flights[0].id,'legacy');
+ assert.equal(data.export_source,'canonical_database');assert.equal(data.flight_count,0);
 });
 
 test('failed canonical page never exports partial catalogue; fallback is labeled',async()=>{
@@ -46,17 +47,17 @@ test('failed canonical page never exports partial catalogue; fallback is labeled
 });
 
 test('saved feed snapshot can be downloaded with sync disabled and without public token',async()=>{
- const result=await exportPublishedFlightsAdmin(db([],{owner:snap}),db(),' OWNER ');const data=await result.json();
+ const result=await exportPublishedFlightsAdmin(db([],{owner:snap},{missing:true}),db([],{}, {missing:true}),' OWNER ');const data=await result.json();
  assert.equal(data.export_source,'saved_sync_snapshot');assert.equal(data.scope,'last_saved_snapshot');assert.equal(data.snapshot_updated_at,snap.snapshot_updated_at);assert.deepEqual(data.flights,JSON.parse(snap.snapshot_json).flights);
 });
 
 test('snapshot fallback also works when canonical D1 is unavailable and snapshot is in legacy D1',async()=>{
- const result=await exportPublishedFlightsAdmin(db([],{}, {fail:true}),db([],{owner:snap}),'owner');const data=await result.json();assert.equal(data.export_source,'saved_sync_snapshot');assert.equal(data.flight_count,1);
+ const result=await exportPublishedFlightsAdmin(db([],{}, {fail:true}),db([],{owner:snap},{missing:true}),'owner');const data=await result.json();assert.equal(data.export_source,'saved_sync_snapshot');assert.equal(data.flight_count,1);
 });
 
 test('no source, corrupt snapshot, or another owner snapshot yields error, never empty success',async()=>{
- for(const canonical of [db(),db([],{other:snap}),db([],{owner:{...snap,snapshot_json:'broken'}}),db([],{owner:{...snap,snapshot_json:'{"flights":[]}'}})]){
-  const result=await exportPublishedFlightsAdmin(canonical,db(),'owner');assert.equal(result.status,503);assert.equal((await result.json()).error,'PUBLISHED_FLIGHTS_BACKUP_UNAVAILABLE');
+ for(const canonical of [db([],{}, {missing:true}),db([],{other:snap},{missing:true}),db([],{owner:{...snap,snapshot_json:'broken'}},{missing:true}),db([],{owner:{...snap,snapshot_json:'{"flights":[]}' }},{missing:true})]){
+  const result=await exportPublishedFlightsAdmin(canonical,db([],{}, {missing:true}),'owner');assert.equal(result.status,503);assert.equal((await result.json()).error,'PUBLISHED_FLIGHTS_BACKUP_UNAVAILABLE');
  }
 });
 
