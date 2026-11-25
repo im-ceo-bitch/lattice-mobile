@@ -127,6 +127,13 @@ struct TeamMemberForm: View {
                 .pickerStyle(.segmented)
             }
             field("Должность", text: $member.roleTitle)
+            if !ownerMode && member.roleKind == "guide" {
+                Stepper("Стаж: " + (member.experienceYears.map { "\($0) лет" } ?? "не указан"), value: Binding(get: { member.experienceYears ?? 0 }, set: { member.experienceYears = $0 == 0 ? nil : $0 }), in: 0...80)
+                field("Языки (через запятую)", text: Binding(get: { (member.languages ?? []).joined(separator: ", ") }, set: { member.languages = $0.components(separatedBy: ",") }))
+                field("Видео-знакомство (HTTPS MP4/HLS)", text: Binding(get: { member.introVideoURL ?? "" }, set: { member.introVideoURL = $0.isEmpty ? nil : $0 }))
+                    .textInputAutocapitalization(.never).autocorrectionDisabled()
+                Text("Публикуются только заполненные поля. Используйте реальное видео гида и его согласие на публикацию.").font(.caption).foregroundStyle(.secondary)
+            }
             VStack(alignment: .leading, spacing: 7) {
                 Text("Описание").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                 TextField("Коротко о себе", text: $member.bio, axis: .vertical)

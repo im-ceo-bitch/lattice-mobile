@@ -125,3 +125,11 @@ CREATE TABLE IF NOT EXISTS booking_push_delivery_v3(
 );
 CREATE INDEX IF NOT EXISTS booking_push_delivery_v3_due ON booking_push_delivery_v3(state,next_attempt_at);
 CREATE INDEX IF NOT EXISTS booking_push_delivery_v3_event ON booking_push_delivery_v3(event_id);
+
+-- Public guide profile extras. Existing employee records and photos are unchanged.
+CREATE TABLE IF NOT EXISTS team_guide_details (
+ member_id TEXT PRIMARY KEY REFERENCES team_members(id) ON DELETE CASCADE,
+ experience_years INTEGER CHECK(experience_years BETWEEN 1 AND 80),
+ languages_json TEXT NOT NULL DEFAULT '[]',
+ intro_video_url TEXT
+);

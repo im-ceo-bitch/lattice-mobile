@@ -1,0 +1,41 @@
+{
+  "base": "lattice-mobile-main 2.zip",
+  "files": [
+    {
+      "path": "Backend/HotelsWorker/migrations/0044_business_intelligence.sql",
+      "sha256": "79c2a09547a10cc0648635ccd2c7c48bc0e1ac9d2b593eba9ce0be9ba1be128a"
+    },
+    {
+      "path": "Backend/HotelsWorker/src/index.js",
+      "sha256": "a752d94836395368cf63278469552db16e6928ab556f7cd3a723839c1240f214"
+    },
+    {
+      "path": "Backend/IumrahBackend/core/app/api/bookings/route.js",
+      "sha256": "199441307ba29349928ecfb6485e57840b24491a1e04b66aee54bec4e4d26c40"
+    },
+    {
+      "path": "Backend/IumrahBackend/tests/guide-catalog.test.mjs",
+      "sha256": "5bf874ae3f2938f0de4b7e3918eb1a0719a5c7a23d1d2ecb731c05224211edf4"
+    },
+    {
+      "path": "IUMRAH_PERSONAL_GUIDES_20261125.md",
+      "sha256": "a940f37dc26a1a8df7192ee9d141a94155de3c14398128ed7f8805e60f616e56"
+    },
+    {
+      "path": "Sources/Models/OperationsModels.swift",
+      "sha256": "764471170aa175bb24ab14b1834fbac1f9d787aee263b3b81c58a97f36ca6ed6"
+    },
+    {
+      "path": "Sources/Views/BookingDetailView.swift",
+      "sha256": "b87da3f1fc111d3f41b21a0d832c209f24d3be21eaea81fee9e89ca3cdc56e35"
+    },
+    {
+      "path": "Sources/Views/EmployeesView.swift",
+      "sha256": "11879920f441f79a6a4187045fecc997d35e2f802714fed8a39a98fe3bb34616"
+    },
+    {
+      "path": "Sources/Views/ProfileView.swift",
+      "sha256": "3964bb54e725cd255b248850feaebbebd0ae143f6f1929847e3e0920d574e32e"
+    }
+  ]
+}

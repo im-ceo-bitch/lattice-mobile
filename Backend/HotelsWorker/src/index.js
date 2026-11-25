@@ -1083,7 +1083,7 @@ async function handleCatalog(request, env, url) {
 
   if (parts[0] === 'team') {
     if (request.method !== 'GET') return methodNotAllowed();
-    return publicTeam(env, parts.slice(1));
+    return publicTeam(env, parts.slice(1), url);
   }
 
   if (parts.length === 1 && parts[0] === 'primary') {
@@ -3493,15 +3493,20 @@ async function assignmentHotelSummary(env, hotelID) {
 }
 
 async function bookingAssignmentDetail(env, bookingID) {
+  const preferenceTrip = await env.HOTELS_DB.prepare('SELECT booking_snapshot_json FROM pilgrim_trips WHERE booking_id=? LIMIT 1').bind(bookingID).first();
+  const preferredGuideID = cleanText(parseJSONObject(preferenceTrip?.booking_snapshot_json)?.customization?.preferredGuideID, 180) || null;
+  const preferredGuide = preferredGuideID ? await env.HOTELS_DB.prepare("SELECT * FROM team_members WHERE id=? AND role_kind='guide' AND active=1 AND public_visible=1 LIMIT 1").bind(preferredGuideID).first() : null;
+  const preference = { preferredGuideID, preferredGuideName: preferredGuide ? mapTeamMember(preferredGuide, false).displayName : null };
   const row = await env.HOTELS_DB.prepare('SELECT * FROM trip_assignments WHERE booking_id=? LIMIT 1').bind(bookingID).first();
   const primaryGuide = await env.HOTELS_DB.prepare("SELECT * FROM team_members WHERE role_kind='guide' AND active=1 ORDER BY sort_order ASC, created_at ASC LIMIT 1").first();
   if (!row) {
-    return { makkahHotelID: null, madinahHotelID: null, guideID: primaryGuide?.id || null, makkahHotel: null, madinahHotel: null, guide: primaryGuide ? mapTeamMember(primaryGuide, true) : null, guideIsPrimary: !!primaryGuide };
+    return { ...preference, makkahHotelID: null, madinahHotelID: null, guideID: primaryGuide?.id || null, makkahHotel: null, madinahHotel: null, guide: primaryGuide ? mapTeamMember(primaryGuide, true) : null, guideIsPrimary: !!primaryGuide };
   }
   const guide = row.guide_team_member_id
     ? await env.HOTELS_DB.prepare('SELECT * FROM team_members WHERE id=? LIMIT 1').bind(row.guide_team_member_id).first()
     : primaryGuide;
   return {
+    ...preference,
     makkahHotelID: row.makkah_hotel_id || null,
     madinahHotelID: row.madinah_hotel_id || null,
     guideID: guide?.id || null,
@@ -3514,7 +3519,7 @@ async function bookingAssignmentDetail(env, bookingID) {
 
 async function clientBookingAssignmentDetail(env, bookingID) {
   const detail = await bookingAssignmentDetail(env, bookingID);
-  const guide = detail?.guide;
+  const guide = detail?.preferredGuideID && detail?.guideIsPrimary ? null : detail?.guide;
   return {
     guide: guide ? {
       id: String(guide.id || ''),
@@ -3530,7 +3535,7 @@ async function clientBookingAssignmentDetail(env, bookingID) {
 }
 
 async function updateBookingAssignments(request, env, bookingID, user) {
-  const trip = await env.HOTELS_DB.prepare('SELECT id,status FROM pilgrim_trips WHERE booking_id=? LIMIT 1').bind(bookingID).first();
+  const trip = await env.HOTELS_DB.prepare('SELECT id,status,start_date,end_date FROM pilgrim_trips WHERE booking_id=? LIMIT 1').bind(bookingID).first();
   if (!trip) return json({ ok: false, error: 'BOOKING_NOT_SYNCED' }, 404);
   if(['cancelled','completed'].includes(normalizedTripStatus(trip.status)))return json({ok:false,error:'OPERATIONS_CLOSED'},409);
   const payload = await request.json().catch(() => null);
@@ -3550,11 +3555,18 @@ async function updateBookingAssignments(request, env, bookingID, user) {
     if (!guide) return json({ ok: false, error: 'GUIDE_NOT_AVAILABLE' }, 409);
   }
   const now = new Date().toISOString();
-  await env.HOTELS_DB.prepare(`
+  const changingGuide = guideID && guideID !== current?.guide_team_member_id;
+  if (changingGuide && (!validGuideDay(trip.start_date) || !validGuideDay(trip.end_date) || trip.start_date > trip.end_date)) return json({ok:false,error:'GUIDE_TRIP_DATES_REQUIRED'},409);
+  // One conditional SQLite write, not a separate check followed by a race-prone write.
+  const saved = await env.HOTELS_DB.prepare(`
     INSERT INTO trip_assignments (booking_id, makkah_hotel_id, madinah_hotel_id, guide_team_member_id, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?)
+    SELECT ?, ?, ?, ?, ?, ? WHERE ?=0 OR NOT EXISTS (
+      SELECT 1 FROM trip_assignments a JOIN pilgrim_trips t ON t.booking_id=a.booking_id
+      WHERE a.guide_team_member_id=? AND a.booking_id<>? AND ${GUIDE_OCCUPIED_SQL}
+    )
     ON CONFLICT(booking_id) DO UPDATE SET makkah_hotel_id=excluded.makkah_hotel_id, madinah_hotel_id=excluded.madinah_hotel_id, guide_team_member_id=excluded.guide_team_member_id, updated_at=excluded.updated_at
-  `).bind(bookingID, makkahID, madinahID, guideID, now, now).run();
+  `).bind(bookingID, makkahID, madinahID, guideID, now, now, changingGuide ? 1 : 0, guideID, bookingID, trip.end_date || '', trip.start_date || '').run();
+  if (!Number(saved.meta?.changes || 0)) return json({ok:false,error:'GUIDE_BUSY_ON_DATES'},409);
   await operationAudit(env,bookingID,'assignment_updated',bookingID,cleanText(user?.login,180)||'staff',{makkahID,madinahID,guideID},now).run();
   return json({ ok: true, assignment: await bookingAssignmentDetail(env, bookingID) });
 }
@@ -3774,13 +3786,37 @@ async function saveBusinessProfileMe(request, env, user) {
 
 async function adminTeam(env) {
   const result = await env.HOTELS_DB.prepare('SELECT * FROM team_members ORDER BY is_owner DESC, sort_order ASC, last_name COLLATE NOCASE, first_name COLLATE NOCASE').all();
-  return json({ ok: true, members: (result.results || []).map(row => mapTeamMember(row, true)) });
+  return json({ ok: true, members: await withGuideDetails(env,(result.results || []).map(row => mapTeamMember(row, true))) });
 }
 
+async function guideDetailsMap(env, memberIDs) {
+  if (!memberIDs.length) return new Map();
+  const rows = await env.HOTELS_DB.prepare('SELECT member_id,experience_years,languages_json,intro_video_url FROM team_guide_details').all().catch(()=>({results:[]}));
+  return new Map((rows.results || []).filter(r=>memberIDs.includes(r.member_id)).map(r=>{
+    let languages=[];try{const v=JSON.parse(r.languages_json||'[]');if(Array.isArray(v))languages=v.filter(x=>typeof x==='string');}catch{}
+    return [r.member_id,{experienceYears:r.experience_years??null,languages,introVideoURL:r.intro_video_url||null}];
+  }));
+}
+async function withGuideDetails(env, members) {
+  const details = await guideDetailsMap(env,members.map(m=>m.id));
+  return members.map(m=>({...m,...(m.roleKind==='guide' ? details.get(m.id) : undefined)}));
+}
+async function saveGuideDetails(env, id, payload) {
+  if (!['experienceYears','languages','introVideoURL'].some(k=>Object.hasOwn(payload,k))) return;
+  const prior=(await guideDetailsMap(env,[id])).get(id)||{};
+  const rawYears=Object.hasOwn(payload,'experienceYears')?payload.experienceYears:prior.experienceYears;
+  const years=Number.isInteger(rawYears)&&rawYears>0&&rawYears<=80?rawYears:null;
+  const rawLanguages=Object.hasOwn(payload,'languages')?payload.languages:prior.languages;
+  const languages=Array.isArray(rawLanguages)?[...new Set(rawLanguages.map(x=>cleanText(x,50)).filter(Boolean))].slice(0,12):[];
+  const rawVideo=Object.hasOwn(payload,'introVideoURL')?payload.introVideoURL:prior.introVideoURL;
+  let video=null;try{const url=new URL(String(rawVideo||''));if(url.protocol==='https:'&&!url.username&&!url.password)video=url.href.slice(0,1000);}catch{}
+  await env.HOTELS_DB.prepare(`INSERT INTO team_guide_details(member_id,experience_years,languages_json,intro_video_url) VALUES(?,?,?,?) ON CONFLICT(member_id) DO UPDATE SET experience_years=excluded.experience_years,languages_json=excluded.languages_json,intro_video_url=excluded.intro_video_url`).bind(id,years,JSON.stringify(languages),video).run();
+}
 async function adminTeamMember(env, memberID) {
   const row = await env.HOTELS_DB.prepare('SELECT * FROM team_members WHERE id=?').bind(memberID).first();
   if (!row) return json({ ok: false, error: 'TEAM_MEMBER_NOT_FOUND' }, 404);
-  return json({ ok: true, member: mapTeamMember(row, true) });
+  const [member] = await withGuideDetails(env,[mapTeamMember(row,true)]);
+  return json({ ok: true, member });
 }
 
 async function createTeamMember(request, env) {
@@ -3797,6 +3833,7 @@ async function createTeamMember(request, env) {
     INSERT INTO team_members (id, first_name, last_name, role_kind, role_title, phone_uz, phone_sa, telegram, whatsapp, instagram, bio, public_slug, public_visible, active, is_owner, sort_order, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
   `).bind(id, value.firstName, value.lastName, value.roleKind, value.roleTitle, value.phoneUZ, value.phoneSA, value.telegram, value.whatsapp, value.instagram, value.bio, value.publicSlug, value.publicVisible ? 1 : 0, value.active ? 1 : 0, Number(max?.max_order || 0) + 1, now, now).run();
+  if(value.roleKind==='guide') await saveGuideDetails(env,id,payload);
   return adminTeamMember(env, id);
 }
 
@@ -3812,6 +3849,7 @@ async function updateTeamMember(request, env, memberID) {
   await env.HOTELS_DB.prepare(`
     UPDATE team_members SET first_name=?, last_name=?, role_kind=?, role_title=?, phone_uz=?, phone_sa=?, telegram=?, whatsapp=?, instagram=?, bio=?, public_slug=?, public_visible=?, active=?, updated_at=? WHERE id=?
   `).bind(value.firstName, value.lastName, row.is_owner ? 'owner' : value.roleKind, value.roleTitle, value.phoneUZ, value.phoneSA, value.telegram, value.whatsapp, value.instagram, value.bio, value.publicSlug, value.publicVisible ? 1 : 0, value.active ? 1 : 0, now, memberID).run();
+  if(value.roleKind==='guide'&&!row.is_owner) await saveGuideDetails(env,memberID,payload);
   return adminTeamMember(env, memberID);
 }
 
@@ -4036,7 +4074,16 @@ async function applyPaymentTemplateToBooking(env, bookingID, templateID, user) {
   return json({ ok: true, checkout: await adminCheckoutDetail(env, bookingID, trip) });
 }
 
-async function publicTeam(env, parts) {
+// Inclusive dates: a guide cannot accept another family on the same arrival/departure day.
+// Missing dates on an active assignment are conservative: treat the guide as occupied.
+const GUIDE_OCCUPIED_SQL = `UPPER(COALESCE(t.status,'')) NOT IN ('COMPLETED','CANCELLED')
+  AND (t.start_date IS NULL OR t.end_date IS NULL OR (t.start_date<=? AND t.end_date>=?))`;
+function validGuideDay(value) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(value + 'T00:00:00Z');
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0,10) === value;
+}
+async function publicTeam(env, parts, url) {
   if (parts.length === 2 && parts[1] === 'photo') {
     const slug = cleanText(parts[0], 120);
     if (!slug) return json({ ok: false, error: 'INVALID_PROFILE' }, 400);
@@ -4048,13 +4095,23 @@ async function publicTeam(env, parts) {
   }
   if (parts.length === 0) {
     const result = await env.HOTELS_DB.prepare(`SELECT * FROM team_members WHERE active=1 AND public_visible=1 ORDER BY is_owner DESC, sort_order ASC, last_name COLLATE NOCASE, first_name COLLATE NOCASE`).all();
-    return json({ ok: true, members: (result.results || []).map(row => mapTeamMember(row, false)) }, 200, PUBLIC_CACHE_HEADERS);
+    const members = await withGuideDetails(env,(result.results || []).map(row => mapTeamMember(row, false)));
+    const start = url?.searchParams.get('guideStart'), end = url?.searchParams.get('guideEnd');
+    if (start || end) {
+      if (!validGuideDay(start) || !validGuideDay(end) || start > end) return json({ok:false,error:'INVALID_GUIDE_DATES'},400);
+      // Never publish booking IDs, other families or calendar details.
+      const busy = await env.HOTELS_DB.prepare(`SELECT DISTINCT a.guide_team_member_id AS id FROM trip_assignments a JOIN pilgrim_trips t ON t.booking_id=a.booking_id WHERE a.guide_team_member_id IS NOT NULL AND ${GUIDE_OCCUPIED_SQL}`).bind(end,start).all();
+      const ids = new Set((busy.results || []).map(r=>r.id));
+      return json({ok:true,members:members.filter(m=>m.roleKind==='guide'&&!m.isOwner).map(m=>({...m,guideAvailable:!ids.has(m.id)}))},200,{'Cache-Control':'no-store'});
+    }
+    return json({ ok: true, members }, 200, PUBLIC_CACHE_HEADERS);
   }
   const slug = cleanText(parts[0], 120);
   if (!slug) return json({ ok: false, error: 'INVALID_PROFILE' }, 400);
   const row = await env.HOTELS_DB.prepare('SELECT * FROM team_members WHERE public_slug=? AND active=1 AND public_visible=1 LIMIT 1').bind(slug).first();
   if (!row) return json({ ok: false, error: 'PROFILE_NOT_FOUND' }, 404);
-  return json({ ok: true, member: mapTeamMember(row, false) }, 200, PUBLIC_CACHE_HEADERS);
+  const [member] = await withGuideDetails(env,[mapTeamMember(row,false)]);
+  return json({ ok: true, member }, 200, PUBLIC_CACHE_HEADERS);
 }
 
 async function fetchUpstreamBookings(request, env) {
@@ -11069,7 +11126,7 @@ function json(value, status = 200, extraHeaders) {
 
 function corsHeaders(request) {
   const origin = request.headers.get('origin') || '';
-  const allowed = origin === 'https://iumrah.app' || origin === 'https://www.iumrah.app' || (new URL(request.url).pathname === '/api/catalog/hotels/intelligence/events' && ['https://iumrah.uz','https://www.iumrah.uz'].includes(origin));
+  const allowed = origin === 'https://iumrah.app' || origin === 'https://www.iumrah.app';
   return {
     'access-control-allow-origin': allowed ? origin : 'https://iumrah.app',
     'access-control-allow-credentials': 'true',

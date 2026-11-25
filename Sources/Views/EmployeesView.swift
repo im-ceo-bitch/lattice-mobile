@@ -119,7 +119,10 @@ struct EmployeesView: View {
 
     private func employeeRoleLine(_ member: BusinessTeamMember) -> String {
         if member.isOwner { return "Founder · iumrah" }
-        if member.roleKind.lowercased() == "guide" { return "Главный гид iumrah · стаж 4 года" }
+        if member.roleKind.lowercased() == "guide" {
+            let title = member.roleTitle.isEmpty ? "Гид iumrah" : member.roleTitle
+            return member.experienceYears.map { title + " · стаж \($0) лет" } ?? title
+        }
         return member.roleTitle.isEmpty ? roleTitle(member.roleKind) : member.roleTitle
     }
 

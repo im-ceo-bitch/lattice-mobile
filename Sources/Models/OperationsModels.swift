@@ -70,6 +70,9 @@ struct BusinessTeamMember: Codable, Identifiable, Hashable {
     var active: Bool
     var isOwner: Bool
     var photoURL: String?
+    var experienceYears: Int? = nil
+    var languages: [String]? = nil
+    var introVideoURL: String? = nil
 
     static var emptyGuide: BusinessTeamMember {
         BusinessTeamMember(
@@ -95,6 +98,9 @@ struct BusinessTeamMemberPayload: Encodable {
     let publicSlug: String
     let publicVisible: Bool
     let active: Bool
+    let experienceYears: Int
+    let languages: [String]
+    let introVideoURL: String
 
     init(_ member: BusinessTeamMember) {
         firstName = member.firstName
@@ -110,6 +116,9 @@ struct BusinessTeamMemberPayload: Encodable {
         publicSlug = member.publicSlug
         publicVisible = member.publicVisible
         active = member.active
+        experienceYears = member.experienceYears ?? 0
+        languages = member.languages ?? []
+        introVideoURL = member.introVideoURL ?? ""
     }
 }
 
@@ -724,6 +733,8 @@ struct BookingFlightResponse: Codable {
 }
 
 struct BookingAssignment: Codable {
+    var preferredGuideID: String? = nil
+    var preferredGuideName: String? = nil
     let makkahHotelID: String?
     let madinahHotelID: String?
     let guideID: String?

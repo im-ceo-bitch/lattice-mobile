@@ -75,7 +75,7 @@ function selectionDetails(value) {
 function customization(value) {
     if (!record(value))
         return null;
-    return { accompaniment: Boolean(value.accompaniment), guideMeetingPoint: value.guideMeetingPoint === "airport" ? "airport" : "hotel", ziyaratMakkah: Boolean(value.ziyaratMakkah), ziyaratMadinah: Boolean(value.ziyaratMadinah), meals: Boolean(value.meals), esim: Boolean(value.esim) };
+    return { accompaniment: Boolean(value.accompaniment), guideMeetingPoint: value.guideMeetingPoint === "airport" ? "airport" : "hotel", ziyaratMakkah: Boolean(value.ziyaratMakkah), ziyaratMadinah: Boolean(value.ziyaratMadinah), meals: Boolean(value.meals), esim: Boolean(value.esim), ...(string(value.preferredGuideID, 180) ? { preferredGuideID: string(value.preferredGuideID, 180) } : {}) };
 }
 function generatorTrace(value) {
     if (!record(value))
