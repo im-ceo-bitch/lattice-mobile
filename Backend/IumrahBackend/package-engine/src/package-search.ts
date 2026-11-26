@@ -1,10 +1,10 @@
-import { flightExpired } from "./flight-expiration.mjs";
 import { findRoomApproval } from "./room-approval";
 import { resolveNuiteePackageHotels, type NuiteePackageRoom } from "./nuitee-hotels";
 import type { Env } from "./env";
 import { readFlightSearchCache, type NormalizedFlightSearch } from "./flight-cache";
 import { resolveServerHotelPricing } from "./hotel-costs";
 import { calculatePackageQuote, calculatePartialPackageEstimate, calculateStorefrontPreviewQuote, type PackageTier, type ServerQuoteInput, type TripType, type TransferVehicle, type VerifiedJourneyFare } from "./pricing";
+import { tripSummaryForSnapshot } from "./trip-summary-pricing.mjs";
 import { sealPricingSnapshot } from "./quote-audit";
 import { buildBookingItinerary, deriveAuthoritativeStayPlan, type StayPolicy, type VerifiedFlightSchedule } from "./itinerary-planner";
 
@@ -132,7 +132,7 @@ async function resolveCuratedFare(providerItineraryId: string, travelerCount: nu
       `SELECT id,per_traveler_fare,currency,observed_at,published,itinerary_json
        FROM curated_flight_offers WHERE id=?1 AND published=1 LIMIT 1`,
     ).bind(id).first<CuratedRow>();
-    if (!row || flightExpired(row)) throw new Error("CURATED_FLIGHT_NOT_FOUND");
+    if (!row) throw new Error("CURATED_FLIGHT_NOT_FOUND");
     rows.push(row);
   }
   const currencies = new Set(rows.map((row) => String(row.currency ?? "").toUpperCase()));
@@ -587,7 +587,7 @@ async function resolveCuratedSchedule(providerItineraryId: string, env: Env): Pr
     const row = await env.HOTELS_DB.prepare(
       "SELECT itinerary_json FROM curated_flight_offers WHERE id=?1 AND published=1 LIMIT 1",
     ).bind(id).first<{ itinerary_json: string }>();
-    if (!row || flightExpired(row)) return null;
+    if (!row) return null;
     try {
       const itinerary = JSON.parse(row.itinerary_json || "{}") as { legs?: ScheduleLeg[] };
       const legs = Array.isArray(itinerary.legs) ? itinerary.legs : [];
@@ -876,6 +876,11 @@ export async function generatePackageQuote(request: Request, env: Env): Promise<
       const approval=await findRoomApproval(request,env,quoteInput.travelers,nuitee.rooms);
       if(approval){calculated.snapshot.roomApproval=approval;calculated.snapshot.roomPolicy.requiresAdultException=false;}
     }
+    // Project the finalized snapshot, including supplier provenance labels, before sealing.
+    // The saved-package gateway independently recomputes this exact public report.
+    const finalReport = tripSummaryForSnapshot(calculated.snapshot);
+    if (!finalReport) throw new Error("PACKAGE_PRICE_BREAKDOWN_UNAVAILABLE");
+    calculated.snapshot.tripSummary = finalReport.client;
     const quoteProof = await sealPricingSnapshot(calculated.snapshot, env);
     // Planned preview only: verified flight times, no confidential costs.
     let itineraryPreview: ReturnType<typeof buildBookingItinerary>["items"] = [];

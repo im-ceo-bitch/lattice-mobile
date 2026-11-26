@@ -179,6 +179,18 @@ test('sandbox package quote seals the real selections and commits or queues a Bu
  });
  const snapshot=await unsealPricingSnapshot(body.quote.quoteProof,env);
  assert.equal(snapshot.supplierMode,'sandbox');assert.equal(snapshot.supplierReservationConfirmed,false);
+ // Regression: the sealed report must match the final provenance labels, otherwise
+ // both save and share fail with BOOKING_QUOTE_REFRESH_REQUIRED.
+ const {tripSummaryForSnapshot}=await import('../.runtime-dist/trip-summary-pricing.mjs');
+ const {verifySavedPackageQuote}=await import('../.runtime-dist/booking-gateway.js');
+ assert.deepEqual(snapshot.tripSummary,tripSummaryForSnapshot(snapshot).client);
+ assert.deepEqual(body.quote.tripSummary,snapshot.tripSummary);
+ const contract=snapshot.bookingContract;
+ const saveBooking={totalUsd:body.quote.totalPackagePrice,perPilgrimUsd:body.quote.pricePerPerson,planId:snapshot.context.tier,input:{travelers:party,includeMadinah:false},selection:{makkahHotelId:'lp123'},stay:{makkahNights:7,madinahNights:0},route:{originCode:'TAS',outboundDestination:'JED',returnOrigin:'JED'},generatorTrace:{quoteId:body.quote.quoteId,outbound:contract.schedule.outbound,inbound:contract.schedule.inbound,makkahHotel:{roomId:contract.makkahRoomId}}};
+ const saved=await verifySavedPackageQuote(saveBooking,body.quote.quoteProof,env);
+ assert.deepEqual(saved.report.client,body.quote.tripSummary);
+ await assert.rejects(verifySavedPackageQuote({...saveBooking,totalUsd:1},body.quote.quoteProof,env),/BOOKING_QUOTE_TOTAL_MISMATCH/);
+
  assert.equal(snapshot.components.find(x=>x.code==='makkah_hotel').supplierCostUsd,200);
  assert.equal(snapshot.components.find(x=>x.code==='ziyarat_makkah').supplierCostUsd,0);
  assert.equal(snapshot.nuiteeRooms[0].meals.dinner,true);

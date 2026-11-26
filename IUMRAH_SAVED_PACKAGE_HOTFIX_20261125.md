@@ -1,0 +1,1 @@
+Backend-only patch. Recompute Trip Summary after final supplier labels and before sealing. Regression reproduced before fix; 142/142 package runtime tests after fix. No migrations, Business Swift, or workflow changes. Requires prior team/localized backend patch if not already applied.
