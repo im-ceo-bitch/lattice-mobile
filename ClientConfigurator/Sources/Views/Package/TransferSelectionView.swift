@@ -71,7 +71,7 @@ struct TransferSelectionView: View {
             AnyView(NuiteeJourneyHotelsView(transferAlreadySelected: true))
         }
         .navigationDestination(isPresented: $showFinalPackage) {
-            AnyView(FinalPackageView(familyFlow: familyFlow))
+            AnyView(OfficialJourneyGuideStep(familyFlow: familyFlow))
         }
         .alert(errorTitle, isPresented: Binding(
             get: { confirmationError != nil },
@@ -85,7 +85,7 @@ struct TransferSelectionView: View {
         .task(id: pricingSelectionKey) {
             // Wait for a swipe/counter gesture to settle, never a request per frame.
             do { try await Task.sleep(for: .milliseconds(350)) } catch { return }
-            guard !Task.isCancelled, !isConfirming, manualConfirm == nil, !selectBeforeHotels else { return }
+            guard !Task.isCancelled, !isConfirming, !showFinalPackage, !showHotelsAfterTransfer, manualConfirm == nil, !selectBeforeHotels else { return }
             await refreshBasePackagePrice()
         }
     }
@@ -465,7 +465,7 @@ struct TransferSelectionView: View {
             .frame(maxWidth: .infinity)
         }
         .buttonStyle(IumrahPrimaryButtonStyle())
-        .disabled(isConfirming || (selectBeforeHotels && selectedVehicle.passengerCapacity < journey.trip.travelerCount))
+        .disabled(isConfirming || selectedVehicle.passengerCapacity < journey.trip.travelerCount)
     }
 
     // MARK: - Interaction / pricing
@@ -494,7 +494,7 @@ struct TransferSelectionView: View {
     @MainActor
     private func refreshBasePackagePrice() async {
         guard !selectBeforeHotels else { return }
-        await journey.buildQuote(forceHotelRefresh: false)
+        await journey.buildConfiguratorQuote(language: settings.language.hotelContentCode)
     }
 
     private func selectVehicleIndex(_ target: Int) {
@@ -522,21 +522,13 @@ struct TransferSelectionView: View {
             isConfirming = false; showHotelsAfterTransfer = true; IumrahHaptics.success(); return
         }
 
-        await journey.buildQuote(forceHotelRefresh: false)
-
-        guard journey.hasFinalGeneratorQuote else {
+        // A transient pricing error must not trap the user on the transfer step.
+        // Final review owns the authoritative quote and still gates booking.
+        guard selectedVehicle.passengerCapacity >= journey.trip.travelerCount else {
             journey.transferSelectionConfirmed = false
-            confirmationError = journey.errorMessage.map { ConfiguratorBookingCopy.message($0, language: settings.language) } ?? localized(
-                "Не удалось подтвердить итоговую конфигурацию поездки. Попробуйте ещё раз.",
-                "The trip configuration could not be confirmed. Please try again.",
-                "Safar konfiguratsiyasini tasdiqlab bo‘lmadi. Qayta urinib ko‘ring.",
-                "Сафар конфигурациясини тасдиқлаб бўлмади. Қайта уриниб кўринг."
-            )
             isConfirming = false
-            IumrahHaptics.error()
             return
         }
-
 
         IumrahHaptics.success()
         isConfirming = false
@@ -699,7 +691,7 @@ struct TransferSelectionView: View {
     }
 
     private var confirmTitle: String {
-        localized("Подтвердить трансфер", "Confirm transfer", "Transferni tasdiqlash", "Трансферни тасдиқлаш")
+        localized("Далее: гид и команда", "Next: guide and team", "Keyingi: gid va jamoa", "Кейинги: гид ва жамоа")
     }
 
     private var confirmingTitle: String {

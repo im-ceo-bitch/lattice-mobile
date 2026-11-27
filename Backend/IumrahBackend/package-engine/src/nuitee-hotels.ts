@@ -696,11 +696,18 @@ export async function resolveNuiteePackageHotels(env: Env, values: NuiteePackage
   let highestStars = 0;
   const mealComponents: Array<{code:string;label:string;supplierCostUsd:number}> = [];
   const verifiedOffers = new Map<string, Json>();
+  let partyAges: string | undefined;
   for (const city of cities) {
     const rooms = values.filter(room => room?.city === city);
     if (rooms.length !== travelers.rooms || new Set(rooms.map(x => x.id)).size !== rooms.length) throw new Error("NUITEE_ROOM_SELECTION_INCOMPLETE");
     if (new Set(rooms.map(x => x.hotelId)).size !== 1 || new Set(rooms.map(x => x.checkin + ":" + x.checkout)).size !== 1) throw new Error("NUITEE_CITY_SELECTION_MISMATCH");
     if (rooms.reduce((n,r)=>n+Number(r.adults),0) !== travelers.adults || rooms.reduce((n,r)=>n+(Array.isArray(r.children)?r.children.length:0),0) !== travelers.children+travelers.infants) throw new Error("NUITEE_OCCUPANCY_MISMATCH");
+    const ages = rooms.flatMap(room => Array.isArray(room.children) ? room.children : []);
+    if (ages.some(age => !Number.isInteger(age) || age < 0 || age > 17) ||
+        ages.filter(age => age >= 2).length !== travelers.children || ages.filter(age => age < 2).length !== travelers.infants) throw new Error("NUITEE_OCCUPANCY_MISMATCH");
+    const ageKey = [...ages].sort((a,b) => a-b).join(",");
+    if (partyAges !== undefined && partyAges !== ageKey) throw new Error("NUITEE_OCCUPANCY_MISMATCH");
+    partyAges = ageKey;
     const catalog = await cachedCatalog(env, city);
     const hotel = Array.isArray(catalog?.data) ? catalog!.data.find((h:Json)=>h.id===rooms[0].hotelId) : null;
     if (!hotel) throw new Error("HOTEL_NOT_IN_CATALOG");

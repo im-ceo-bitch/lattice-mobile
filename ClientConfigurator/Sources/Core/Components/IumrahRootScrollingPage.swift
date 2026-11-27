@@ -97,6 +97,14 @@ struct IumrahRootScrollingPage<Header: View, Page: View>: View {
     }
 }
 
+struct IumrahCollapseSearchOnPull: ViewModifier {
+    @Environment(\.iumrahSearchPullActive) private var pulling
+    let collapse: () -> Void
+    func body(content: Content) -> some View {
+        content.onChange(of: pulling) { _, active in if active { collapse() } }
+    }
+}
+
 /// Attach the native iOS refresh control to the content scroll view, never the masthead.
 @MainActor
 private struct IumrahNativePullRefresh: UIViewRepresentable {

@@ -29,8 +29,9 @@ final class JourneyStore: ObservableObject {
     var cachedLocalBookingInputKey: String?
     @Published var trip = TripDraft() { didSet { cachedLocalBookingInputKey = nil } }
     @Published var tripSummaryChildAges: [Int] = []
-    var tripSummaryApprovalHeaders: [String:String] = [:]
+    var tripSummaryApprovalHeaders: [String:String] = [:] { didSet { cachedLocalBookingInputKey = nil } }
     @Published private(set) var tripSummaryRevision: UInt64 = 0
+    @Published var tripSummaryRoomAlternatives: Set<String> = []
     @Published var usesLocalJourney = false
     @Published var localJourneyFlights: [LocalJourneyFlight] = [] { didSet { cachedLocalBookingInputKey = nil } }
     @Published var localJourneyRooms: [String: LocalJourneyRoom] = [:] { didSet { cachedLocalBookingInputKey = nil } }
@@ -40,10 +41,10 @@ final class JourneyStore: ObservableObject {
     /// Controls the three package-generation paths without changing the persisted
     /// TripDraft contract. Weekend keeps its existing DateFlexibility behavior;
     /// published/direct and flexible-date paths are session architecture state.
-    @Published var packageFlightPath: PackageFlightPath = .publishedDirect
-    @Published var selectedPublishedCompleteID: String?
-    @Published var selectedPublishedOutboundID: String?
-    @Published var selectedPublishedReturnID: String?
+    @Published var packageFlightPath: PackageFlightPath = .publishedDirect { didSet { cachedLocalBookingInputKey = nil } }
+    @Published var selectedPublishedCompleteID: String? { didSet { cachedLocalBookingInputKey = nil } }
+    @Published var selectedPublishedOutboundID: String? { didSet { cachedLocalBookingInputKey = nil } }
+    @Published var selectedPublishedReturnID: String? { didSet { cachedLocalBookingInputKey = nil } }
     /// Flights staged from the Flights tab before the user opens the package builder.
     /// Published iumrah recommendations also keep their canonical D1 IDs above so
     /// the generator can resolve the exact selected itinerary server-side.
@@ -51,7 +52,7 @@ final class JourneyStore: ObservableObject {
     /// Original Data API records for Flight First. The compact staged model powers
     /// the cart UI; these records preserve the server-recheck identity needed by
     /// the Package Engine after the user reaches Primary Hotels.
-    @Published var stagedAviasalesOffers: [StagedUmrahFlightKind: FlightDiscoveryOffer] = [:]
+    @Published var stagedAviasalesOffers: [StagedUmrahFlightKind: FlightDiscoveryOffer] = [:] { didSet { cachedLocalBookingInputKey = nil } }
     @Published private(set) var flightFirstHotelStagePrepared = false
 
     // Transfer is a first-class generator stage shared by both flight paths.
@@ -74,9 +75,13 @@ final class JourneyStore: ObservableObject {
     @Published var selectedMadinahRoom: HotelRoom?
     @Published var selectedMadinahRoomCategory: IumrahRoomCategoryOption?
 
-    @Published var selectedOutbound: FlightOffer?
-    @Published var selectedInbound: FlightOffer?
-    @Published var quote: PackageQuote?
+    @Published var selectedOutbound: FlightOffer? { didSet { cachedLocalBookingInputKey = nil } }
+    @Published var selectedInbound: FlightOffer? { didSet { cachedLocalBookingInputKey = nil } }
+    @Published var quote: PackageQuote? {
+        didSet { quotedLocalInput = quote != nil && usesLocalJourney ? localBookingInputKey : nil }
+    }
+    private var quotedLocalInput: String?
+    private var configuratorGeneration = UUID()
     @Published private(set) var hotelPriceSnapshot: HotelPriceSearchSnapshot?
     @Published private(set) var isSearchingHotelPrices = false
     @Published private(set) var pricingMakkahRoomID: String?
@@ -249,6 +254,8 @@ final class JourneyStore: ObservableObject {
         usesLocalJourney = false
         localJourneyFlights = []
         localJourneyRooms = [:]
+        tripSummaryRoomAlternatives = []
+        trip.guidePreference = nil
         if !keepingPublishedFlightSelection { clearPublishedFlightSelection() }
 
         // A newly configured journey starts from the package default meal plan.
@@ -934,7 +941,7 @@ final class JourneyStore: ObservableObject {
 
     func confirmTransferSelection() {
         if selectedTransferVehicle == nil { selectedTransferVehicle = recommendedTransferVehicle() }
-        transferSelectionConfirmed = true
+        transferSelectionConfirmed = (selectedTransferVehicle?.passengerCapacity ?? 0) >= trip.travelerCount
     }
 
     func resetTransferSelection() {
@@ -1122,7 +1129,8 @@ final class JourneyStore: ObservableObject {
 
     var hasFinalGeneratorQuote: Bool {
         guard let quote, let id = quote.quoteId, let proof = quote.quoteProof else { return false }
-        return id.hasPrefix("server-") && !proof.isEmpty && quote.totalPackagePrice > 0 && quote.pricePerPerson > 0
+        if usesLocalJourney, quotedLocalInput != localBookingInputKey || !localRoomsComplete { return false }
+        return id.hasPrefix("server-") && !proof.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && quote.currency == "USD" && quote.totalPackagePrice > 0 && quote.pricePerPerson > 0
     }
 
     private func buildNuiteeJourneyQuote() async {
@@ -1183,6 +1191,25 @@ final class JourneyStore: ObservableObject {
         } catch {
             guard revision == packageQuoteRevision, localBookingInputKey == identity, !Task.isCancelled else { return }
             quote = nil; errorMessage = error.localizedDescription
+        }
+    }
+
+    /// The same bounded recovery path is used by Manual, Smart and Trip Summary.
+    func buildConfiguratorQuote(language: String = "en", allowAlternative: Bool = false, forceRefresh: Bool = false) async {
+        let revision = tripSummaryRevision
+        let generation = UUID()
+        configuratorGeneration = generation
+        if usesLocalJourney {
+            await repricePendingJourneyRooms(language: language, allowAlternative: allowAlternative, forceRefresh: forceRefresh)
+        }
+        guard !Task.isCancelled, tripSummaryRevision == revision, configuratorGeneration == generation else { return }
+        await buildQuote(forceQuoteRefresh: forceRefresh)
+        guard !Task.isCancelled, tripSummaryRevision == revision, configuratorGeneration == generation else { return }
+        if usesLocalJourney, !hasFinalGeneratorQuote, errorMessage?.contains("NUITEE_SELECTED_RATE_EXPIRED") == true {
+            markLocalRoomsForReprice()
+            await repricePendingJourneyRooms(language: language, allowAlternative: allowAlternative, forceRefresh: true)
+            guard !Task.isCancelled, tripSummaryRevision == revision, configuratorGeneration == generation else { return }
+            await buildQuote(forceQuoteRefresh: true)
         }
     }
 
@@ -1704,6 +1731,7 @@ final class JourneyStore: ObservableObject {
                 displayedPrice: offer.fareAmount.map { NSDecimalNumber(decimal: $0).doubleValue })
         }
         localJourneyRooms = [:]
+        tripSummaryRoomAlternatives = []
         selectedHotel = nil; selectedRoom = nil; selectedRoomCategory = nil
         selectedMadinahHotel = nil; selectedMadinahRoom = nil; selectedMadinahRoomCategory = nil
     }
@@ -1711,13 +1739,16 @@ final class JourneyStore: ObservableObject {
     func invalidateTripSummaryQuote() {
         quoteTask?.cancel(); quoteTask = nil; quoteTaskKey = nil
         quoteRequestGeneration = UUID()
+        configuratorGeneration = UUID()
         tripSummaryRevision &+= 1
         packageQuoteRevision &+= 1
         cachedLocalBookingInputKey = nil
         quote = nil
     }
     func applyTripSummaryGuests(_ next: TripDraft, ages: [Int]) {
+        guard next.rooms > 0, next.rooms <= next.adults, next.travelerCount <= 9 else { return }
         invalidateTripSummaryQuote()
+        let oldTrip = trip
         trip = next
         tripSummaryChildAges = ages
         // Keep hotel and room identity. Old supplier tokens cannot price a changed occupancy.
@@ -1730,7 +1761,7 @@ final class JourneyStore: ObservableObject {
                 let key = "\(city):\(index)"
                 let existing = previous[key]
                 let source = existing ?? first
-                let adults = next.adults / next.rooms + (index < next.adults % next.rooms ? 1 : 0)
+                let adults = ConfiguratorRepricingPolicy.adultsInRoom(next.adults, rooms: next.rooms, index: index)
                 let children = ages.enumerated().filter { $0.offset % next.rooms == index }.map(\.element)
                 let pending = existing == nil || source.requiresRateRefresh == true || source.adults != adults || source.childrenAges != children
                 var hotel = source.hotel
@@ -1743,10 +1774,14 @@ final class JourneyStore: ObservableObject {
         localJourneyRooms = preserved
         hotelPriceSnapshot = nil; cancelHotelPricePrefetch()
         if let vehicle = selectedTransferVehicle, vehicle.passengerCapacity < next.travelerCount {
-            selectedTransferVehicle = TransferVehicleKind.carnival.passengerCapacity >= next.travelerCount ? .carnival : nil
-            transferSelectionConfirmed = false
+            selectedTransferVehicle = ConfiguratorRepricingPolicy.replacementVehicle(vehicle, travelers: next.travelerCount)
+            if selectedTransferVehicle == nil { transferSelectionConfirmed = false }
         }
-        if haramainTrainSelected { haramainAdultTickets = next.adults; haramainChildTickets = next.children; transferSelectionConfirmed = false }
+        if haramainTrainSelected {
+            haramainAdultTickets = haramainAdultTickets == oldTrip.adults ? next.adults : min(next.adults, max(1, haramainAdultTickets))
+            haramainChildTickets = haramainChildTickets == oldTrip.children ? next.children : min(next.children, haramainChildTickets)
+        }
+        tripSummaryRoomAlternatives = tripSummaryRoomAlternatives.intersection(preserved.keys)
     }
     func tripSummaryEditingCopy() -> JourneyStore {
         let copy = JourneyStore()
@@ -1775,10 +1810,22 @@ final class JourneyStore: ObservableObject {
             stagedUmrahFlights = copy.stagedUmrahFlights; stagedAviasalesOffers = copy.stagedAviasalesOffers; mixedFlightIdentity = copy.mixedFlightIdentity
             localJourneyFlights = copy.localJourneyFlights; selectedOutbound = copy.selectedOutbound; selectedInbound = copy.selectedInbound
             let sameStay = old.departureDate == trip.departureDate && old.returnDate == trip.returnDate && old.hotelStayStartDate == trip.hotelStayStartDate && old.arrivalAirport == trip.arrivalAirport && old.scope == trip.scope
-            if !sameStay { localJourneyRooms = [:]; selectedRoom = nil; selectedMadinahRoom = nil; selectedRoomCategory = nil; selectedMadinahRoomCategory = nil }
+            if !sameStay {
+                let windows = TripStayPlanner.windows(for: trip)
+                var updated: [String: LocalJourneyRoom] = [:]
+                if usesLocalJourney && old.scope == trip.scope && old.rooms == trip.rooms && old.adults == trip.adults && old.children == trip.children && old.infants == trip.infants {
+                    for (key, room) in localJourneyRooms {
+                        guard let window = room.city == "makkah" ? Optional(windows.makkah) : windows.madinah else { continue }
+                        updated[key] = .init(id: room.id, city: room.city, hotel: room.hotel, rate: room.rate,
+                            checkin: window.checkIn, checkout: window.checkOut, adults: room.adults, childrenAges: room.childrenAges, meals: room.meals, requiresRateRefresh: true)
+                    }
+                }
+                localJourneyRooms = updated; tripSummaryRoomAlternatives = []; selectedRoom = nil; selectedMadinahRoom = nil; selectedRoomCategory = nil; selectedMadinahRoomCategory = nil
+            }
             if !old.isRoundTripFlight || !sameStay { transferSelectionConfirmed = false }
         case .hotel, .allHotels:
             localJourneyRooms = copy.localJourneyRooms; trip.packageTier = copy.trip.packageTier
+            if case .hotel(let city) = session.kind { tripSummaryRoomAlternatives = tripSummaryRoomAlternatives.filter { !$0.hasPrefix(city + ":") } } else { tripSummaryRoomAlternatives = [] }
             let ages = copy.localJourneyRooms.values.filter { $0.city == "makkah" }.sorted { $0.id < $1.id }.flatMap(\.childrenAges)
             if ages.count == trip.children + trip.infants { tripSummaryChildAges = ages }
         case .catalog:
@@ -1786,6 +1833,8 @@ final class JourneyStore: ObservableObject {
             selectedMadinahHotel = copy.selectedMadinahHotel; selectedMadinahRoom = copy.selectedMadinahRoom; selectedMadinahRoomCategory = copy.selectedMadinahRoomCategory
         case .transfer:
             selectedTransferVehicle = copy.selectedTransferVehicle; transferSelectionConfirmed = copy.transferSelectionConfirmed
+            haramainTrainSelected = copy.haramainTrainSelected; haramainFareClass = copy.haramainFareClass
+            haramainAdultTickets = copy.haramainAdultTickets; haramainChildTickets = copy.haramainChildTickets
         }
         hotelPriceSnapshot = nil; cancelHotelPricePrefetch()
     }

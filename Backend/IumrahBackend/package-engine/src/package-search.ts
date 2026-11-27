@@ -658,19 +658,22 @@ function parseStayPolicy(value: unknown): StayPolicy {
 // All prices and stars are re-resolved from the same trusted providers as checkout.
 export async function generateManualPackageEstimate(request: Request, env: Env): Promise<Response> {
   try {
-    const raw = await request.json() as {adults?:unknown; includeMadinah?:unknown; start?:unknown; end?:unknown;
+    const raw = await request.json() as {adults?:unknown; roomCount?:unknown; includeMadinah?:unknown; start?:unknown; end?:unknown;
       transferVehicle?:unknown; haramain?:{enabled?:unknown;fareClass?:unknown;ticketCount?:unknown}; rooms?:NuiteePackageRoom[]; flights?:Array<{identity?:unknown;origin?:unknown;destination?:unknown;departureDate?:unknown;cabin?:unknown}>};
     const adults = int(raw.adults,1,6), includeMadinah = bool(raw.includeMadinah);
+    const minimumRooms = Math.ceil(adults/5);
+    const rooms = int(raw.roomCount ?? minimumRooms,minimumRooms,adults);
     const start = text(raw.start,10), end = text(raw.end,10);
     let nights = (Date.parse(end)-Date.parse(start))/86400000;
     if (!DATE.test(start) || !DATE.test(end) || !Number.isInteger(nights) || nights < (includeMadinah ? 2 : 1) || nights > 90 || start < new Date().toISOString().slice(0,10)) throw new Error("INVALID_STAY_DATES");
     const selections = raw.rooms ?? [], legs = raw.flights ?? [];
-    if (!Array.isArray(selections) || !Array.isArray(legs) || selections.length > 2 || legs.length > 2 || (!selections.length && !legs.length)) throw new Error("ESTIMATE_COMPONENT_REQUIRED");
-    const travelers = {adults,children:0,infants:0,rooms:1};
+    if (!Array.isArray(selections) || !Array.isArray(legs) || selections.length > rooms * (includeMadinah ? 2 : 1) || legs.length > 2 || (!selections.length && !legs.length)) throw new Error("ESTIMATE_COMPONENT_REQUIRED");
+    const travelers = {adults,children:0,infants:0,rooms};
     for (const room of selections) {
       if (room.checkin < start || room.checkout > end) throw new Error("NUITEE_STAY_OUTSIDE_TRIP");
     }
-    const stays = [...selections].sort((a,b)=>a.checkin.localeCompare(b.checkin));
+    // Compare city windows rather than individual room records.
+    const stays = [...new Map(selections.map(room=>[room.city,room])).values()].sort((a,b)=>a.checkin.localeCompare(b.checkin));
     if (stays.length === 2 && stays[0].checkout !== stays[1].checkin) throw new Error("NUITEE_STAY_GAP_OR_OVERLAP");
     let totalFare=0, pairedFareIncluded=false;
     let firstArrivalDay: string | null = null;

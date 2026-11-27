@@ -20,7 +20,15 @@ final class IumrahManualJourneyStore: ObservableObject {
     @Published var plannedArrival: SaudiArrivalAirport = .jeddah { didSet { cachedRevisionKey = nil } }
     @Published var plannedDeparture = Calendar.current.date(byAdding: .day, value: 14, to: Date()) ?? Date() { didSet { cachedRevisionKey = nil } }
     @Published var plannedReturn = Calendar.current.date(byAdding: .day, value: 21, to: Date()) ?? Date() { didSet { cachedRevisionKey = nil } }
-    @Published var adults = 2 { didSet { cachedRevisionKey = nil } }
+    @Published var adults = 2 { didSet {
+        cachedRevisionKey = nil
+        if let transfer, transfer.passengerCapacity < adults {
+            self.transfer = ConfiguratorRepricingPolicy.replacementVehicle(transfer, travelers: adults)
+        }
+        if haramainSelected && haramainAdultTickets == oldValue { haramainAdultTickets = adults }
+    } }
+    var roomCount: Int { ConfiguratorRepricingPolicy.minimumRooms(adults) }
+    var firstRoomAdults: Int { ConfiguratorRepricingPolicy.adultsInRoom(adults, rooms: roomCount, index: 0) }
     @Published var cabin: FlightCabinClass = .economy { didSet { cachedRevisionKey = nil } }
 
     var componentCount: Int { (outbound == nil ? 0 : 1) + (inbound == nil ? 0 : 1) + rooms.count + (transfer == nil ? 0 : 1) }
@@ -100,7 +108,7 @@ final class IumrahManualJourneyStore: ObservableObject {
         draft.origin = outbound.origin; draft.originAirport = nil
         draft.departureDate = departure; draft.saudiArrivalDate = arrival; draft.returnDate = returning
         draft.arrivalAirport = first; draft.selectedReturnAirport = last
-        draft.scope = scope; draft.adults = adults; draft.rooms = 1; draft.children = 0; draft.infants = 0
+        draft.scope = scope; draft.adults = adults; draft.rooms = roomCount; draft.children = 0; draft.infants = 0
         draft.flightTripType = .roundTrip
         var filters = draft.effectiveFlightFilters; filters.cabinClass = cabin; draft.flightFilters = filters
         return draft
@@ -115,7 +123,7 @@ final class IumrahManualJourneyStore: ObservableObject {
         draft.saudiArrivalDate = outbound.flatMap { day($0.arrivalAt, airport: $0.destination) }
         draft.returnDate = inbound.flatMap { day($0.departureAt, airport: $0.origin) } ?? plannedReturn
         draft.selectedReturnAirport = inbound.flatMap { SaudiArrivalAirport(rawValue: $0.origin) }
-        draft.adults = adults; draft.rooms = 1; draft.children = 0; draft.infants = 0
+        draft.adults = adults; draft.rooms = roomCount; draft.children = 0; draft.infants = 0
         var filters = draft.effectiveFlightFilters; filters.cabinClass = cabin; draft.flightFilters = filters
         return draft
     }
@@ -129,7 +137,7 @@ final class IumrahManualJourneyStore: ObservableObject {
     func validRoom(_ city: String) -> Bool {
         guard let room = rooms[city], let window = expectedWindow(city) else { return false }
         let cal = Calendar.current
-        return room.adults == adults && room.childrenAges.isEmpty && room.rate.currency == "USD" && room.rate.price.isFinite && room.rate.price > 0 &&
+        return room.adults == firstRoomAdults && room.childrenAges.isEmpty && room.rate.currency == "USD" && room.rate.price.isFinite && room.rate.price > 0 &&
             cal.isDate(room.checkin, inSameDayAs: window.checkIn) && cal.isDate(room.checkout, inSameDayAs: window.checkOut)
     }
     var sourceCompatible: Bool {
@@ -149,7 +157,7 @@ final class IumrahManualJourneyStore: ObservableObject {
     var complete: Bool {
         guard trip != nil, sourceCompatible, let transfer, transfer.passengerCapacity >= adults,
               (1...6).contains(adults) else { return false }
-        return cities.allSatisfy { validRoom($0) }
+        return cities.allSatisfy { rooms[$0] != nil }
     }
     func estimateIdentity(_ flight: LocalJourneyFlight) -> String? {
         if let id = flight.publishedID { return "curated:" + id }
@@ -164,6 +172,24 @@ final class IumrahManualJourneyStore: ObservableObject {
         .init(id: flight.id, kind: kind, origin: flight.origin, destination: flight.destination, airline: flight.airline,
               flightNumber: flight.flightNumber, departureAt: flight.departureAt, returnAt: nil, returnAirline: nil,
               returnFlightNumber: nil, source: flight.publishedID == nil ? "Aviasales" : "iumrah")
+    }
+    /// Anchors are user choices, not a cached price for a different party.
+    func projectedRooms() -> [String: LocalJourneyRoom] {
+        var result: [String: LocalJourneyRoom] = [:]
+        for city in cities {
+            guard let anchor = rooms[city] else { continue }
+            let window = trip == nil ? nil : expectedWindow(city)
+            let start = window?.checkIn ?? anchor.checkin
+            let end = window?.checkOut ?? anchor.checkout
+            for index in 0..<roomCount {
+                let count = ConfiguratorRepricingPolicy.adultsInRoom(adults, rooms: roomCount, index: index)
+                let key = "\(city):\(index)"
+                let pending = anchor.requiresRateRefresh == true || anchor.adults != count || !anchor.childrenAges.isEmpty || anchor.checkin != start || anchor.checkout != end
+                result[key] = .init(id: key, city: city, hotel: anchor.hotel, rate: anchor.rate,
+                    checkin: start, checkout: end, adults: count, childrenAges: [], meals: anchor.meals, requiresRateRefresh: pending)
+            }
+        }
+        return result
     }
     /// Assemble the exact same server request as the guided flow, with the same
     /// trusted provider IDs. The separate store is only used for this review.
@@ -184,7 +210,7 @@ final class IumrahManualJourneyStore: ObservableObject {
         }
         result.usesLocalJourney = true
         result.localJourneyFlights = [a, b]
-        result.localJourneyRooms = Dictionary(uniqueKeysWithValues: cities.compactMap { city in rooms[city].map { ($0.id, $0) } })
+        result.localJourneyRooms = projectedRooms()
         result.chooseTransferVehicle(transfer)
         result.setHaramainFareClass(haramainFareClass)
         result.setHaramainAdultTickets(haramainAdultTickets)

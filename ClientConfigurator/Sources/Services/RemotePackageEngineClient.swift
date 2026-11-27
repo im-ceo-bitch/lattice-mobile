@@ -7,7 +7,8 @@ struct RemotePackageEngineClient {
 
     func manualEstimate(_ body: IumrahManualEstimateRequest) async throws -> IumrahManualEstimate {
         let response: IumrahManualEstimateEnvelope = try await APIClient.hotelPrices.post("/api/package/estimate", body: body, timeoutInterval: 120)
-        guard response.ok, response.estimate.bookingAllowed == false else { throw APIError.invalidResponse }
+        guard response.ok, response.estimate.bookingAllowed == false, response.estimate.currency == "USD",
+              response.estimate.totalPackagePrice > 0, response.estimate.pricePerPerson > 0 else { throw APIError.invalidResponse }
         return response.estimate
     }
 

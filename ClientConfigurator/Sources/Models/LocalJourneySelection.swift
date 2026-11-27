@@ -41,18 +41,23 @@ struct LocalJourneyPriceLine: Identifiable {
 
 extension JourneyStore {
     var localRoomsComplete: Bool {
-        guard trip.rooms > 0, trip.rooms <= max(1, trip.adults), trip.travelerCount <= trip.rooms * 5 else { return false }
+        guard trip.rooms > 0, trip.rooms <= max(1, trip.adults), trip.adults <= trip.rooms * 5 else { return false }
         let cities = trip.scope == .makkahAndMadinah ? ["makkah", "madinah"] : ["makkah"]
         let windows = TripStayPlanner.windows(for: trip)
         let calendar = Calendar.current
+        guard localJourneyRooms.count == cities.count * trip.rooms else { return false }
         return cities.allSatisfy { city in
             guard let window = city == "makkah" ? Optional(windows.makkah) : windows.madinah,
                   window.checkOut > window.checkIn else { return false }
             let selected = (0..<trip.rooms).compactMap { localJourneyRooms["\(city):\($0)"] }
             guard selected.count == trip.rooms,
                   selected.reduce(0, { $0 + $1.adults }) == trip.adults,
-                  selected.reduce(0, { $0 + $1.childrenAges.count }) == trip.children + trip.infants,
+                  selected.flatMap(\.childrenAges).filter({ $0 >= 2 }).count == trip.children,
+                  selected.flatMap(\.childrenAges).filter({ $0 >= 0 && $0 < 2 }).count == trip.infants,
                   Set(selected.map { $0.hotel.id }).count == 1 else { return false }
+            let selectedAges = selected.flatMap(\.childrenAges).sorted()
+            if tripSummaryChildAges.count == trip.children + trip.infants,
+               selectedAges != tripSummaryChildAges.sorted() { return false }
             return selected.allSatisfy { room in
                 room.requiresRateRefresh != true && room.city == city && room.adults > 0 && room.childrenAges.allSatisfy { (0...17).contains($0) } &&
                 calendar.isDate(room.checkin, inSameDayAs: window.checkIn) &&
@@ -78,10 +83,18 @@ extension JourneyStore {
     var localBookingInputKey: String {
         if let cachedLocalBookingInputKey { return cachedLocalBookingInputKey }
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
-        let rooms = (try? encoder.encode(localBookingRooms)).flatMap { String(data:$0,encoding:.utf8) } ?? ""
-        let pending = localJourneyRooms.values.filter { $0.requiresRateRefresh == true }.map(\.id).sorted().joined(separator: ",")
-        let flightKey = localJourneyFlights.map { $0.id + ":" + $0.departureAt }.joined(separator: "|")
-        let key = flightKey + "|" + (mixedFlightIdentity ?? "") + "|" + rooms + "|" + pending + "|" + String(trip.hashValue) + "|" + (selectedTransferVehicle?.rawValue ?? "") + "|" + String(haramainTrainSelected) + "|" + String(haramainTicketCount) + "|" + haramainFareClass.rawValue
+        func encoded<T: Encodable>(_ value: T) -> String {
+            (try? encoder.encode(value))?.base64EncodedString() ?? ""
+        }
+        // Include pending selections too, so a changed pending hotel cannot share an old request.
+        let rooms = encoded(localJourneyRooms)
+        let flightKey = encoded(localJourneyFlights)
+        let staged = encoded([stagedAviasalesOffers[.outbound], stagedAviasalesOffers[.inbound], stagedAviasalesOffers[.roundTrip]])
+        let identities = [packageFlightPath.rawValue, selectedPublishedCompleteID ?? "", selectedPublishedOutboundID ?? "", selectedPublishedReturnID ?? ""].joined(separator: "|")
+        // Flexible-date offers are input, whereas resolved published/Data API offers are output.
+        let flexible = packageFlightPath == .flexibleDates ? encoded([selectedOutbound, selectedInbound]) : ""
+        let transfer = [selectedTransferVehicle?.rawValue ?? "", String(haramainTrainSelected), String(haramainAdultTickets), String(haramainChildTickets), haramainFareClass.rawValue].joined(separator: "|")
+        let key = [staged, identities, flexible, encoded(tripSummaryApprovalHeaders), flightKey, mixedFlightIdentity ?? "", rooms, encoded(trip), transfer].joined(separator: "|")
         cachedLocalBookingInputKey = key
         return key
     }
@@ -125,44 +138,71 @@ extension LocalJourneyRoom {
 /// presenting a stale rate as today's amount.
 @MainActor
 extension JourneyStore {
-    func repricePendingJourneyRooms(language: String = "en") async {
+    func repricePendingJourneyRooms(language: String = "en", allowAlternative: Bool = false, forceRefresh: Bool = false) async {
         guard usesLocalJourney else { return }
         let requested = trip
+        let revision = tripSummaryRevision
         let snapshot = localJourneyRooms.filter { $0.value.requiresRateRefresh == true }
-        var updated = localJourneyRooms
-        let service = NuiteeHotelService()
-        for (key, room) in snapshot.sorted(by: { $0.key < $1.key }) {
-            guard !Task.isCancelled, trip == requested else { return }
-            do {
-                let response = try await service.rates(hotelID: room.hotel.id, checkin: room.checkin,
-                    checkout: room.checkout, adults: room.adults, childrenAges: room.childrenAges, language: language)
-                guard response.ok, response.adults == room.adults,
-                    response.checkin == NuiteeHotelService.dateText(room.checkin),
-                    response.checkout == NuiteeHotelService.dateText(room.checkout) else { continue }
-                let matches = response.rates.filter { rate in
-                    ((!room.rate.roomId.isEmpty && rate.roomId == room.rate.roomId) ||
-                     (room.rate.roomId.isEmpty && rate.roomId.isEmpty && !room.rate.roomName.isEmpty &&
-                      rate.roomName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == room.rate.roomName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())) &&
-                    rate.supplierMeals == room.rate.supplierMeals && rate.refundable == room.rate.refundable && rate.cancellationTag == room.rate.cancellationTag &&
-                    rate.currency.uppercased() == "USD" && rate.price.isFinite && rate.price > 0 && !rate.offerId.isEmpty
+        guard !snapshot.isEmpty else { return }
+        // A rate request is scoped to one hotel, stay and exact occupancy. Equal
+        // rooms share discovery results; the backend still validates each room.
+        struct RateKey: Hashable {
+            let hotel: String; let start: Date; let end: Date; let adults: Int; let ages: [Int]
+        }
+        let groups = Dictionary(grouping: snapshot.values) { room in
+            RateKey(hotel: room.hotel.id, start: room.checkin, end: room.checkout, adults: room.adults, ages: room.childrenAges)
+        }
+        let keys = Array(groups.keys)
+        var results: [RateKey: NuiteeRatesEnvelope] = [:]
+        // Bound parallelism to two requests. Slow Makkah discovery cannot block
+        // the start of Madinah discovery, and identical rooms need only one call.
+        for offset in stride(from: 0, to: keys.count, by: 2) {
+            guard !Task.isCancelled, trip == requested, tripSummaryRevision == revision else { return }
+            let batch = Array(keys[offset..<min(offset + 2, keys.count)])
+            let responses = await withTaskGroup(of: (RateKey, NuiteeRatesEnvelope?).self) { group in
+                for key in batch {
+                    group.addTask {
+                        let response = try? await NuiteeHotelService().rates(hotelID: key.hotel, checkin: key.start, checkout: key.end,
+                            adults: key.adults, childrenAges: key.ages, language: language, forceRefresh: forceRefresh)
+                        return (key, response)
+                    }
                 }
-                guard let rate = matches.min(by: { $0.price < $1.price }) else { continue }
-                updated[key] = LocalJourneyRoom(id: key, city: room.city, hotel: room.hotel, rate: rate,
-                    checkin: room.checkin, checkout: room.checkout, adults: room.adults,
-                    childrenAges: room.childrenAges, meals: room.meals, requiresRateRefresh: false)
-            } catch { /* Keep selection visible, but never treat an old offer as verified. */ }
+                var values: [RateKey: NuiteeRatesEnvelope] = [:]
+                for await (key, response) in group { if let response { values[key] = response } }
+                return values
+            }
+            results.merge(responses) { _, new in new }
         }
-        guard !Task.isCancelled, trip == requested else { return }
-        // Do not overwrite any room edited while the network request was running.
+        guard !Task.isCancelled, trip == requested, tripSummaryRevision == revision else { return }
         var merged = localJourneyRooms
-        for (key, old) in snapshot {
-            guard let current = merged[key], current.requiresRateRefresh == true,
-                  current.rate == old.rate, current.adults == old.adults, current.childrenAges == old.childrenAges,
-                  current.hotel.id == old.hotel.id, current.meals == old.meals,
-                  let fresh = updated[key], fresh.requiresRateRefresh != true else { continue }
-            merged[key] = fresh
+        var alternatives = tripSummaryRoomAlternatives
+        var changed = false
+        for (key, rooms) in groups {
+            guard let response = results[key], response.ok, response.adults == key.adults,
+                  response.checkin == NuiteeHotelService.dateText(key.start),
+                  response.checkout == NuiteeHotelService.dateText(key.end) else { continue }
+            for old in rooms {
+                guard let current = merged[old.id], current.requiresRateRefresh == true,
+                      current.rate == old.rate, current.adults == old.adults, current.childrenAges == old.childrenAges,
+                      current.hotel.id == old.hotel.id, current.meals == old.meals,
+                      current.checkin == old.checkin, current.checkout == old.checkout,
+                      let rate = NuiteeRoomRate.repricedSelection(previous: old.rate, rates: response.rates, allowAlternative: allowAlternative) else { continue }
+                if !rate.sameRoomCategory(as: old.rate) { alternatives.insert(old.id) }
+                merged[old.id] = LocalJourneyRoom(id: old.id, city: old.city, hotel: old.hotel, rate: rate,
+                    checkin: old.checkin, checkout: old.checkout, adults: old.adults, childrenAges: old.childrenAges,
+                    meals: old.meals, requiresRateRefresh: false)
+                changed = true
+            }
         }
-        if merged.values.filter({ $0.requiresRateRefresh == true }).count < localJourneyRooms.values.filter({ $0.requiresRateRefresh == true }).count { localJourneyRooms = merged }
+        if changed { localJourneyRooms = merged; tripSummaryRoomAlternatives = alternatives }
+    }
+
+    /// Expired server anchors must be searched again, not submitted repeatedly.
+    func markLocalRoomsForReprice() {
+        var rooms = localJourneyRooms
+        for key in Array(rooms.keys) { rooms[key]?.requiresRateRefresh = true }
+        localJourneyRooms = rooms
+        invalidateLocalJourneyQuote()
     }
 
     func refreshLocalJourneyRoomRates() async {

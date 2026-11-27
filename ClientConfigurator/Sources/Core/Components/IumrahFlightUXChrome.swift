@@ -259,6 +259,11 @@ enum IumrahHotelPhotoIdentity {
         }
     }
 }
+
+private struct JourneyHeaderFrameKey: PreferenceKey {
+    static var defaultValue: CGRect = .null
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) { value = nextValue() }
+}
 private struct JourneyHeaderPullKey: EnvironmentKey { static let defaultValue: CGFloat = 0 }
 private struct JourneyTopInsetKey: EnvironmentKey { static let defaultValue: CGFloat = 0 }
 private struct JourneyRefreshingKey: EnvironmentKey { static let defaultValue = false }

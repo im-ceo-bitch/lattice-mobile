@@ -37,6 +37,7 @@ struct IumrahGuideCatalog: View {
     let preference: IumrahGuidePreference?
     let priceText: String?
     var includeTeam = false
+    var onProfilesLoaded: (([IumrahPublicProfile]) -> Void)? = nil
     let onSelect: (IumrahGuidePreference?) -> Void
     @EnvironmentObject private var chrome: AppChromeStore
     @State private var guides: [IumrahPublicProfile] = []
@@ -173,6 +174,7 @@ struct IumrahGuideCatalog: View {
             let publishedGuides = value.filter { !$0.isOwner && $0.roleKind == "guide" }
             guides = publishedGuides.filter { $0.isHeadGuide == true } + publishedGuides.filter { $0.isHeadGuide != true }
             team = value.filter { $0.isOwner || $0.roleKind != "guide" }; loading = false
+            onProfilesLoaded?(guides)
         } catch {
             guard !Task.isCancelled else { return }
             failed = true; loading = false

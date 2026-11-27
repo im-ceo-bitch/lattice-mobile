@@ -115,6 +115,25 @@ struct IumrahHeaderPills: View {
     }
 }
 
+struct IumrahHeaderTripleTabs: View {
+    let labels: [String]
+    let selection: Int
+    let onSelect: (Int) -> Void
+    var body: some View {
+        IumrahHeaderPills(labels: labels, symbols: ["suitcase", "doc.text", "calendar"], selection: selection, onSelect: onSelect)
+    }
+}
+
+struct IumrahHeaderCapsuleActions: View {
+    let labels: [String]
+    let symbols: [String]
+    let enabled: [Bool]
+    let onSelect: (Int) -> Void
+    var body: some View {
+        IumrahHeaderPills(labels: labels, symbols: symbols, enabled: enabled, onSelect: onSelect)
+    }
+}
+
 /// Home, Hotels, Flights, Transfer and Package use exactly the same masthead.
 struct IumrahDiscoveryMasthead: View {
     @EnvironmentObject private var chrome: AppChromeStore
@@ -189,5 +208,12 @@ struct IumrahPrimaryTabHeader: View {
                 .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: discovery ? IumrahSignatureHeaderGeometry.bottomRadius : 0, bottomTrailingRadius: discovery ? IumrahSignatureHeaderGeometry.bottomRadius : 0))
         }
         .accessibilityElement(children: .contain)
+    }
+}
+
+/// The scrolling header owns its top inset. Never leave a black status-bar plate.
+struct IumrahPrimaryTabScrollChrome: ViewModifier {
+    func body(content: Content) -> some View {
+        content.background(Color.iumrahPageBackground.ignoresSafeArea())
     }
 }

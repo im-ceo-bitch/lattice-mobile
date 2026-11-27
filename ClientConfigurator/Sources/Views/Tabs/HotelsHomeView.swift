@@ -232,7 +232,7 @@ struct HotelsHomeView: View {
             } else if let window = manual.expectedWindow(city) {
                 hotelCheckin = window.checkIn; hotelNights = window.nights
                 hotelAdults = manual.adults
-                hotelRequest = IumrahHotelTabSearch(city: city, checkin: window.checkIn, nights: window.nights, adults: manual.adults)
+                hotelRequest = IumrahHotelTabSearch(city: city, checkin: window.checkIn, nights: window.nights, adults: manual.firstRoomAdults)
             } else {
                 hotelRequest = IumrahHotelTabSearch(city: city,
                     checkin: applied?.checkin ?? hotelCheckin,
@@ -370,7 +370,7 @@ struct HotelsHomeView: View {
     // The legacy manual basket supports one adult-only room per city. Families
     // use the same full catalogue and the existing multi-room journey, not a second list.
     private func roomSearch(city: String, checkin: Date, nights: Int) -> IumrahHotelTabSearch {
-        let count = min(hotelAdults, max(hotelRooms, (hotelAdults + 4) / 5))
+        let count = min(hotelAdults, max(hotelRooms, ConfiguratorRepricingPolicy.minimumRooms(hotelAdults)))
         let adults = (hotelAdults + count - 1) / count
         let children = childAges.enumerated().filter { $0.offset % count == 0 }.map(\.element)
         return IumrahHotelTabSearch(city: city, checkin: checkin, nights: nights, adults: adults, childrenAges: children)
@@ -386,7 +386,7 @@ struct HotelsHomeView: View {
                 draft.adults = hotelAdults
                 draft.children = childAges.filter { $0 >= 2 }.count
                 draft.infants = childAges.filter { $0 < 2 }.count
-                draft.rooms = min(hotelAdults, max(hotelRooms, (hotelAdults + 4) / 5))
+                draft.rooms = min(hotelAdults, max(hotelRooms, ConfiguratorRepricingPolicy.minimumRooms(hotelAdults)))
                 if !manual.routeConfigured {
                     draft.departureDate = hotelCheckin
                     draft.returnDate = Calendar.current.date(byAdding: .day, value: max(hotelNights, 2), to: hotelCheckin) ?? hotelCheckin
@@ -427,7 +427,7 @@ struct HotelsHomeView: View {
         withAnimation(.easeInOut(duration: 0.22)) { searchExpanded = false }
         appliedHotelName = hotelName
         if mode == .hotels {
-            manualQuoteRequired = hotelRooms != 1 || hotelChildren > 0 || hotelAdults > 5
+            manualQuoteRequired = hotelRooms > ConfiguratorRepricingPolicy.minimumRooms(hotelAdults) || hotelChildren > 0 || hotelAdults > 6
             if !manualQuoteRequired { manual.adults = hotelAdults }
             hotelRequest = roomSearch(city: hotelCity, checkin: hotelCheckin, nights: hotelNights)
             showHotelResults = true
@@ -547,9 +547,9 @@ struct HotelsHomeView: View {
             mode = .hotels
             if let city = (manual.routeConfigured && manual.scope == .makkahOnly ? "makkah" : chrome.requestedManualHotelCity) ?? (switchingFromOtherBoard && (manual.trip != nil || manual.routeConfigured) ? hotelCity : nil) {
                 chrome.requestedManualHotelCity = nil
-                hotelCity = city; hotelAdults = manual.adults; hotelRooms = 1; hotelChildren = 0; childAges = []; manualQuoteRequired = false
+                hotelCity = city; hotelAdults = manual.adults; hotelRooms = manual.roomCount; hotelChildren = 0; childAges = []; manualQuoteRequired = false
                 if let window = manual.expectedWindow(city) { hotelCheckin = window.checkIn; hotelNights = window.nights }
-                hotelRequest = IumrahHotelTabSearch(city: city, checkin: hotelCheckin, nights: hotelNights, adults: hotelAdults)
+                hotelRequest = IumrahHotelTabSearch(city: city, checkin: hotelCheckin, nights: hotelNights, adults: manual.firstRoomAdults)
                 showHotelResults = true
             }
         }
@@ -566,7 +566,8 @@ struct HotelsHomeView: View {
         hotelRooms = 1
         hotelChildren = 0
         childAges = []
-        manualQuoteRequired = request.adults > 5
+        manualQuoteRequired = request.adults > 6
+        if !manualQuoteRequired { manual.adults = request.adults }
         hotelRequest = roomSearch(city: hotelCity, checkin: request.checkin, nights: request.nights)
         hotelSearchRevision += 1
         showHotelResults = true

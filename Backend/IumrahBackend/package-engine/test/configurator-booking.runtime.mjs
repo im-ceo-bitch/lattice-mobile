@@ -348,3 +348,62 @@ test('sandbox selected quote survives expired list cache and rotated room offer;
   await assert.rejects(resolveNuiteePackageHotels(env,[room()],party,false),/NUITEE_SELECTED_RATE_EXPIRED/);
  });
 });
+test('official summary requotes 2 → 4 → 5 → 6 → 2 adults with preserved flights and hotels', async()=>{
+ const env=fixture({stars:4,sandbox:true});
+ const mid=new Date(Date.parse(checkin)+3*86400000).toISOString().slice(0,10);
+ env.put('catalog:v1:madinah',[{id:'lp456',name:'Medina Hotel',stars:4,city:'Madinah'}]);
+ const provider=`aviasales:pair:TAS:JED:${checkin}:${checkout}:HY:335:HY:336`;
+ let lastTotal=0;
+ await mockFetch(async(raw)=>{
+  assert.ok(!String(raw).includes('/rates/prebook'));
+  const u=new URL(raw),reverse=u.searchParams.get('origin')==='JED';
+  return Response.json({success:true,currency:'usd',data:[{origin:reverse?'JED':'TAS',destination:reverse?'TAS':'JED',airline:'HY',flight_number:reverse?'336':'335',departure_at:`${reverse?checkout:checkin}T12:00:00+03:00`,duration:360,price:300}]});
+ },async()=>{
+  for(const adults of [2,4,5,6,2]){
+   const count=Math.ceil(adults/5), rooms=[];
+   for(const [city,hotelId,start,end] of [['makkah','lp123',checkin,mid],['madinah','lp456',mid,checkout]]){
+    for(let i=0;i<count;i++){
+     const occupancy=Math.floor(adults/count)+(i<adults%count?1:0);
+     const offerId=`${hotelId}-${occupancy}`;
+     env.put(`rates:v2:${hotelId}:${start}:${end}:${occupancy}::UZ:USD`,[{offerId,roomId:'room',price:100+occupancy*30,currency:'USD',mealPlan:'Room only'}]);
+     rooms.push({id:`${city}:${i}`,city,hotelId,offerId,roomId:'room',checkin:start,checkout:end,adults:occupancy,children:[]});
+    }
+   }
+   const travelers={adults,children:0,infants:0,rooms:count};
+   const input={tier:'standard',tripType:'roundTrip',includeMadinah:true,travelers,transferVehicle:'carnival',hotels:{makkah:{hotelId:'lp123',roomId:'room',nights:3},madinah:{hotelId:'lp456',roomId:'room',nights:4}},flight:{providerItineraryId:provider,legs:[{origin:'TAS',destination:'JED',departureDate:checkin},{origin:'JED',destination:'TAS',departureDate:checkout}]},nuiteeRooms:rooms};
+   const response=await generatePackageQuote(new Request('https://fixture/api/package/quote',{method:'POST',body:JSON.stringify(input)}),env);
+   const body=await response.json();assert.equal(response.status,200,JSON.stringify(body));
+   const q=body.quote,snapshot=await unsealPricingSnapshot(q.quoteProof,env);
+   assert.equal(snapshot.nuiteeRooms.length,count*2);
+   for(const city of ['makkah','madinah']){
+    const selected=snapshot.nuiteeRooms.filter(x=>x.city===city);
+    assert.equal(selected.length,count);assert.equal(selected.reduce((n,r)=>n+r.adults,0),adults);
+    assert.equal(snapshot.components.find(x=>x.code===`${city}_hotel`).supplierCostUsd,100*count+30*adults);
+   }
+   const p=q.tripSummary, cents=x=>Math.round(x*100);
+   assert.equal(q.bookingAllowed,true);
+   assert.equal(q.roomPolicy.minimumRooms,count);
+   assert.equal(q.roomPolicy.requiresAdultException,false);
+   assert.equal(p.totalUsd,q.totalPackagePrice);
+   assert.equal(p.perPilgrimUsd,q.pricePerPerson);
+   assert.equal(p.components.reduce((sum,x)=>sum+cents(x.amountUsd),0),cents(p.servicesSubtotalUsd));
+   assert.equal(cents(p.servicesSubtotalUsd)+cents(p.supportAmountUsd)+cents(p.paymentAmountUsd)+cents(p.roundingUsd),cents(q.totalPackagePrice));
+   assert.equal(cents(p.supportAmountUsd),Math.round(p.servicesSubtotalUsd*9));
+   assert.equal(cents(p.paymentAmountUsd),Math.round(q.totalPackagePrice*2));
+   assert.equal(p.components.filter(x=>x.code==='accompaniment').length,1);
+   assert.doesNotMatch(JSON.stringify(q),/supplierCostUsd|estimatedMarginUsd|markupRate/);
+   assert.equal(snapshot.totals.publicTotalUsd,q.totalPackagePrice);
+   assert.equal(snapshot.totals.publicPricePerPilgrimUsd,q.pricePerPerson);
+   assert.equal(snapshot.components.find(x=>x.code==='flight_roundtrip').supplierCostUsd,600*adults);
+   if(adults===2 && lastTotal) assert.ok(q.totalPackagePrice<lastTotal);
+   else assert.ok(q.totalPackagePrice>lastTotal);
+   lastTotal=q.totalPackagePrice;
+  }
+ });
+});
+
+test('room ages must match child/infant classification before pricing', async()=>{
+ const env=fixture({sandbox:true});
+ await assert.rejects(resolveNuiteePackageHotels(env,[room({children:[1]})],{...party,children:1},false),/NUITEE_OCCUPANCY_MISMATCH/);
+ await assert.rejects(resolveNuiteePackageHotels(env,[room({children:[7]})],{...party,infants:1},false),/NUITEE_OCCUPANCY_MISMATCH/);
+});

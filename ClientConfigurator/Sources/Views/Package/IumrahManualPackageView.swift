@@ -112,7 +112,7 @@ struct IumrahManualTransferCatalog: View {
     }
     private func syncTrip() {
         transferJourney.trip = manual.plannedTrip
-        transferJourney.localJourneyRooms = Dictionary(uniqueKeysWithValues: manual.rooms.values.map { ($0.id, $0) })
+        transferJourney.localJourneyRooms = manual.projectedRooms()
         if let vehicle = manual.transfer { transferJourney.chooseTransferVehicle(vehicle) }
         transferJourney.setHaramainFareClass(manual.haramainFareClass)
         transferJourney.setHaramainAdultTickets(manual.haramainAdultTickets)
@@ -126,6 +126,7 @@ struct IumrahManualPackageView: View {
     @EnvironmentObject private var chrome: AppChromeStore
     @State private var pricedJourney: JourneyStore?
     @State private var pricedKey: String?
+    @State private var pricedInput: String?
     @State private var estimate: IumrahManualEstimate?
     @State private var estimateKey: String?
     @State private var busy = false
@@ -134,7 +135,11 @@ struct IumrahManualPackageView: View {
     @State private var retry = 0
     @State private var estimateError: String?
     private func t(_ ru: String,_ en: String,_ uz: String,_ cy: String) -> String { IumrahFlightCopy.text(settings.language, ru, en, uz, cy) }
-    private var currentQuote: PackageQuote? { pricedKey == manual.revisionKey && pricedJourney?.hasFinalGeneratorQuote == true ? pricedJourney?.quote : nil }
+    private var currentQuote: PackageQuote? {
+        guard pricedKey == manual.revisionKey, let journey = pricedJourney, pricedInput == journey.localBookingInputKey, journey.hasFinalGeneratorQuote,
+              let quote = journey.quote, quote.tripSummary?.reconciles(with: quote.totalPackagePrice) == true else { return nil }
+        return quote
+    }
     private var currentEstimate: IumrahManualEstimate? { estimateKey == manual.revisionKey ? estimate : nil }
     private var canBook: Bool { manual.complete && !busy && currentQuote?.bookingAllowed == true }
     private var plan: TripDraft { manual.plannedTrip }
@@ -154,6 +159,10 @@ struct IumrahManualPackageView: View {
             totalCard
         }.padding(.horizontal, IumrahDesign.pagePadding)
             .task(id: manual.revisionKey + ":\(retry)") { await requestQuote() }
+            .onChange(of: showFinal) { _, presented in
+                // Review owns its edited draft. On return, refresh the independent manual basket.
+                if !presented, pricedInput != pricedJourney?.localBookingInputKey { retry += 1 }
+            }
             .navigationDestination(isPresented: $showFinal) {
                 if let pricedJourney { FinalPackageView().environmentObject(pricedJourney) }
             }
@@ -181,7 +190,7 @@ struct IumrahManualPackageView: View {
             if manual.scope == .makkahAndMadinah { fact(t("Ночей в Медине", "Madinah nights", "Madinada tun", "Мадинада тун"), "\(stay.madinahNights)") }
             Divider()
             Stepper(t("Взрослых", "Adults", "Kattalar", "Катталар") + ": \(manual.adults)", value: $manual.adults, in: 1...6)
-            fact(t("Номеров на город", "Rooms per city", "Shaharga xona", "Шаҳарга хона"), "1")
+            fact(t("Номеров на город", "Rooms per city", "Shaharga xona", "Шаҳарга хона"), "\(manual.roomCount)")
             fact(t("Класс перелёта", "Cabin", "Parvoz klassi", "Парвоз класси"), cabinLabel)
             fact(t("Выбрано компонентов", "Selected components", "Tanlangan qismlar", "Танланган қисмлар"), "\(manual.componentCount) / \(manual.cities.count + 3)")
             Button(t("Готово", "Done", "Tayyor", "Тайёр")) { withAnimation { expanded = false } }.buttonStyle(IumrahPrimaryButtonStyle())
@@ -232,18 +241,27 @@ struct IumrahManualPackageView: View {
         let trace = IumrahPerformanceTrace.begin("Manual package quote")
         defer { IumrahPerformanceTrace.end("Manual package quote", trace) }
         let key = manual.revisionKey
-        pricedJourney = nil; pricedKey = nil; estimate = nil; estimateKey = nil; estimateError = nil; busy = false
+        pricedJourney = nil; pricedKey = nil; pricedInput = nil; estimate = nil; estimateKey = nil; estimateError = nil; busy = false
         guard manual.hasPriceComponent else { return }
         busy = true
         defer { if key == manual.revisionKey && !Task.isCancelled { busy = false } }
         do { try await Task.sleep(for: .milliseconds(350)) } catch { return }
         if let draft = manual.makeQuoteJourney() {
-            await draft.buildQuote()
+            await draft.buildConfiguratorQuote(language: settings.language.hotelContentCode, allowAlternative: true)
             guard !Task.isCancelled, key == manual.revisionKey else { return }
-            pricedJourney = draft; pricedKey = key
-            if draft.hasFinalGeneratorQuote { return }
+            pricedJourney = draft; pricedKey = key; pricedInput = draft.localBookingInputKey
+            // A complete package must not fall back to an apparently cheaper partial estimate.
+            return
         }
-        guard let request = manual.estimateRequest() else { return }
+        let partial = JourneyStore()
+        partial.usesLocalJourney = true; partial.trip = manual.plannedTrip
+        partial.localJourneyRooms = manual.projectedRooms()
+        await partial.repricePendingJourneyRooms(language: settings.language.hotelContentCode)
+        guard !Task.isCancelled, key == manual.revisionKey else { return }
+        guard !partial.localJourneyRooms.values.contains(where: { $0.requiresRateRefresh == true }) else {
+            estimateError = "NUITEE_ROOM_SELECTION_INCOMPLETE"; return
+        }
+        guard let request = manual.estimateRequest(refreshedRooms: Array(partial.localJourneyRooms.values)) else { return }
         do {
             let value = try await RemotePackageEngineClient().manualEstimate(request)
             guard !Task.isCancelled, key == manual.revisionKey else { return }
@@ -295,7 +313,7 @@ struct IumrahManualPackageView: View {
                 fact(t("Заезд / выезд", "Check-in / out", "Kirish / chiqish", "Кириш / чиқиш"), room.checkin.formatted(date: .abbreviated, time: .omitted) + " – " + room.checkout.formatted(date: .abbreviated, time: .omitted))
                 fact(t("Ночей", "Nights", "Tun", "Тун"), "\(TripStayWindow(checkIn: room.checkin, checkOut: room.checkout).nights)")
                 Label(meals(room), systemImage: "fork.knife").font(.subheadline).foregroundStyle(.secondary)
-                if manual.trip != nil && !manual.validRoom(city) { Text(t("Проверьте даты и гостей этого номера.", "Check this room’s dates and guests.", "Xona sanalari va mehmonlarini tekshiring.", "Хона саналари ва меҳмонларини текширинг.")).font(.footnote).foregroundStyle(.secondary) }
+                if manual.trip != nil && !manual.validRoom(city) { Text(t("Тариф будет обновлён для новых дат и состава.", "The rate will be refreshed for the new dates and party.", "Tarif yangi sana va tarkib uchun yangilanadi.", "Тариф янги сана ва таркиб учун янгиланади.")).font(.footnote).foregroundStyle(.secondary) }
             } else { missingText }
             actions(selected: room != nil, choose: { chrome.requestedManualHotelCity = city; chrome.openHotels(board: .hotels) }, remove: { manual.rooms.removeValue(forKey: city) })
         }.modifier(IumrahManualComponentCard(selected: room != nil))

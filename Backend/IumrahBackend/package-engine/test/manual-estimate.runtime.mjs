@@ -15,6 +15,8 @@ function fixture(){
  put('catalog:v1:makkah',[{id:'h',stars:3}]);put('catalog:v1:madinah',[{id:'m',stars:5}]);
  put(`rates:v2:h:${start}:${end}:2::UZ:USD`,[{offerId:'o',roomId:'r',price:700,currency:'USD',mealPlan:'room only'}]);
  put(`rates:v2:m:${date(15)}:${end}:2::UZ:USD`,[{offerId:'om',roomId:'r',price:300,currency:'USD',mealPlan:'room only'}]);
+ put(`rates:v2:h:${start}:${date(15)}:3::UZ:USD`,[{offerId:'o3a',roomId:'r',price:600,currency:'USD',mealPlan:'room only'}]);
+ put(`rates:v2:m:${date(15)}:${end}:3::UZ:USD`,[{offerId:'om3',roomId:'r',price:400,currency:'USD',mealPlan:'room only'}]);
  for(const [id,legs,fare] of [['out',[out],250],['back',[back],300],['pair',[out,back],550]]) flights.set(id,{id,published:1,currency:'USD',per_traveler_fare:fare,observed_at:new Date().toISOString(),itinerary_json:JSON.stringify({cabin_class:'economy',legs})});
  return {NUITEE_API_KEY:'sand_fixture',HOTELS_DB:{prepare(sql){let args=[];return {bind(...x){args=x;return this},async first(){return sql.includes('curated_flight_offers')?flights.get(args[0])??null:cache.get(args[0])??null},async run(){return{success:true}}}}}};
 }
@@ -32,3 +34,17 @@ test('full quote still requires full components and the existing cutover gate re
 test('first room can fill entire selected window before the other city is picked',async()=>{const r=await send(body({includeMadinah:true,rooms:[room]}));assert.equal(r.status,200,JSON.stringify(r.body));assert.ok(r.body.estimate.totalPackagePrice>0)});
 test('optional Haramain fare is computed by server, not supplied by client',async()=>{const a=body({includeMadinah:true,rooms:[room],transferVehicle:'carnival'});const baseline=await send(a),train=await send({...a,haramain:{enabled:true,fareClass:'economy',ticketCount:2,price:1}});assert.equal(baseline.status,200);assert.equal(train.status,200,JSON.stringify(train.body));assert.ok(train.body.estimate.totalPackagePrice>baseline.body.estimate.totalPackagePrice);assert.equal(train.body.estimate.bookingAllowed,false)});
 test('verified Aviasales one-way selection can be priced independently',async()=>{const env={...fixture(),TRAVELPAYOUTS_API_TOKEN:'test'};const saved=globalThis.fetch;globalThis.fetch=async()=>Response.json({success:true,currency:'usd',data:[{origin:'TAS',destination:'JED',airline:'HY',flight_number:'335',departure_at:start+'T09:00:00+05:00',duration:360,price:300}]});try{const r=await send(body({flights:[{...flight('out'),identity:`aviasales:ow:TAS:JED:${start}:-:HY:335:-:-`}]}),env);assert.equal(r.status,200,JSON.stringify(r.body));assert.equal(r.body.estimate.bookingAllowed,false)}finally{globalThis.fetch=saved}});
+
+test('manual six adults price two rooms per city and partial estimates',async()=>{
+ const a={...room,offerId:'o3a',adults:3,checkout:date(15)};
+ const b={...roomMed,offerId:'om3',adults:3};
+ const payload=body({adults:6,roomCount:2,includeMadinah:true,rooms:[a,{...a,id:'makkah:1'},b,{...b,id:'madinah:1'}],flights:[flight('out'),flight('back',back)]});
+ const r=await send(payload);assert.equal(r.status,200,JSON.stringify(r.body));assert.equal(r.body.estimate.bookingAllowed,false);
+ const only=await send({...payload,rooms:payload.rooms.slice(0,2)});assert.equal(only.status,200,JSON.stringify(only.body));assert.ok(r.body.estimate.totalPackagePrice>only.body.estimate.totalPackagePrice);
+ const empty=await send({...payload,rooms:[]});assert.equal(empty.status,200,JSON.stringify(empty.body));assert.ok(only.body.estimate.totalPackagePrice>empty.body.estimate.totalPackagePrice);
+ for(const invalid of [{...payload,roomCount:1},{...payload,rooms:[a,b]},{...payload,rooms:[a,{...a,id:'makkah:1',adults:2},b,{...b,id:'madinah:1'}]},{...payload,rooms:[a,{...a,id:'makkah:1',hotelId:'other'},b,{...b,id:'madinah:1'}]}]) assert.equal((await send(invalid)).status,400);
+});
+test('legacy one-room estimates and inferred room count remain compatible',async()=>{
+ const r=await send(body({adults:6,flights:[flight('out')]}));assert.equal(r.status,200,JSON.stringify(r.body));assert.equal(r.body.estimate.bookingAllowed,false);
+ assert.equal((await send(body({rooms:[room]}))).status,200);
+});

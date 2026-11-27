@@ -35,9 +35,13 @@ public struct BusinessConfiguratorSnapshot: Hashable {
     public let unsupported: [String]
 
     @MainActor static func make(journey: JourneyStore, price: TripSummaryPublicPrice?) -> Self? {
-        guard let price, let quoteID = journey.quote?.quoteId, let out = journey.selectedOutbound,
+        guard journey.hasFinalGeneratorQuote, journey.tripSummaryRoomAlternatives.isEmpty,
+              let quote = journey.quote, quote.bookingAllowed == true, let price,
+              price == quote.tripSummary, price.reconciles(with: quote.totalPackagePrice),
+              let quoteID = quote.quoteId, let out = journey.selectedOutbound,
               let back = journey.selectedInbound, let vehicle = journey.selectedTransferVehicle,
-              journey.transferSelectionConfirmed else { return nil }
+              journey.transferSelectionConfirmed, vehicle.passengerCapacity >= journey.trip.travelerCount,
+              journey.localRoomsComplete else { return nil }
         var issues: [String] = []
         let iso = ISO8601DateFormatter()
         let saudiDay = DateFormatter()

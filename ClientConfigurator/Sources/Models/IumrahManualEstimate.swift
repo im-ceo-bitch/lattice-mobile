@@ -9,6 +9,7 @@ struct IumrahManualEstimateRequest: Encodable {
         let cabin: String
     }
     let adults: Int
+    let roomCount: Int
     let includeMadinah: Bool
     let start: String
     let end: String
@@ -32,8 +33,9 @@ struct IumrahManualEstimateEnvelope: Decodable {
 }
 
 extension IumrahManualJourneyStore {
-    func estimateRequest() -> IumrahManualEstimateRequest? {
-        guard hasPriceComponent else { return nil }
+    func estimateRequest(refreshedRooms: [LocalJourneyRoom]) -> IumrahManualEstimateRequest? {
+        guard hasPriceComponent, refreshedRooms.count == rooms.count * roomCount,
+              refreshedRooms.allSatisfy({ $0.requiresRateRefresh != true }) else { return nil }
         let formatter = DateFormatter(); formatter.calendar = Calendar(identifier: .gregorian)
         formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.dateFormat = "yyyy-MM-dd"
         let selected = [outbound, inbound].compactMap { $0 }
@@ -43,8 +45,8 @@ extension IumrahManualJourneyStore {
         }
         guard flights.count == selected.count else { return nil }
         let plan = plannedTrip
-        return .init(adults: adults, includeMadinah: scope == .makkahAndMadinah,
+        return .init(adults: adults, roomCount: roomCount, includeMadinah: scope == .makkahAndMadinah,
                      start: formatter.string(from: plan.departureDate), end: formatter.string(from: plan.returnDate),
-                     transferVehicle: transfer?.rawValue, haramain: .init(enabled: haramainSelected && transfer != nil && scope == .makkahAndMadinah, fareClass: haramainFareClass.rawValue, ticketCount: min(haramainAdultTickets, adults)), rooms: rooms.values.sorted { $0.id < $1.id }.map(\.bookingSelection), flights: flights)
+                     transferVehicle: transfer?.rawValue, haramain: .init(enabled: haramainSelected && transfer != nil && scope == .makkahAndMadinah, fareClass: haramainFareClass.rawValue, ticketCount: min(haramainAdultTickets, adults)), rooms: refreshedRooms.sorted { $0.id < $1.id }.map(\.bookingSelection), flights: flights)
     }
 }

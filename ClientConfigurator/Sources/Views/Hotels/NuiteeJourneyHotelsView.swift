@@ -38,10 +38,10 @@ struct NuiteeJourneyHotelsView: View {
     }
     private var key: String { "\(city):\(roomIndex)" }
     private var roomAdults: Int {
-        journey.trip.adults / max(1, journey.trip.rooms) + (roomIndex < journey.trip.adults % max(1, journey.trip.rooms) ? 1 : 0)
+        ConfiguratorRepricingPolicy.adultsInRoom(journey.trip.adults, rooms: journey.trip.rooms, index: roomIndex)
     }
     private var roomChildren: [Int] { ages.enumerated().filter { $0.offset % max(1, journey.trip.rooms) == roomIndex }.map(\.element) }
-    private var ready: Bool { journey.trip.rooms >= max(1, (journey.trip.travelerCount + 4) / 5) && journey.trip.rooms <= journey.trip.adults && ages.count == journey.trip.children + journey.trip.infants && !ages.contains(-1) && roomAdults > 0 && window.checkOut > window.checkIn }
+    private var ready: Bool { journey.trip.rooms >= ConfiguratorRepricingPolicy.minimumRooms(journey.trip.adults) && journey.trip.rooms <= journey.trip.adults && ages.count == journey.trip.children + journey.trip.infants && !ages.contains(-1) && roomAdults > 0 && window.checkOut > window.checkIn }
     private var catalogCity: NuiteeCity { city == "madinah" ? .madinah : .makkah }
     private var catalogMatches: Bool {
         catalog.matches(city: catalogCity, checkin: window.checkIn, checkout: window.checkOut,
@@ -65,7 +65,7 @@ struct NuiteeJourneyHotelsView: View {
                         subtitle: "\(window.checkIn.formatted(date: .abbreviated, time: .omitted)) — \(window.checkOut.formatted(date: .abbreviated, time: .omitted)) · \(roomAdults) взр. · \(roomChildren.count) дет.",
                         priceCaption: "Состав поездки") {
                         if smartCity == nil {
-                        if !reviewEditing { Stepper("Номера: \(journey.trip.rooms)", value: $journey.trip.rooms, in: min(max(1, journey.trip.adults), max(1, (journey.trip.travelerCount + 4) / 5))...max(1, journey.trip.adults)) }
+                        if !reviewEditing { Stepper("Номера: \(journey.trip.rooms)", value: $journey.trip.rooms, in: min(max(1, journey.trip.adults), ConfiguratorRepricingPolicy.minimumRooms(journey.trip.adults))...max(1, journey.trip.adults)) }
                         ForEach(ages.indices, id: \.self) { index in
                             Picker("Возраст ребёнка \(index + 1)", selection: $ages[index]) {
                                 Text("Укажите возраст").tag(-1)
@@ -103,7 +103,7 @@ struct NuiteeJourneyHotelsView: View {
                     }.pickerStyle(.segmented)
                     if window.checkOut <= window.checkIn {
                         Text(NuiteeCopy.text("Измените даты поездки: для каждого города нужна минимум одна ночь.", "Safar sanalarini o‘zgartiring: har bir shahar uchun kamida bir tun kerak.", "Change trip dates: each city requires at least one night.", settings.language)).font(.footnote)
-                    } else if journey.trip.adults < max(1, (journey.trip.travelerCount + 4) / 5) {
+                    } else if journey.trip.adults < ConfiguratorRepricingPolicy.minimumRooms(journey.trip.adults) {
                         Text(IumrahFlightCopy.text(settings.language, "Для размещения этой семьи обратитесь в поддержку: в каждом номере должен быть взрослый.", "Contact support for this family arrangement: each room needs an adult.", "Bu oila uchun yordam xizmatiga murojaat qiling: har bir xonada katta kishi bo‘lishi kerak.", "Бу оила учун ёрдам хизматига мурожаат қилинг: ҳар бир хонада катта киши бўлиши керак.")).font(.footnote)
                     } else if !ready { Text("Раскройте карточку сверху и укажите возраст детей для точного тарифа.").font(.footnote) }
                     if let selection = journey.localJourneyRooms[key] {
@@ -145,18 +145,21 @@ struct NuiteeJourneyHotelsView: View {
         .modifier(IumrahJourneyRefresh {
             await load(forceRefresh: true)
         })
-        .task(id: searchID) { await load() }
+        .task(id: searchID) { guard !showTransfer, !showFinalAfterHotels else { return }; await load() }
         .onAppear {
-            let minimum = max(1, (journey.trip.travelerCount + 4) / 5)
+            let minimum = ConfiguratorRepricingPolicy.minimumRooms(journey.trip.adults)
             if journey.trip.rooms < minimum, minimum <= journey.trip.adults { journey.trip.rooms = minimum }
             if smartCity == nil && ages.count != journey.trip.children + journey.trip.infants {
                 let saved = journey.tripSummaryChildAges
                 ages = saved.count == journey.trip.children + journey.trip.infants ? saved : Array(repeating: -1, count: journey.trip.children + journey.trip.infants)
             }
         }
-        .onChange(of: journey.trip.rooms) { _, _ in invalidateRooms() }
+        .onChange(of: journey.trip.rooms) { _, _ in
+            guard !showTransfer, !showFinalAfterHotels else { return }
+            invalidateRooms()
+        }
         .onChange(of: ages) { _, value in
-            guard smartCity == nil else { return }
+            guard smartCity == nil, !showTransfer, !showFinalAfterHotels else { return }
             if journey.tripSummaryChildAges != value {
                 journey.tripSummaryChildAges = value
                 if !journey.localJourneyRooms.isEmpty && !value.contains(where: { $0 < 0 }) { journey.applyTripSummaryGuests(journey.trip, ages: value); Task { await journey.repricePendingJourneyRooms(language: settings.language.hotelContentCode) } }
@@ -184,10 +187,10 @@ struct NuiteeJourneyHotelsView: View {
                 }
         }
         .navigationDestination(isPresented: $showTransfer) { AnyView(TransferSelectionView(familyFlow: familyFlow)) }
-        .navigationDestination(isPresented: $showFinalAfterHotels) { AnyView(FinalPackageView(familyFlow: familyFlow)) }
+        .navigationDestination(isPresented: $showFinalAfterHotels) { AnyView(OfficialJourneyGuideStep(familyFlow: familyFlow)) }
         .safeAreaInset(edge: .bottom) {
             if ready && reviewRoomsComplete {
-                Button(smartCity != nil ? IumrahFlightCopy.text(settings.language, "Подтвердить отель", "Confirm hotel", "Mehmonxonani tasdiqlash", "Меҳмонхонани тасдиқлаш") : transferAlreadySelected ? "Посмотреть итог" : "Выбрать трансфер") { finishRooms() }
+                Button(smartCity != nil ? IumrahFlightCopy.text(settings.language, "Подтвердить отель", "Confirm hotel", "Mehmonxonani tasdiqlash", "Меҳмонхонани тасдиқлаш") : transferAlreadySelected ? IumrahFlightCopy.text(settings.language, "Выбрать гида", "Choose guide", "Gidni tanlash", "Гидни танлаш") : IumrahFlightCopy.text(settings.language, "Выбрать трансфер", "Choose transfer", "Transferni tanlash", "Трансферни танлаш")) { finishRooms() }
                     .buttonStyle(IumrahPrimaryButtonStyle()).padding(.horizontal, 18).padding(.vertical, 8)
             }
         }

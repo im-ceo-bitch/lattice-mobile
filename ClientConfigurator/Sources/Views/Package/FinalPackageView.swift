@@ -34,22 +34,35 @@ struct LegacyFinalPackageView: View {
     @State private var quoteGeneration = UUID()
     @State private var previousTotal: Decimal?
     @State private var acceptedChangeTotal: Decimal?
+    @State private var businessActionScroll = UUID()
 
     private var needsMadinah: Bool { journey.trip.scope == .makkahAndMadinah }
     private var roomsComplete: Bool {
         if journey.usesLocalJourney { return journey.localRoomsComplete }
-        guard journey.trip.travelerCount <= max(1, journey.trip.rooms) * 5 else { return false }
+        guard journey.trip.adults <= max(1, journey.trip.rooms) * 5 else { return false }
         func fits(_ room: HotelRoom?, _ category: IumrahRoomCategoryOption?) -> Bool {
             room != nil || category != nil
         }
         return fits(journey.selectedRoom, journey.selectedRoomCategory) &&
         (!needsMadinah || fits(journey.selectedMadinahRoom, journey.selectedMadinahRoomCategory))
     }
+    private var canReview: Bool {
+        journey.hasFinalGeneratorQuote && publicPrice != nil && journey.quote?.bookingAllowed == true && !isCalculatingPrice && guestDraft == nil && priceChangeAccepted && (journey.trip.adults <= journey.trip.rooms * 5 || journey.quote?.roomPolicy?.requiresAdultException == false) &&
+        journey.transferSelectionConfirmed && (journey.selectedTransferVehicle?.passengerCapacity ?? 0) >= journey.trip.travelerCount && roomsComplete &&
+        journey.selectedHotel != nil &&
+        flightSelectionReady &&
+        (!needsMadinah || journey.selectedMadinahHotel != nil)
+    }
     private var flightSelectionReady: Bool {
         FinalPackageFlightGate.ready(outbound: journey.selectedOutbound,
             inbound: journey.selectedInbound, roundTrip: journey.trip.isRoundTripFlight,
             usesLocalJourney: journey.usesLocalJourney, mixedIdentity: journey.mixedFlightIdentity,
             localFlightIDs: journey.localJourneyFlights.map(\.id), quote: journey.quote)
+    }
+    // A refreshed offer token is an output of repricing, not a new user edit.
+    // Restarting the SwiftUI task on that token cancels its own quote request.
+    private var quoteTaskTrigger: String {
+        journey.usesLocalJourney ? "local-review:\(journey.tripSummaryRevision)" : quoteInputKey
     }
     private var quoteInputKey: String {
         if journey.usesLocalJourney { return journey.localBookingInputKey + "|review:\(journey.tripSummaryRevision)" }
@@ -81,7 +94,8 @@ struct LegacyFinalPackageView: View {
         AnyView(reviewRoot)
         .toolbar(.hidden, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
-        .task(id: quoteInputKey) {
+        .safeAreaInset(edge: .bottom, spacing: 0) { AnyView(compactBusinessBar) }
+        .task(id: quoteTaskTrigger) {
             if !journey.hasFinalGeneratorQuote || journey.quote?.tripSummary == nil || journey.quote?.bookingAllowed == false { await recalculatePrice() }
         }
         .alert(copy("Проверьте путешествие", "Review journey", "Safarni tekshiring", "Сафарни текширинг"), isPresented: Binding(get: { bookingBlockMessage != nil }, set: { if !$0 { bookingBlockMessage = nil } })) { Button("OK") { bookingBlockMessage = nil } } message: { Text(bookingBlockMessage ?? "") }
@@ -93,7 +107,9 @@ struct LegacyFinalPackageView: View {
                 ScrollView {
                     IumrahGuideCatalog(trip: journey.trip, preference: journey.trip.guidePreference, priceText: componentText(["accompaniment"]), onSelect: { preference in
                         if journey.trip.guidePreference != preference {
+                            beginPriceChange()
                             journey.trip.guidePreference = preference
+                            journey.invalidateTripSummaryQuote()
                         }
                         showGuideCatalog = false
                     }).padding(18)
@@ -127,6 +143,7 @@ struct LegacyFinalPackageView: View {
                             hotel: room.hotel, rate: rate, checkin: room.checkin, checkout: room.checkout,
                             adults: room.adults, childrenAges: room.childrenAges,
                             meals: journey.localJourneyRooms[room.id]?.meals)
+                        journey.tripSummaryRoomAlternatives.remove(room.id)
                         journey.invalidateTripSummaryQuote()
                         localHotelForDetails = nil
                     }, onSelectMeals: { meals in
@@ -176,6 +193,7 @@ struct LegacyFinalPackageView: View {
         // Use the same non-sticky, safe-area-aware masthead layout as Home.
         // The top inset scrolls with the header; the booking bar stays unchanged.
         GeometryReader { viewport in
+            ScrollViewReader { proxy in
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 0) {
                     AnyView(summaryHeader)
@@ -191,6 +209,10 @@ struct LegacyFinalPackageView: View {
             }
             .ignoresSafeArea(.container, edges: .top)
             .background(Color.iumrahPageBackground.ignoresSafeArea())
+            .onChange(of: businessActionScroll) { _, _ in
+                withAnimation(.easeInOut(duration: 0.25)) { proxy.scrollTo(ReviewSection.actions.rawValue, anchor: .top) }
+            }
+            }
         }
         .background(Color(red: 0.95, green: 0.95, blue: 0.96))
         .environment(\.colorScheme, .light)
@@ -204,7 +226,7 @@ struct LegacyFinalPackageView: View {
     private var reviewSections: some View {
         LazyVStack(alignment: .leading, spacing: 16) {
             ForEach(ReviewSection.allCases) { section in
-                TripSummaryLazySection { sectionView(section) }
+                TripSummaryLazySection { sectionView(section) }.id(section.rawValue)
             }
         }.padding(16).padding(.bottom, 20)
     }
@@ -212,20 +234,27 @@ struct LegacyFinalPackageView: View {
         switch section {
         case .guests: return AnyView(guestCard)
         case .pricing: return AnyView(Group { if !journey.hasFinalGeneratorQuote || publicPrice == nil { AnyView(pricingStatus) } })
-        case .change: return AnyView(Group { if let previousTotal, let quote = journey.quote, previousTotal != quote.totalPackagePrice, !priceChangeAccepted { AnyView(priceChangeCard(previousTotal, quote: quote)) } })
+        case .change: return AnyView(Group { if let quote = journey.quote, publicPrice != nil, !priceChangeAccepted { AnyView(priceChangeCard(previousTotal ?? quote.totalPackagePrice, quote: quote)) } })
         case .flights: return AnyView(compactFlights)
         case .hotels: return AnyView(compactHotels)
         case .services: return AnyView(compactServices)
-        case .breakdown:
-            if guestDraft == nil, !isCalculatingPrice, priceChangeAccepted, roomsComplete, flightSelectionReady,
-               journey.hasFinalGeneratorQuote, journey.quote?.bookingAllowed != false,
-               let businessConfigurator, let snapshot = BusinessConfiguratorSnapshot.make(journey: journey, price: publicPrice) {
+        case .breakdown: return AnyView(priceBreakdownCard)
+        case .chart: return AnyView(chartCard)
+        case .total: return AnyView(summaryTotalCard)
+        case .actions:
+            if canReview, let businessConfigurator, let snapshot = BusinessConfiguratorSnapshot.make(journey: journey, price: publicPrice) {
                 return AnyView(businessConfigurator.review(snapshot).id(snapshot))
             }
-            return AnyView(pricingStatus)
+            return AnyView(Group {
+                if !isCalculatingPrice {
+                    Text("Для оформления в Business завершите выбор услуг и подтвердите актуальные цены.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+            })
         case .itinerary: return AnyView(itineraryCard)
         case .conditions: return AnyView(conditionsCard)
-        case .support, .chart, .why, .total, .actions: return AnyView(EmptyView())
+        case .support: return AnyView(supportCard)
+        case .why: return AnyView(WhyIumrahCarousel(primaryTitle: "Оформить путешествие", onPrimary: { businessActionScroll = UUID() }))
         case .error: return AnyView(Group { if let errorMessage { Text(errorMessage).font(.footnote).foregroundStyle(.red) } })
         }
     }
@@ -315,8 +344,9 @@ struct LegacyFinalPackageView: View {
             IumrahHotelMealsEditor(selection: Binding(
                 get: { journey.localJourneyRooms[room.id]?.meals ?? HotelMealChoices() },
                 set: { value in
+                    beginPriceChange()
                     journey.localJourneyRooms[room.id]?.meals = value
-                    journey.invalidateLocalJourneyQuote()
+                    journey.invalidateTripSummaryQuote()
                 }), stars: room.hotel.roundedStars, city: room.city, included: room.rate.supplierMeals)
         }
         .padding(18)
@@ -419,15 +449,14 @@ struct LegacyFinalPackageView: View {
         let trace = IumrahPerformanceTrace.begin("Final package quote")
         defer { IumrahPerformanceTrace.end("Final package quote", trace) }
         let generation = UUID()
+        let revision = journey.tripSummaryRevision
+        if forceQuoteRefresh, journey.hasFinalGeneratorQuote { beginPriceChange() }
         quoteGeneration = generation
         isCalculatingPrice = true
+        errorMessage = nil
         defer { if quoteGeneration == generation { isCalculatingPrice = false } }
-        if journey.usesLocalJourney && journey.localJourneyRooms.values.contains(where: { $0.requiresRateRefresh == true }) {
-            await journey.repricePendingJourneyRooms(language: settings.language.hotelContentCode)
-        }
-        guard !Task.isCancelled, quoteGeneration == generation else { return }
-        await journey.buildQuote(forceHotelRefresh: false, forceQuoteRefresh: forceQuoteRefresh)
-        guard !Task.isCancelled, quoteGeneration == generation else { return }
+        await journey.buildConfiguratorQuote(language: settings.language.hotelContentCode, allowAlternative: true, forceRefresh: forceQuoteRefresh)
+        guard !Task.isCancelled, quoteGeneration == generation, journey.tripSummaryRevision == revision else { return }
         if journey.hasFinalGeneratorQuote, journey.quote?.tripSummary == nil {
             errorMessage = ConfiguratorBookingCopy.message("PACKAGE_PRICE_BREAKDOWN_MISSING", language: settings.language)
         } else { errorMessage = journey.hasFinalGeneratorQuote ? nil : journey.errorMessage.map { ConfiguratorBookingCopy.message($0, language: settings.language) } }
@@ -598,6 +627,7 @@ private extension LegacyFinalPackageView {
         return price
     }
     var priceChangeAccepted: Bool {
+        if !journey.tripSummaryRoomAlternatives.isEmpty { return false }
         guard let previousTotal, let quote = journey.quote, previousTotal != quote.totalPackagePrice else { return true }
         return acceptedChangeTotal == quote.totalPackagePrice
     }
@@ -770,7 +800,7 @@ private extension LegacyFinalPackageView {
                 }
                 if let draft = guestDraft { guestControls(draft) }
                 else { roomDistribution(journey.trip) }
-                Text(copy("До пяти паломников на номер при планировании. С шести — дополнительный номер. Наличие и размещение подтверждает отель.", "Plan up to five pilgrims per room. From six, add another room. The hotel confirms occupancy and availability.", "Rejada bir xonaga beshtagacha ziyoratchi. Oltitadan boshlab qo‘shimcha xona. Joylashuvni mehmonxona tasdiqlaydi.", "Режада бир хонага бештагача зиёратчи. Олтитадан бошлаб қўшимча хона. Жойлашувни меҳмонхона тасдиқлайди.")).font(.caption).foregroundStyle(.secondary)
+                Text(copy("До пяти взрослых на номер при планировании. С шести взрослых — дополнительный номер. Наличие и размещение подтверждает отель.", "Plan up to five adults per room. From six adults, add another room. The hotel confirms occupancy and availability.", "Rejada bir xonaga beshtagacha katta kishi. Olti kattadan boshlab qo‘shimcha xona. Joylashuvni mehmonxona tasdiqlaydi.", "Режада бир хонага бештагача катта киши. Олти каттадан бошлаб қўшимча хона. Жойлашувни меҳмонхона тасдиқлайди.")).font(.caption).foregroundStyle(.secondary)
             }
             }
             if adultExceptionRequested { adultWarning }
@@ -780,10 +810,10 @@ private extension LegacyFinalPackageView {
         VStack(alignment: .leading, spacing: 12) {
             Stepper(copy("Взрослые", "Adults", "Kattalar", "Катталар") + " · \(draft.adults)", onIncrement: {
                 var next = draft; guard next.total < 9 else { return }; next.adults += 1
-                if next.total > next.rooms * 5 { next.rooms = TripSummaryGuestDraft.minimumRooms(next.total); adultExceptionRequested = false }
+                if next.adults > next.rooms * 5 { next.rooms = TripSummaryGuestDraft.minimumRooms(next.adults); adultExceptionRequested = false }
                 guestDraft = next
             }, onDecrement: {
-                var next = draft; guard next.adults > 1 else { return }; next.adults -= 1; next.rooms = max(TripSummaryGuestDraft.minimumRooms(next.total), min(next.rooms, next.adults)); guestDraft = next
+                var next = draft; guard next.adults > 1 else { return }; next.adults -= 1; next.rooms = ConfiguratorRepricingPolicy.roomsAfterPartyChange(existing: draft.rooms, oldAdults: draft.adults, adults: next.adults); guestDraft = next
                 if next.adults <= 5 { adultExceptionRequested = false }
             })
             guestAgeCounter(draft, group: .teen)
@@ -802,14 +832,14 @@ private extension LegacyFinalPackageView {
                 var next = draft; guard next.rooms < next.adults else { return }; next.rooms += 1; guestDraft = next; adultExceptionRequested = false
             }, onDecrement: {
                 guard draft.rooms > 1 else { return }
-                if draft.total > (draft.rooms - 1) * 5 { return }
+                if draft.adults > (draft.rooms - 1) * 5 { return }
                 var next = draft; next.rooms -= 1; guestDraft = next; adultExceptionRequested = false
             })
             roomDistribution(draft.trip(from: journey.trip), minorCount: draft.ages.count)
             if draft.rooms > draft.adults { policyLabel(copy("Для размещения этой семьи обратитесь в поддержку: в каждом номере должен быть взрослый.", "Contact support for this family arrangement: each room needs an adult.", "Bu oila uchun yordam xizmatiga murojaat qiling: har bir xonada katta kishi bo‘lishi kerak.", "Бу оила учун ёрдам хизматига мурожаат қилинг: ҳар бир хонада катта киши бўлиши керак.")) }
             if draft.total > 7 { policyLabel(copy("Потребуется проверка транспорта для большой семьи.", "Transport for a large family requires verification.", "Katta oila uchun transport tekshiriladi.", "Катта оила учун транспорт текширилади.")) }
             Button(copy("Применить и пересчитать", "Apply and reprice", "Qo‘llash va hisoblash", "Қўллаш ва ҳисоблаш")) { applyGuests(draft) }
-                .buttonStyle(IumrahPrimaryButtonStyle()).disabled(draft.ages.contains(where: { $0 < 0 }) || draft.total > 9 || draft.rooms > draft.adults || draft.total > draft.rooms * 5)
+                .buttonStyle(IumrahPrimaryButtonStyle()).disabled(draft.ages.contains(where: { $0 < 0 }) || draft.total > 9 || draft.rooms > draft.adults || draft.adults > draft.rooms * 5)
             Button(copy("Отменить изменения", "Discard changes", "O‘zgarishlarni bekor qilish", "Ўзгаришларни бекор қилиш")) { guestDraft = nil; adultExceptionRequested = false }.font(.subheadline)
         }.tint(.primary)
     }
@@ -820,7 +850,7 @@ private extension LegacyFinalPackageView {
         case .infant: copy("Младенцы до 2", "Infants under 2", "Chaqaloqlar 2 yoshgacha", "Чақалоқлар 2 ёшгача")
         }
         return Stepper(title + " · \(draft.ages.filter(group.contains).count)", onIncrement: {
-            var next = draft; guard next.total < 9 else { return }; next.ages.append(group.defaultAge); next.rooms = max(next.rooms, TripSummaryGuestDraft.minimumRooms(next.total)); guestDraft = next
+            var next = draft; guard next.total < 9 else { return }; next.ages.append(group.defaultAge); guestDraft = next
         }, onDecrement: {
             var next = draft; if let index = next.ages.lastIndex(where: group.contains) { next.ages.remove(at: index); guestDraft = next }
         })
@@ -828,7 +858,7 @@ private extension LegacyFinalPackageView {
     func roomDistribution(_ trip: TripDraft, minorCount: Int? = nil) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             ForEach(0..<max(1, trip.rooms), id: \.self) { index in
-                let adults = trip.adults / max(1, trip.rooms) + (index < trip.adults % max(1, trip.rooms) ? 1 : 0)
+                let adults = ConfiguratorRepricingPolicy.adultsInRoom(trip.adults, rooms: max(1, trip.rooms), index: index)
                 let count = minorCount ?? (trip.children + trip.infants)
                 let minors = count / max(1, trip.rooms) + (index < count % max(1, trip.rooms) ? 1 : 0)
                 detailLine(copy("Номер", "Room", "Xona", "Хона") + " \(index + 1)", "\(adults) " + copy("взр.", "adults", "katta", "катта") + " · \(minors) " + copy("дет.", "children", "bola", "бола"))
@@ -857,11 +887,21 @@ private extension LegacyFinalPackageView {
     }
     func priceChangeCard(_ old: Decimal, quote: PackageQuote) -> some View {
         surface {
-            Text(copy("Стоимость изменилась", "Price changed", "Narx o‘zgardi", "Нарх ўзгарди")).font(.headline)
+            Text(journey.tripSummaryRoomAlternatives.isEmpty ? copy("Стоимость изменилась", "Price changed", "Narx o‘zgardi", "Нарх ўзгарди") : copy("Обновлены номера для вашего состава", "Rooms updated for your party", "Tarkibingiz uchun xonalar yangilandi", "Таркибингиз учун хоналар янгиланди")).font(.headline)
+            if !journey.tripSummaryRoomAlternatives.isEmpty {
+                Text(copy("Прежняя категория недоступна для нового состава. Проверьте предложенные номера в тех же отелях и их условия перед подтверждением.", "The old room category is unavailable for the new party. Review the proposed rooms at the same hotels and their terms before accepting.", "Avvalgi xona toifasi yangi tarkibga mos emas. Tasdiqlashdan oldin taklif qilingan xonalar va shartlarni tekshiring.", "Аввалги хона тоифаси янги таркибга мос эмас. Тасдиқлашдан олдин таклиф қилинган хоналар ва шартларни текширинг.")).font(.footnote).foregroundStyle(.secondary)
+                ForEach(journey.localJourneyRooms.values.filter { journey.tripSummaryRoomAlternatives.contains($0.id) }.sorted { $0.id < $1.id }) { room in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(room.hotel.name + " · " + room.rate.roomName).font(.subheadline.bold())
+                        Text(room.rate.mealPlan + " · " + room.rate.cancellationDescription).font(.caption).foregroundStyle(.secondary)
+                        Button(copy("Выбрать другой номер", "Choose another room", "Boshqa xona tanlash", "Бошқа хона танлаш")) { localHotelForDetails = room }.font(.subheadline)
+                    }
+                }
+            }
             detailLine(copy("Прежняя стоимость", "Previous total", "Avvalgi narx", "Аввалги нарх"), usd(old))
             detailLine(copy("Новая стоимость", "New total", "Yangi narx", "Янги нарх"), usd(quote.totalPackagePrice))
             detailLine(copy("Разница", "Difference", "Farq", "Фарқ"), usd(quote.totalPackagePrice - old))
-            Button(copy("Подтвердить новую цену", "Accept new price", "Yangi narxni tasdiqlash", "Янги нархни тасдиқлаш")) { acceptedChangeTotal = quote.totalPackagePrice }.buttonStyle(IumrahPrimaryButtonStyle())
+            Button(copy("Подтвердить новую цену", "Accept new price", "Yangi narxni tasdiqlash", "Янги нархни тасдиқлаш")) { acceptedChangeTotal = quote.totalPackagePrice; journey.tripSummaryRoomAlternatives = [] }.buttonStyle(IumrahPrimaryButtonStyle())
         }
     }
     var compactFlights: some View {
@@ -939,6 +979,10 @@ private extension LegacyFinalPackageView {
             if journey.localJourneyRooms.values.contains(where: { $0.requiresRateRefresh == true }) {
                 Text(copy("Выбранные отели сохранены. Уточняем тариф для нового состава. Если он недоступен, выберите другой тариф этого отеля.", "Selected hotels are kept. Checking rates for the new party. If unavailable, select another rate at the same hotel.", "Tanlangan mehmonxonalar saqlandi. Yangi tarkib uchun tarif tekshirilmoqda. Tarif bo‘lmasa, shu mehmonxonadan boshqa tarif tanlang.", "Танланган меҳмонхоналар сақланди. Янги таркиб учун тариф текширилмоқда. Тариф бўлмаса, шу меҳмонхонадан бошқа тариф танланг.")).font(.footnote).foregroundStyle(.secondary)
                 Button(copy("Повторить расчёт", "Retry pricing", "Qayta hisoblash", "Қайта ҳисоблаш")) { Task { await recalculatePrice(forceQuoteRefresh: true) } }.buttonStyle(IumrahSecondaryButtonStyle()).disabled(isCalculatingPrice)
+                ForEach(journey.localJourneyRooms.values.filter { $0.requiresRateRefresh == true }.sorted { $0.id < $1.id }) { room in
+                    Button(room.hotel.name + " · " + copy("Выбрать актуальный номер", "Choose current room", "Joriy xonani tanlash", "Жорий хонани танлаш")) { localHotelForDetails = room }
+                        .buttonStyle(IumrahSecondaryButtonStyle()).disabled(isCalculatingPrice)
+                }
             }
             Button(copy("Выбрать отели и номера", "Choose hotels and rooms", "Mehmonxona va xonalarni tanlash", "Меҳмонхона ва хоналарни танлаш")) { editSession = TripSummaryEditSession(kind: journey.usesLocalJourney ? .allHotels : .catalog(.makkah), journey: journey) }.buttonStyle(IumrahSecondaryButtonStyle()) }
     }
@@ -1080,6 +1124,24 @@ private extension LegacyFinalPackageView {
         let formatter = DateFormatter(); formatter.locale = Locale(identifier: settings.language.localeIdentifier); formatter.timeZone = TimeZone(identifier: "Asia/Riyadh"); formatter.dateStyle = .medium; formatter.timeStyle = .short
         return formatter.string(from: start.addingTimeInterval(-86400)) + " (KSA)"
     }
+    var supportCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label(copy("iumrah Поддержка", "iumrah Support", "iumrah Yordam", "iumrah Ёрдам"), systemImage: "headset").font(.system(.title3, design: .rounded, weight: .bold))
+            Text(copy("На всех этапах путешествия.", "At every stage of your journey.", "Safarning barcha bosqichlarida.", "Сафарнинг барча босқичларида.")).font(.subheadline).foregroundStyle(Color.white.opacity(0.75))
+            Divider().overlay(Color.white.opacity(0.2))
+            HStack(alignment: .bottom) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(copy("Поддержка и комиссия", "Support and platform fee", "Yordam va platforma haqi", "Ёрдам ва платформа ҳақи")).font(.caption).foregroundStyle(Color.white.opacity(0.72))
+                    Text("9%").font(.system(.title, design: .rounded, weight: .bold))
+                }
+                Spacer(minLength: 8)
+                Text(publicPrice.map { usd($0.supportAmountUsd) } ?? "—").font(.system(.title3, design: .rounded, weight: .bold)).monospacedDigit()
+            }
+            Button(copy("Подробнее", "Learn more", "Batafsil", "Батафсил")) { bookingBlockMessage = "Это публичная комиссия iumrah. Внутренние цены, комиссия и скидка редактируются в разделе оформления Business." }
+                .buttonStyle(TripReviewCapsuleStyle(outline: true, fillsWidth: true, dark: true))
+        }.padding(16).foregroundStyle(Color.white).environment(\.colorScheme, .dark).background(Color(white: 0.07), in: RoundedRectangle(cornerRadius: 24))
+    }
+
     func componentLabel(_ c: TripSummaryPublicPrice.Component) -> String {
         switch c.code {
         case "flight_roundtrip": return copy("Авиабилеты", "Flights", "Aviachiptalar", "Авиачипталар")
@@ -1207,7 +1269,25 @@ private extension LegacyFinalPackageView {
             }
         }
     }
+    var summaryTotalCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("iumrah").font(.system(.title3, design: .rounded, weight: .bold))
+            Text(copy("Индивидуальная умра", "Individual Umrah", "Individual umra", "Индивидуал умра") + " · " + "\(journey.trip.travelerCount) " + copy("паломников", "pilgrims", "ziyoratchi", "зиёратчи")).font(.caption).foregroundStyle(Color.white.opacity(0.75))
+            summaryPricePair(dark: true)
+        }.padding(16).frame(maxWidth: .infinity, alignment: .leading).foregroundStyle(Color.white).background(Color(white: 0.07), in: RoundedRectangle(cornerRadius: 24)).environment(\.colorScheme, .dark)
+    }
 
+
+    var compactBusinessBar: some View {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(totalText).font(.system(.title3, design: .rounded, weight: .bold)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.65)
+                Text(perPersonText + " / " + copy("чел.", "person", "kishi", "киши")).font(.caption).foregroundStyle(.secondary)
+            }.frame(maxWidth: .infinity, alignment: .leading)
+            Button(copy("Оформить", "Continue", "Rasmiylashtirish", "Расмийлаштириш")) { businessActionScroll = UUID() }
+                .buttonStyle(TripReviewCapsuleStyle(primary: true)).disabled(isCalculatingPrice)
+        }.padding(.horizontal, 16).padding(.vertical, 10).foregroundStyle(Color.black).background(Color.white).environment(\.colorScheme, .light)
+    }
     @ViewBuilder func summaryEditor(_ session: TripSummaryEditSession) -> some View {
         NavigationStack {
             Group {
@@ -1238,7 +1318,7 @@ private extension LegacyFinalPackageView {
         beginPriceChange()
         journey.applyTripSummaryEditor(session)
         editSession = nil
-        if session.kind == .flights, journey.usesLocalJourney, !journey.localRoomsComplete { editSession = TripSummaryEditSession(kind: .allHotels, journey: journey) }
+        if session.kind == .flights, journey.usesLocalJourney, journey.localJourneyRooms.count != journey.trip.rooms * (needsMadinah ? 2 : 1) { editSession = TripSummaryEditSession(kind: .allHotels, journey: journey) }
     }
 }
 

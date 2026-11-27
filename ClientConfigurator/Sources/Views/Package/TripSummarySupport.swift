@@ -13,7 +13,7 @@ struct TripSummaryGuestDraft {
     var rooms: Int
     var ages: [Int]
     var total: Int { adults + ages.count }
-    static func minimumRooms(_ adults: Int) -> Int { max(1, (adults + 4) / 5) }
+    static func minimumRooms(_ adults: Int) -> Int { ConfiguratorRepricingPolicy.minimumRooms(adults) }
     @MainActor init(journey: JourneyStore) {
         adults = journey.trip.adults; rooms = journey.trip.rooms
         let existing = journey.tripSummaryChildAges
@@ -23,7 +23,7 @@ struct TripSummaryGuestDraft {
     }
     func trip(from original: TripDraft) -> TripDraft {
         var next = original
-        next.adults = adults; next.rooms = max(rooms, Self.minimumRooms(total))
+        next.adults = adults; next.rooms = max(rooms, Self.minimumRooms(adults))
         next.children = ages.filter { $0 >= 2 }.count
         next.infants = ages.filter { $0 >= 0 && $0 < 2 }.count
         return next

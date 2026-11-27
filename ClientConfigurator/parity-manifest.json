@@ -1,0 +1,640 @@
+{
+  "source": "kepler-ios-main 10.zip + All Configurators V3",
+  "destination": "lattice-mobile-main 4.zip",
+  "exact": [
+    {
+      "path": "AppShell/AppChromeStore.swift",
+      "business_sha256": "57cd6a0c90f475122390d53782148791fe8a6db430377c15afb73755e0262b33",
+      "client_sha256": "57cd6a0c90f475122390d53782148791fe8a6db430377c15afb73755e0262b33"
+    },
+    {
+      "path": "AppShell/AppSettingsStore.swift",
+      "business_sha256": "11fc0ae4166504ed86bbbcf25e347cd4748f2da6c25ed52d44a86801c85e800b",
+      "client_sha256": "11fc0ae4166504ed86bbbcf25e347cd4748f2da6c25ed52d44a86801c85e800b"
+    },
+    {
+      "path": "Core/AppIdentity.swift",
+      "business_sha256": "f4a03a96f5f1cf220b71ad22637f661a1eb4cbd2746112d0fe3bdec08841a3dd",
+      "client_sha256": "f4a03a96f5f1cf220b71ad22637f661a1eb4cbd2746112d0fe3bdec08841a3dd"
+    },
+    {
+      "path": "Core/AppLocalization.swift",
+      "business_sha256": "f1f6929a1b6c782c8520954eb84c6a70f7636fc6c5c323b74f33cbe1f5c2f208",
+      "client_sha256": "f1f6929a1b6c782c8520954eb84c6a70f7636fc6c5c323b74f33cbe1f5c2f208"
+    },
+    {
+      "path": "Core/ArabicLocalization.swift",
+      "business_sha256": "4fd4b54d44fc1982603d78bb829ffdb94b397dc2a053042774c5bc1c4cb59dd2",
+      "client_sha256": "4fd4b54d44fc1982603d78bb829ffdb94b397dc2a053042774c5bc1c4cb59dd2"
+    },
+    {
+      "path": "Core/Components/IumrahFlightSearchEditor.swift",
+      "business_sha256": "dea468a2a08e69945bc9cb10c04a1dcdfbed0097cfb9b569373a4d2a4a26849f",
+      "client_sha256": "dea468a2a08e69945bc9cb10c04a1dcdfbed0097cfb9b569373a4d2a4a26849f"
+    },
+    {
+      "path": "Core/Components/IumrahFlightUXChrome.swift",
+      "business_sha256": "894a764cde15dd8efb8a0ae56cd47961846db2f459fbc8e2a4dc878445bbe85b",
+      "client_sha256": "894a764cde15dd8efb8a0ae56cd47961846db2f459fbc8e2a4dc878445bbe85b"
+    },
+    {
+      "path": "Core/Components/IumrahHemisphereLandData.swift",
+      "business_sha256": "6a6e4f13ae902f0a3920f093f1cab3e405bca32f6d1efa3f45c91991eeec262c",
+      "client_sha256": "6a6e4f13ae902f0a3920f093f1cab3e405bca32f6d1efa3f45c91991eeec262c"
+    },
+    {
+      "path": "Core/Components/IumrahHemisphereMap.swift",
+      "business_sha256": "fafebc962d441b6fe5f7d9eb316ee477c9b98f682f51a642f09124ea19b58631",
+      "client_sha256": "fafebc962d441b6fe5f7d9eb316ee477c9b98f682f51a642f09124ea19b58631"
+    },
+    {
+      "path": "Core/Components/IumrahHemisphereProjection.swift",
+      "business_sha256": "cce89cbd81e284a5687ac795c92dacee37d7a3862946d80127648fac864d04ef",
+      "client_sha256": "cce89cbd81e284a5687ac795c92dacee37d7a3862946d80127648fac864d04ef"
+    },
+    {
+      "path": "Core/Components/IumrahJourneySummary.swift",
+      "business_sha256": "c231c1cba19924170e0f927a393fa618f013648acea4f28fb6ea780ea8c7e3ae",
+      "client_sha256": "c231c1cba19924170e0f927a393fa618f013648acea4f28fb6ea780ea8c7e3ae"
+    },
+    {
+      "path": "Core/Components/IumrahPageHelpCard.swift",
+      "business_sha256": "202946b3fc0344c9ff68f1e1efe5e818dda44eda488285f231d32f67fbd128f7",
+      "client_sha256": "202946b3fc0344c9ff68f1e1efe5e818dda44eda488285f231d32f67fbd128f7"
+    },
+    {
+      "path": "Core/Components/IumrahPullObserver.swift",
+      "business_sha256": "7d24813269439a03cb49701a31fdcf8a3098b21d3bfa5afbff8563b8c8d763b0",
+      "client_sha256": "7d24813269439a03cb49701a31fdcf8a3098b21d3bfa5afbff8563b8c8d763b0"
+    },
+    {
+      "path": "Core/Components/IumrahRootScrollingPage.swift",
+      "business_sha256": "0992e9a4931445d75fa629a880427d3cd4cef9efad8a500d5228402cedc6f02d",
+      "client_sha256": "0992e9a4931445d75fa629a880427d3cd4cef9efad8a500d5228402cedc6f02d"
+    },
+    {
+      "path": "Core/Components/IumrahSignatureHeaders.swift",
+      "business_sha256": "cf01ee5cd937262f48bc584834f16c1bef26102c3254632f18f8898f839e3aa9",
+      "client_sha256": "cf01ee5cd937262f48bc584834f16c1bef26102c3254632f18f8898f839e3aa9"
+    },
+    {
+      "path": "Core/Components/IumrahViewMemo.swift",
+      "business_sha256": "b9cee6961fd20867c7a2b01c2d9f4c7c236ca2b740902306f06dac281bced85a",
+      "client_sha256": "b9cee6961fd20867c7a2b01c2d9f4c7c236ca2b740902306f06dac281bced85a"
+    },
+    {
+      "path": "Core/Components/IumrahWorldDotsHeaderBackground.swift",
+      "business_sha256": "e7962f1ece710305df87cde4eea2894adeafff552b57163206e820cc1cd14881",
+      "client_sha256": "e7962f1ece710305df87cde4eea2894adeafff552b57163206e820cc1cd14881"
+    },
+    {
+      "path": "Core/Components/IumrahWorldDotsMap.swift",
+      "business_sha256": "701b073f254da590915c47c77cb65d3cd3b83f2dbe4ee8a252972631f7f9b66d",
+      "client_sha256": "701b073f254da590915c47c77cb65d3cd3b83f2dbe4ee8a252972631f7f9b66d"
+    },
+    {
+      "path": "Core/Components/IumrahWorldDotsShaders.metal",
+      "business_sha256": "b1ba1ceed6458255b2a8cf263271680d2c4f9fd7dadab61f11befed207b185ea",
+      "client_sha256": "b1ba1ceed6458255b2a8cf263271680d2c4f9fd7dadab61f11befed207b185ea"
+    },
+    {
+      "path": "Core/FlowCopy.swift",
+      "business_sha256": "b7c38c5f5c1a7d465b25cd2d2b3cc9cc0ded548b55f5633392a42be04b345049",
+      "client_sha256": "b7c38c5f5c1a7d465b25cd2d2b3cc9cc0ded548b55f5633392a42be04b345049"
+    },
+    {
+      "path": "Core/IndonesianLocalization.swift",
+      "business_sha256": "41061da2798ae0059d0d22ab71a265941710db1c7334d29194058b1df2078bd5",
+      "client_sha256": "41061da2798ae0059d0d22ab71a265941710db1c7334d29194058b1df2078bd5"
+    },
+    {
+      "path": "Core/IumrahAccessibilityCopy.swift",
+      "business_sha256": "96f7331a8a3d82cfba5fabdea17e47afd9ee13ac1406d64149df88e532171c33",
+      "client_sha256": "96f7331a8a3d82cfba5fabdea17e47afd9ee13ac1406d64149df88e532171c33"
+    },
+    {
+      "path": "Core/IumrahPerformancePolicy.swift",
+      "business_sha256": "78fb3338e02797618c6d2e2274b49a950e470192ac45103c3a42bc5b145182a0",
+      "client_sha256": "78fb3338e02797618c6d2e2274b49a950e470192ac45103c3a42bc5b145182a0"
+    },
+    {
+      "path": "Core/IumrahPerformanceTrace.swift",
+      "business_sha256": "f9d5e95095f6323141e6d7ed5637a96b12cd3abfddb63c86baccaaf10a4b1d29",
+      "client_sha256": "f9d5e95095f6323141e6d7ed5637a96b12cd3abfddb63c86baccaaf10a4b1d29"
+    },
+    {
+      "path": "Core/IumrahReferralLink.swift",
+      "business_sha256": "7450cfc68784c74dfcce9cd5d46fc3de332075158e93d7a4616149b25c40b01c",
+      "client_sha256": "7450cfc68784c74dfcce9cd5d46fc3de332075158e93d7a4616149b25c40b01c"
+    },
+    {
+      "path": "Core/MalayLocalization.swift",
+      "business_sha256": "61fc05f2e5ecb0f639c4b90ad5e7949a15bdfcfdc69801deb1cd96b07f8bbf72",
+      "client_sha256": "61fc05f2e5ecb0f639c4b90ad5e7949a15bdfcfdc69801deb1cd96b07f8bbf72"
+    },
+    {
+      "path": "Core/TripStayPlanner.swift",
+      "business_sha256": "c255cf4c8e534ece281efef29f5725d41809a36726473fb9f81c2eb60dc19589",
+      "client_sha256": "c255cf4c8e534ece281efef29f5725d41809a36726473fb9f81c2eb60dc19589"
+    },
+    {
+      "path": "Core/TurkishLocalization.swift",
+      "business_sha256": "dcfbb33db3ccdb980365a7452de50d3ba6c27af531f6789c849358bb91a6302b",
+      "client_sha256": "dcfbb33db3ccdb980365a7452de50d3ba6c27af531f6789c849358bb91a6302b"
+    },
+    {
+      "path": "FlightEngine/FlightDatePlanner.swift",
+      "business_sha256": "e96d636a3e4f92bcbe9a4bec276a2021747cc6c1e13f44b3a2f562e990dc8454",
+      "client_sha256": "e96d636a3e4f92bcbe9a4bec276a2021747cc6c1e13f44b3a2f562e990dc8454"
+    },
+    {
+      "path": "FlightEngine/FlightReferenceCatalog.swift",
+      "business_sha256": "302bb1084ba0b7f6a0d684d7b6a3aeec3bff9697818d7fb198f084dd000b52e6",
+      "client_sha256": "302bb1084ba0b7f6a0d684d7b6a3aeec3bff9697818d7fb198f084dd000b52e6"
+    },
+    {
+      "path": "Models/AirportModels.swift",
+      "business_sha256": "c49c919c7cf26051670f0406648a40cb4e6b5f093e2a7de1c1de878eb70639ea",
+      "client_sha256": "c49c919c7cf26051670f0406648a40cb4e6b5f093e2a7de1c1de878eb70639ea"
+    },
+    {
+      "path": "Models/ConfiguratorRepricingPolicy.swift",
+      "business_sha256": "8aa617df6d9c9d86f6fe8d90eb3c648f94750d640e068e04272b92568ec39592",
+      "client_sha256": "8aa617df6d9c9d86f6fe8d90eb3c648f94750d640e068e04272b92568ec39592"
+    },
+    {
+      "path": "Models/CuratedFlightRecommendationModels.swift",
+      "business_sha256": "cd006e5e9914723277e99d503d62f330d4f0866d6e8776940fb3b7e4d09ed5b9",
+      "client_sha256": "cd006e5e9914723277e99d503d62f330d4f0866d6e8776940fb3b7e4d09ed5b9"
+    },
+    {
+      "path": "Models/FlightModels.swift",
+      "business_sha256": "af0925cac536e8f608a96c4ffe5a55eb3583d0bb0169f8a27af40770d9efabd3",
+      "client_sha256": "af0925cac536e8f608a96c4ffe5a55eb3583d0bb0169f8a27af40770d9efabd3"
+    },
+    {
+      "path": "Models/HotelModels.swift",
+      "business_sha256": "497479e6c5b7c77edee5a054bd47cba13cd789ba90cab133b7c68311f9f16b83",
+      "client_sha256": "497479e6c5b7c77edee5a054bd47cba13cd789ba90cab133b7c68311f9f16b83"
+    },
+    {
+      "path": "Models/IumrahHotelPhotoSignature.swift",
+      "business_sha256": "7ef3ae36ec4c901617db870640dd50832e44236d40c08f4f9b8d13c06763efc1",
+      "client_sha256": "7ef3ae36ec4c901617db870640dd50832e44236d40c08f4f9b8d13c06763efc1"
+    },
+    {
+      "path": "Models/IumrahHotelRoomTitle.swift",
+      "business_sha256": "0a52284ce67c85d2b5ecdfe6741ebe5084e17bae75518319caee7047d4c2e886",
+      "client_sha256": "0a52284ce67c85d2b5ecdfe6741ebe5084e17bae75518319caee7047d4c2e886"
+    },
+    {
+      "path": "Models/IumrahManualEstimate.swift",
+      "business_sha256": "94a59fd5f5fd3f9c0f9d0afee903158cdd2c7caf3377f7118bcb87f1943d3c5a",
+      "client_sha256": "94a59fd5f5fd3f9c0f9d0afee903158cdd2c7caf3377f7118bcb87f1943d3c5a"
+    },
+    {
+      "path": "Models/LocalJourneySelection.swift",
+      "business_sha256": "0d3de927a7b2ab8c2df0de5d9d0e5bffc588643375bb28b2fa68bc13d9470c61",
+      "client_sha256": "0d3de927a7b2ab8c2df0de5d9d0e5bffc588643375bb28b2fa68bc13d9470c61"
+    },
+    {
+      "path": "Models/NuiteeHotelModels.swift",
+      "business_sha256": "0e8a896f87b3430dc06852bf69789c017952f9841da12de209ee0289e23cb3cd",
+      "client_sha256": "0e8a896f87b3430dc06852bf69789c017952f9841da12de209ee0289e23cb3cd"
+    },
+    {
+      "path": "Models/PackageEngineModels.swift",
+      "business_sha256": "48d63f8bd2329c8a4d8349db2cf82afbdb0864779a5630e251ba8347e110a41c",
+      "client_sha256": "48d63f8bd2329c8a4d8349db2cf82afbdb0864779a5630e251ba8347e110a41c"
+    },
+    {
+      "path": "Models/TripModels.swift",
+      "business_sha256": "7134c71dc6eb8d6ddc5f63f903477c403045d480d0a5391d84df84c7b0ab4e9c",
+      "client_sha256": "7134c71dc6eb8d6ddc5f63f903477c403045d480d0a5391d84df84c7b0ab4e9c"
+    },
+    {
+      "path": "Networking/APIClient.swift",
+      "business_sha256": "a355e8add521b3816b0abd41da251c2ee00925d8f5df31536a1eaf51179a5f14",
+      "client_sha256": "a355e8add521b3816b0abd41da251c2ee00925d8f5df31536a1eaf51179a5f14"
+    },
+    {
+      "path": "Services/AirportMapBootstrapCatalog.swift",
+      "business_sha256": "7cf20ea25582d70bbd9e9865d5be8ae080dd6606de04242deedbc1774b4ea094",
+      "client_sha256": "7cf20ea25582d70bbd9e9865d5be8ae080dd6606de04242deedbc1774b4ea094"
+    },
+    {
+      "path": "Services/AirportMapDiscoveryStore.swift",
+      "business_sha256": "c9b05e72b0807cc28970165707755249e2baeb4a090a4a88fbf8af0dacb93f96",
+      "client_sha256": "c9b05e72b0807cc28970165707755249e2baeb4a090a4a88fbf8af0dacb93f96"
+    },
+    {
+      "path": "Services/AirportMapResolver.swift",
+      "business_sha256": "f7c4ad23e61d70d23b4b1db66a43d396bcaf31aa901e5c9af1639162341625dc",
+      "client_sha256": "f7c4ad23e61d70d23b4b1db66a43d396bcaf31aa901e5c9af1639162341625dc"
+    },
+    {
+      "path": "Services/AirportSearchService.swift",
+      "business_sha256": "73208a1a2c31e93fd18294afbe6c214f0a2eb7cc6d5db3f5ec25be0494181070",
+      "client_sha256": "73208a1a2c31e93fd18294afbe6c214f0a2eb7cc6d5db3f5ec25be0494181070"
+    },
+    {
+      "path": "Services/AviasalesFlightDiscoveryService.swift",
+      "business_sha256": "e831b8bd5df9ccb2bb62978fbd1fe9b428726d5198a5ad9ba98d3e11bb74eb8c",
+      "client_sha256": "e831b8bd5df9ccb2bb62978fbd1fe9b428726d5198a5ad9ba98d3e11bb74eb8c"
+    },
+    {
+      "path": "Services/AviasalesSearchLinkBuilder.swift",
+      "business_sha256": "46a1bd8366ced1d3ed6610313b25b6a2b19395a6dee0fb75e97eecf0cb360b4b",
+      "client_sha256": "46a1bd8366ced1d3ed6610313b25b6a2b19395a6dee0fb75e97eecf0cb360b4b"
+    },
+    {
+      "path": "Services/ChatService.swift",
+      "business_sha256": "bd1011fe4bac67cffef032f1984764917ba5f0aa7d3d3ad9959a31e9c53a1303",
+      "client_sha256": "bd1011fe4bac67cffef032f1984764917ba5f0aa7d3d3ad9959a31e9c53a1303"
+    },
+    {
+      "path": "Services/ClientNotificationCenter.swift",
+      "business_sha256": "689658442b5d0d601b1f8f04d801a1a284e3b969362d915277555815448db3e7",
+      "client_sha256": "689658442b5d0d601b1f8f04d801a1a284e3b969362d915277555815448db3e7"
+    },
+    {
+      "path": "Services/CuratedFlightRecommendationService.swift",
+      "business_sha256": "ac0a151fa4d74228d87e9e309f33d8aafddae4d08a351898cbc6ce959106928d",
+      "client_sha256": "ac0a151fa4d74228d87e9e309f33d8aafddae4d08a351898cbc6ce959106928d"
+    },
+    {
+      "path": "Services/DepartureAirportLocationResolver.swift",
+      "business_sha256": "b495026589bc7480f6e92ea23f173818b5446da646747d0cea9d6ab6ee7b0216",
+      "client_sha256": "b495026589bc7480f6e92ea23f173818b5446da646747d0cea9d6ab6ee7b0216"
+    },
+    {
+      "path": "Services/FlightDiscoveryVerifiedSegment.swift",
+      "business_sha256": "2dfcb3903a1b7765da93028b31587b6bbbb42dff275c7a34f9f663fb5ee6864b",
+      "client_sha256": "2dfcb3903a1b7765da93028b31587b6bbbb42dff275c7a34f9f663fb5ee6864b"
+    },
+    {
+      "path": "Services/HotelCatalogService.swift",
+      "business_sha256": "3ba05702c78abc552e7c36b9c1600df27fa0e106bc6606d2efbccfef170d790a",
+      "client_sha256": "3ba05702c78abc552e7c36b9c1600df27fa0e106bc6606d2efbccfef170d790a"
+    },
+    {
+      "path": "Services/HotelImageCache.swift",
+      "business_sha256": "81d1f073c4edde74d48dd72738d8825654cbd90b5541b66a2b7fcc27af5d1968",
+      "client_sha256": "81d1f073c4edde74d48dd72738d8825654cbd90b5541b66a2b7fcc27af5d1968"
+    },
+    {
+      "path": "Services/HotelStorefrontService.swift",
+      "business_sha256": "6afaf807beb8432fe561467c379d8af0f8bbe62b915cdca272c512eb53ad9a8b",
+      "client_sha256": "6afaf807beb8432fe561467c379d8af0f8bbe62b915cdca272c512eb53ad9a8b"
+    },
+    {
+      "path": "Services/IgnavFlightInventoryProvider.swift",
+      "business_sha256": "22ef6aa42095286c77a807f95e3a10f22375a7abe43cfea56b89bd9095174a26",
+      "client_sha256": "22ef6aa42095286c77a807f95e3a10f22375a7abe43cfea56b89bd9095174a26"
+    },
+    {
+      "path": "Services/IumrahDistinctHotelPhotos.swift",
+      "business_sha256": "4e2131623a012470e799835a8c898b19723fee109b91ae739e416958314624e9",
+      "client_sha256": "4e2131623a012470e799835a8c898b19723fee109b91ae739e416958314624e9"
+    },
+    {
+      "path": "Services/IumrahFlightDetailService.swift",
+      "business_sha256": "47228afd98fced1e82fb79f476068a2be76bfb5df5ee5535d91d3430934e51ec",
+      "client_sha256": "47228afd98fced1e82fb79f476068a2be76bfb5df5ee5535d91d3430934e51ec"
+    },
+    {
+      "path": "Services/IumrahHotelReviewCache.swift",
+      "business_sha256": "0cad29c4e8aa0c29f7262c486ab56f333b54949638981a110f797f97e4cfa6aa",
+      "client_sha256": "0cad29c4e8aa0c29f7262c486ab56f333b54949638981a110f797f97e4cfa6aa"
+    },
+    {
+      "path": "Services/NuiteeDailyHotelCache.swift",
+      "business_sha256": "bdf5c59db0756b7f7281a75d8f16551bd999a5d304c8b6cd191e391e06389593",
+      "client_sha256": "bdf5c59db0756b7f7281a75d8f16551bd999a5d304c8b6cd191e391e06389593"
+    },
+    {
+      "path": "Services/NuiteeHotelService.swift",
+      "business_sha256": "870a85ab8713bd8c9502ede5a736aacb875109f4b3bd81a920295fcf53e1d71e",
+      "client_sha256": "870a85ab8713bd8c9502ede5a736aacb875109f4b3bd81a920295fcf53e1d71e"
+    },
+    {
+      "path": "Services/PackageQuoteService.swift",
+      "business_sha256": "daf69b8a62cab4366306f76bfd49c2875277e301a242034eef22729d5ea972c9",
+      "client_sha256": "daf69b8a62cab4366306f76bfd49c2875277e301a242034eef22729d5ea972c9"
+    },
+    {
+      "path": "Services/RealFlightPackageSearchService.swift",
+      "business_sha256": "5cce8698728ceed107845a9a914d6e5165f9e23952f5f8e14abdb073d44f04b9",
+      "client_sha256": "5cce8698728ceed107845a9a914d6e5165f9e23952f5f8e14abdb073d44f04b9"
+    },
+    {
+      "path": "Services/RemotePackageEngineClient.swift",
+      "business_sha256": "81d2d52e8f4ac4794839350508f2c43ca938d2bfca7ae8d9037fe996ee574078",
+      "client_sha256": "81d2d52e8f4ac4794839350508f2c43ca938d2bfca7ae8d9037fe996ee574078"
+    },
+    {
+      "path": "State/IumrahManualJourneyStore.swift",
+      "business_sha256": "76c63855d2493b3d2f208d81c76fe3686620cb6f1e9ea562c44567f93e467311",
+      "client_sha256": "76c63855d2493b3d2f208d81c76fe3686620cb6f1e9ea562c44567f93e467311"
+    },
+    {
+      "path": "State/JourneyStore.swift",
+      "business_sha256": "cc481ec89006f4c6478ef19ae8b40137505bb308ab5d770ea36fc3d6fbc96194",
+      "client_sha256": "cc481ec89006f4c6478ef19ae8b40137505bb308ab5d770ea36fc3d6fbc96194"
+    },
+    {
+      "path": "Views/Airports/AirportGlobePickerView.swift",
+      "business_sha256": "2f8f64cc27b2538214015f6357e9c25d8223689e469f8baa080b94213b78b437",
+      "client_sha256": "2f8f64cc27b2538214015f6357e9c25d8223689e469f8baa080b94213b78b437"
+    },
+    {
+      "path": "Views/Airports/AirportMapKitCanvas.swift",
+      "business_sha256": "d2a9c9b0b3d8afa3f9795dfb42d079cf1c6651af2c78e746b163807ad324580b",
+      "client_sha256": "d2a9c9b0b3d8afa3f9795dfb42d079cf1c6651af2c78e746b163807ad324580b"
+    },
+    {
+      "path": "Views/Airports/AirportPickerView.swift",
+      "business_sha256": "01d077764500725e0d55fe38b7147f705630e84aa90002415e5499747ef4d0c4",
+      "client_sha256": "01d077764500725e0d55fe38b7147f705630e84aa90002415e5499747ef4d0c4"
+    },
+    {
+      "path": "Views/Airports/AirportSelectorButton.swift",
+      "business_sha256": "57464ddbeefe2d3f1384ae09b6476ad74393782088945ea8c302d37828cbf64e",
+      "client_sha256": "57464ddbeefe2d3f1384ae09b6476ad74393782088945ea8c302d37828cbf64e"
+    },
+    {
+      "path": "Views/Components/CounterRow.swift",
+      "business_sha256": "d9adaa3fcad35ce7382497fb6c91537762472defdd75b92a2c3914901435d965",
+      "client_sha256": "d9adaa3fcad35ce7382497fb6c91537762472defdd75b92a2c3914901435d965"
+    },
+    {
+      "path": "Views/Components/HotelCard.swift",
+      "business_sha256": "26a70e4f33380d13f9bedb5900775c6d9b7f2a9d3a8fb9d94d8c75b2fe8f9ab1",
+      "client_sha256": "26a70e4f33380d13f9bedb5900775c6d9b7f2a9d3a8fb9d94d8c75b2fe8f9ab1"
+    },
+    {
+      "path": "Views/Components/PaymentMethodsMarquee.swift",
+      "business_sha256": "120d274e74768990e9774f91f0648fd1d92d3ab1ad8fc1bd9676101b5e79a8f0",
+      "client_sha256": "120d274e74768990e9774f91f0648fd1d92d3ab1ad8fc1bd9676101b5e79a8f0"
+    },
+    {
+      "path": "Views/Flights/IumrahFlightBrowseCatalog.swift",
+      "business_sha256": "3986ef75377d67438df6515ebcffb9183079d6533ecf4dde6c8c807225a649f9",
+      "client_sha256": "3986ef75377d67438df6515ebcffb9183079d6533ecf4dde6c8c807225a649f9"
+    },
+    {
+      "path": "Views/Flights/IumrahFlightResultCard.swift",
+      "business_sha256": "1b3509510fee946548657c3d9a7a4ec98caa8f1335e13d7c9f0f0658e5ac982c",
+      "client_sha256": "1b3509510fee946548657c3d9a7a4ec98caa8f1335e13d7c9f0f0658e5ac982c"
+    },
+    {
+      "path": "Views/Flights/IumrahPremiumFlightDetail.swift",
+      "business_sha256": "e88ed00c1d1e010c971a5cc0c51d5ca3ff63c957a48cef2ffffd5459fc5411f1",
+      "client_sha256": "e88ed00c1d1e010c971a5cc0c51d5ca3ff63c957a48cef2ffffd5459fc5411f1"
+    },
+    {
+      "path": "Views/Guides/IumrahGuideCatalog.swift",
+      "business_sha256": "ab4f73d5c6401bd806eeb76d22c9332d0e4ba7d3c94c6d3c3d75420c39e03288",
+      "client_sha256": "ab4f73d5c6401bd806eeb76d22c9332d0e4ba7d3c94c6d3c3d75420c39e03288"
+    },
+    {
+      "path": "Views/Guides/OfficialJourneyGuideStep.swift",
+      "business_sha256": "708332a3847a33cf30cf30c753bb1f51fd45583c835e90f1110bdda6eece44d1",
+      "client_sha256": "708332a3847a33cf30cf30c753bb1f51fd45583c835e90f1110bdda6eece44d1"
+    },
+    {
+      "path": "Views/Hotels/HotelSelectionView.swift",
+      "business_sha256": "36256c82edbbff9ee55e214954f5b563d4b27ee58afb7f9f13269b0c80cc5190",
+      "client_sha256": "36256c82edbbff9ee55e214954f5b563d4b27ee58afb7f9f13269b0c80cc5190"
+    },
+    {
+      "path": "Views/Hotels/NuiteeJourneyHotelsView.swift",
+      "business_sha256": "4b1b4a3ea5a82955821fbef7fe78551cdc786b2ea3904dd1c0f9b352cb43ca99",
+      "client_sha256": "4b1b4a3ea5a82955821fbef7fe78551cdc786b2ea3904dd1c0f9b352cb43ca99"
+    },
+    {
+      "path": "Views/Package/IumrahManualPackageView.swift",
+      "business_sha256": "1efb2d381cabf1fbc3f610e973f5d2a63af07da3702fe7a1ac81757ee9413907",
+      "client_sha256": "1efb2d381cabf1fbc3f610e973f5d2a63af07da3702fe7a1ac81757ee9413907"
+    },
+    {
+      "path": "Views/Package/TransferSelectionView.swift",
+      "business_sha256": "1b566f77c92493565a62bb77bda63d3c4b0bc27683196ee9b4f2fb1f0ce64a73",
+      "client_sha256": "1b566f77c92493565a62bb77bda63d3c4b0bc27683196ee9b4f2fb1f0ce64a73"
+    },
+    {
+      "path": "Views/Trip/FlightDateCalendarView.swift",
+      "business_sha256": "130754f98a6902f6f257fddb8b6b3fbe2315e1ab5e49bdd4758b41434796f80e",
+      "client_sha256": "130754f98a6902f6f257fddb8b6b3fbe2315e1ab5e49bdd4758b41434796f80e"
+    }
+  ],
+  "adapted": [
+    {
+      "path": "Core/AdaptiveLayout.swift",
+      "business_sha256": "ff75a5353646ffa36cd75ac2791c1888a1c9e2f0d7dc8d6bd824f54e4631781f",
+      "client_sha256": "b2cc2fe7b6fedd945f3d96025864db4110bb95f6e5da8710c0a683d73bbea301"
+    },
+    {
+      "path": "Core/AppConfig.swift",
+      "business_sha256": "50bc59b74ea3565aacbc7f787308e0899d0ba67f9950c8f55c0b3317735655d3",
+      "client_sha256": "1a5e13b2ce65a520a4fc6040bb6c2b5ba8f63534a6df1ed400f7da2090b78e04"
+    },
+    {
+      "path": "Core/Components/IumrahPerformanceHost.swift",
+      "business_sha256": "4d84e6a6f953f683ddceced1a83b809320438da44f521776e513f719fc67d56f",
+      "client_sha256": "3405c44a1b85e129d2b69a939de865ca58c1c12948f2af1ae0518b75e51b9cd3"
+    },
+    {
+      "path": "Core/Components/IumrahSignatureChrome.swift",
+      "business_sha256": "91e2dd3c41d6f2227c3ee206ee83470cdb9fda6abf6cd8080ee5b768598dafd3",
+      "client_sha256": "fbc6febb2a3ea35f5808184528196e6ffc6cbc0b373adc80b2f8d4fe2d62bcfb"
+    },
+    {
+      "path": "Core/DesignSystem.swift",
+      "business_sha256": "51eeb532ec469d24da26155376b1bf05ac86ab409e680af719fe20477c47a707",
+      "client_sha256": "cd4274e4978d265e70c970a00fee6327cb8da1f52c82425aef7bc13dfb011b59"
+    },
+    {
+      "path": "Core/IumrahFoundation.swift",
+      "business_sha256": "6fc6b1b47a58d9af27027409b40ffd2bc7cdc3d70009a3e171d1f920a99b3340",
+      "client_sha256": "3d49df645856b3b2b9d59324d2051424684df1a8af4d2bbbfafc6561240264c2"
+    },
+    {
+      "path": "FlightEngine/FlightSearchRequest.swift",
+      "business_sha256": "3d6cd1d14de8f546a0259d7be974b52cb96c6e0d912eb18dac4ecfe8a08c4e7e",
+      "client_sha256": "592fc436b82c5cae9e7cabe4c0953dc6efc132a163d00ec7b832ea6ac54bc275"
+    },
+    {
+      "path": "HotelPricing/HotelPriceModels.swift",
+      "business_sha256": "6757712d07bb1f3001cee25efd742aae19f85ef425e840ba1b82f1bdd67d13b1",
+      "client_sha256": "99f2b5a7040dc2641a84d22f803a2047bd60d6eb6280ba8dc619516a7e7fe7a6"
+    },
+    {
+      "path": "Legal/IumrahPolicies.swift",
+      "business_sha256": "3c5bca2a06ed0f4e898006ae9219b2c3ffa3c463239596661f90b5980dde17a7",
+      "client_sha256": "158ebb44bcf72544c3ea459b91633576a3bd2d916e593136e6de05e7c09f35da"
+    },
+    {
+      "path": "Models/AirportMapModels.swift",
+      "business_sha256": "7cae586d3a2273366557a93a2d08f088472097976d6ff5b5b1b5918f34f3f1a5",
+      "client_sha256": "a2e3088650d42fb9db8f87f3cf0051ff35f6dcbb9cb442c7583ab17e845a50c9"
+    },
+    {
+      "path": "Models/BookingModels.swift",
+      "business_sha256": "8c9b96fd112ac0c6d2523bae8b5bb30fa1dd63282eacd33851e6dc249f21110e",
+      "client_sha256": "48f67b55fe767a0d796be38c2060c25eb44060829e156717ba7423327289d3e7"
+    },
+    {
+      "path": "Models/HotelStorefrontModels.swift",
+      "business_sha256": "384676fc7e362a7d0762949f3e40438c146ac7ad440f4c76dbff1b2b18feb9ab",
+      "client_sha256": "7bb0967fd314eda7fd15541de2aa67cce02a30e36c82cf605fc536cb183b7e19"
+    },
+    {
+      "path": "Models/IumrahBookingAvailabilityEstimate.swift",
+      "business_sha256": "6c15674b98b1c01e902c18b5b73e0081e556f9eaac011b537d6c62d894ad98d5",
+      "client_sha256": "333bff63dad75549fc59dbbd577031925221a59493885625971cd774566c216c"
+    },
+    {
+      "path": "Models/IumrahPremiumFlightLeg.swift",
+      "business_sha256": "112775c96e93c047b209513481dd2b2f71597edcc99fe46b4fb0aca6b62dbff3",
+      "client_sha256": "1e39df1275141950947a31e6ccbe9e49c1451dca33135f48ddaf7d589e2a2474"
+    },
+    {
+      "path": "Models/TransferModels.swift",
+      "business_sha256": "06f420542a60d3f8779bc71ba86eb4803c8a679be386233f91e66601858c8643",
+      "client_sha256": "4bc4044fbd007a59d392d3a1a37a9a672776a15e9e07681e76cd8c07320e122f"
+    },
+    {
+      "path": "Services/FlightSearchService.swift",
+      "business_sha256": "082847c29bf44652ce3cd856856a804a5364a81769a8ce97c0b457292ba2c03b",
+      "client_sha256": "915e4d7cf79629a5f1142b4a17f02855323894ed7046eeea7b861cc0e6365d94"
+    },
+    {
+      "path": "Services/LocalPackagePricingEngine.swift",
+      "business_sha256": "d1c62b0df25146cf2aa6426b87d797a892343a89a6bce1445d083ad7fca2f07d",
+      "client_sha256": "e952fde275879751ccab50dec227cfa38520e032b35b3ef8ef567f7b2e5155f4"
+    },
+    {
+      "path": "Views/Booking/BookingFlightFirstComponentsView.swift",
+      "business_sha256": "3ac0a92bdb70ff9090859412b136475b1e0156135ca39514400f23f40e3b465a",
+      "client_sha256": "4302344fc1f922fb393a5158317badacf6182d7df71d7b6c342be2cae0e82542"
+    },
+    {
+      "path": "Views/Components/AirlineLogoView.swift",
+      "business_sha256": "148b31d917455c389a92092487d19bf03b2ffab6f7454ac052e3070d97e205f5",
+      "client_sha256": "6b577d531bac694df52732c972ae95b5c15c455c294bc7af4cd161849e0502b6"
+    },
+    {
+      "path": "Views/Components/IumrahInternalHeader.swift",
+      "business_sha256": "af55585c712c21e0a4e60d4f9ce1f44fe17273e9ab24d453c380bbdfe889d626",
+      "client_sha256": "5e9d9a9cbb392a5ecfa81bfcc2d6fdd4c9dda3510a0cffce93363fe2510af790"
+    },
+    {
+      "path": "Views/Flights/IumrahGuidedFlightSelectionView.swift",
+      "business_sha256": "4223372bc10d6ec2601107c7d49de3ca9043c524e2fbf9db2834cd521b5e1c3f",
+      "client_sha256": "985fff06c7176ff89e458e026244bcc98888f0502c9bab561a922136ce32abf4"
+    },
+    {
+      "path": "Views/Home/HomeDashboardView.swift",
+      "business_sha256": "92a83ca2d489cb2c923dee6392b2fb4db02a562b4cc62140e8679d19e6fb8f8e",
+      "client_sha256": "8a968c582296fea2c1c4ad7d19551dbae5cbeefab327faceeafbbe2a815fbc31"
+    },
+    {
+      "path": "Views/Home/IumrahBrandExperience.swift",
+      "business_sha256": "c16b12ca1965b862a18c9fde4e5636a8935aa0ce57799ccc9391008c8271843a",
+      "client_sha256": "2b6a79ce105f14df4d7d34648e419e2987de87863b598d252074ed5535d8900b"
+    },
+    {
+      "path": "Views/Home/IumrahPublishedFlightCarousel.swift",
+      "business_sha256": "6c13e50c1541e29321dba3b8d5afb302f34985ae7016679f03ffa0b040aec98c",
+      "client_sha256": "232dc61e230b42574f178e1f35e9d078367867ac04c896877746ce2bcf11fe73"
+    },
+    {
+      "path": "Views/Hotels/HotelDetailView.swift",
+      "business_sha256": "da8780fb1f985b2d5ad44bb73bd70f6d9dd01c1cf0a32cf8a0ec12a8c09e7220",
+      "client_sha256": "03afce855f49283c296341dab6c70edfefb434001ad10656c52fe769fce7b1db"
+    },
+    {
+      "path": "Views/Hotels/NuiteeHotelsCatalogView.swift",
+      "business_sha256": "0f9891c66bef78fea3d5689d2625979d31eaa02f9c51981aeeadd3e8c4798406",
+      "client_sha256": "5d7a087bd18a8c090932ae9b9b047adccad3b15988a14167822fc27a5ae738b5"
+    },
+    {
+      "path": "Views/Package/FinalPackageView.swift",
+      "business_sha256": "db64b00a0242f6286ca45bad2b201aaae0adbca1d7e7330bb2263485ab550581",
+      "client_sha256": "1c2658e25197855c096d6eff3ddbc55dc1afc18499a74ca3ab87cc4a9810b901"
+    },
+    {
+      "path": "Views/Package/LocalJourneyReviewView.swift",
+      "business_sha256": "2133e9ece392988413dc9885c21eef57a68c794ec18fcb0bc015b9351e118519",
+      "client_sha256": "6e9748de948492c1ccc799eaba6005d11837d3dacc7e7204b80732294f812bfc"
+    },
+    {
+      "path": "Views/Package/TripSummarySupport.swift",
+      "business_sha256": "9c491f85119f1ecf9c291e2e47621ddbc357c614b8fba7569d33ad87c347bb36",
+      "client_sha256": "12a4513a38d093a93790dd377279e8230291b330e97f696cb3a4469e3044a41e"
+    },
+    {
+      "path": "Views/Tabs/HotelsHomeView.swift",
+      "business_sha256": "1ffe00d5074379e30dd10a6653460706970240773f7f88251318fa963bea72d7",
+      "client_sha256": "e077ff70b04c8df8ca652bbd42eeb9430b8a92f34cef9c114cd002504a0c5aab"
+    }
+  ],
+  "module_only": [
+    {
+      "path": "AppShell/AppTabAdaptiveSupport.swift",
+      "business_sha256": "a335f990ef5fd547c2a9f9b2ff3cb4f223b6e14a34efc7ad3f49c73904f96585"
+    },
+    {
+      "path": "BusinessConfiguratorBridge.swift",
+      "business_sha256": "6d219775f7a1acd908a908f3462d7b4ba1995b189883bf0f445aa91c8b6ad53a"
+    },
+    {
+      "path": "Models/BookingStoreError.swift",
+      "business_sha256": "8dffbe2e4929066f0b7eff57011e75520ed27b8ac60114b9d6602b1f0df6cdc9"
+    },
+    {
+      "path": "Views/Home/IumrahDashboardCopy.swift",
+      "business_sha256": "b1d7a70ff9deadf9d0b51d87f52e134eb7e276e39da5eaae851d6bcc76b00133"
+    },
+    {
+      "path": "Views/Hotels/ConfiguratorHotelSharedCards.swift",
+      "business_sha256": "63427d7aa4c945beb0f5f57f8f1114d1b9299cd6945e34cd3181901168d39bd2"
+    },
+    {
+      "path": "Views/Package/FamilyQuoteOrbit.swift",
+      "business_sha256": "378d9d7a8e0c8c7c04f19adcfd8ed2f8a2ed6110c0ef674fed9623347c696753"
+    }
+  ],
+  "source_comparisons": {
+    "home search, header and passenger sheets": true,
+    "outbound and return carousel host": true,
+    "published flight carousels and details": true,
+    "guided flight screens, minus consumer recent activity": true,
+    "Nuitee catalogue and detail, minus consumer recent activity": true,
+    "Core/Components/IumrahSignatureHeaders.swift": true,
+    "Core/Components/IumrahFlightUXChrome.swift": true,
+    "Core/Components/IumrahRootScrollingPage.swift": true,
+    "Core/Components/IumrahWorldDotsHeaderBackground.swift": true,
+    "Core/Components/IumrahWorldDotsMap.swift": true,
+    "Core/Components/IumrahWorldDotsShaders.metal": true,
+    "Views/Hotels/NuiteeJourneyHotelsView.swift": true,
+    "Views/Package/TransferSelectionView.swift": true,
+    "Views/Guides/IumrahGuideCatalog.swift": true,
+    "Views/Guides/OfficialJourneyGuideStep.swift": true,
+    "State/JourneyStore.swift": true,
+    "Models/ConfiguratorRepricingPolicy.swift": true,
+    "Models/LocalJourneySelection.swift": true,
+    "Services/RemotePackageEngineClient.swift": true,
+    "image: ConfiguratorCentrumAirLogo": true,
+    "image: ConfiguratorTransferMalibu": true,
+    "image: ConfiguratorTransferCarnival": true,
+    "image: ConfiguratorTransferYukon": true,
+    "image: AboutIumrahKaabaTouch": true,
+    "image: IumrahCareTeamHero": true
+  },
+  "limitations": [
+    "No Xcode, iOS SDK or screenshots in this environment. Source parity is not pixel-diff verification.",
+    "Business host, staff checkout, pricing controls, language, account/personalization isolation and supplier availability remain distinct."
+  ]
+}
