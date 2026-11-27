@@ -250,10 +250,10 @@ struct HotelDetailView: View {
                             .clipped()
 
                         VStack(spacing: gap) {
-                            HotelCachedImage(rawURL: photos[safe: 1]?.url ?? photos[0].url)
+                            HotelCachedImage(rawURL: photos.indices.contains(1) ? photos[1].url : photos[0].url)
                                 .frame(width: secondaryWidth, height: secondaryHeight)
                                 .clipped()
-                            HotelCachedImage(rawURL: photos[safe: 2]?.url ?? photos[0].url)
+                            HotelCachedImage(rawURL: photos.indices.contains(2) ? photos[2].url : photos[0].url)
                                 .frame(width: secondaryWidth, height: secondaryHeight)
                                 .clipped()
                         }
