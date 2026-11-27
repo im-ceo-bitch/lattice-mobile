@@ -170,11 +170,13 @@ struct SendBusinessChatMessagePayload: Encodable {
 struct PushDeviceRegistrationPayload: Encodable {
     let deviceToken: String
     let environment: String
+    let soundMode: String
 }
 
 struct PushDeviceRegistrationResponse: Codable {
     let ok: Bool
     let ready: Bool?
+    let soundMode: String?
 }
 
 struct PushStatusResponse: Codable {

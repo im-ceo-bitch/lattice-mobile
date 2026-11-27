@@ -35,6 +35,7 @@ struct BusinessAccountHome: View {
             Section("Безопасность и диагностика") {
                 NavigationLink { BusinessSecuritySettingsView() } label: { Label("Безопасность", systemImage: "lock.shield") }
                 NavigationLink { BusinessSessionsView() } label: { Label("Устройства и сеансы", systemImage: "desktopcomputer") }
+                NavigationLink { BusinessNotificationSoundView() } label: { Label("Звук уведомлений", systemImage: "speaker.wave.2") }
                 NavigationLink { BusinessPushDiagnosticsView() } label: { Label("Диагностика уведомлений", systemImage: "bell") }
             }
             Section { Button("Выйти", role: .destructive) { logout = true } }

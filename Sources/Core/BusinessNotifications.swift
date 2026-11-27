@@ -118,17 +118,41 @@ enum BusinessNotifications {
         await registerCurrentDeviceIfPossible()
     }
 
-    static func registerCurrentDeviceIfPossible() async {
+    @MainActor private static var registrationTask: Task<Void, Never>?
+    @MainActor private static var registrationRevision = 0
+    @MainActor static func registerCurrentDeviceIfPossible() async {
+        registrationRevision &+= 1
+        let revision = registrationRevision
+        let previous = registrationTask
+        let task = Task { @MainActor in
+            await previous?.value
+            await performRegistration()
+        }
+        registrationTask = task
+        await task.value
+        if registrationRevision == revision { registrationTask = nil }
+    }
+
+    @MainActor private static func performRegistration() async {
         guard BusinessSessionVault.sessionToken != nil,
-              let token = UserDefaults.standard.string(forKey: "iumrah.push.deviceToken"), !token.isEmpty else { return }
+              let token = UserDefaults.standard.string(forKey: "iumrah.push.deviceToken"), !token.isEmpty else {
+            UserDefaults.standard.removeObject(forKey: "iumrah.notification.sound.confirmed.v1")
+            return
+        }
         do {
             let registration = try await APIClient.shared.registerPushDevice(token: token, environment: "production")
+            if let mode = registration.soundMode, registration.ok {
+                UserDefaults.standard.set(mode, forKey: "iumrah.notification.sound.confirmed.v1")
+            } else {
+                UserDefaults.standard.removeObject(forKey: "iumrah.notification.sound.confirmed.v1")
+            }
             if registration.ok && registration.ready != false {
                 UserDefaults.standard.removeObject(forKey: "iumrah.push.lastRegistrationError")
             } else {
                 UserDefaults.standard.set("Устройство не готово к получению push. Проверьте настройки APNs на сервере.", forKey: "iumrah.push.lastRegistrationError")
             }
         } catch {
+            UserDefaults.standard.removeObject(forKey: "iumrah.notification.sound.confirmed.v1")
             UserDefaults.standard.set("Не удалось зарегистрировать устройство для push. Повторите вход или откройте приложение снова.", forKey: "iumrah.push.lastRegistrationError")
         }
     }
@@ -182,7 +206,7 @@ enum BusinessNotifications {
         } else {
             content.body = job.error ?? "\(job.hotelName) сохранён как черновик. Проверьте импорт."
         }
-        content.sound = .default
+        content.sound = IumrahNotificationSound.sound
         let request = UNNotificationRequest(identifier: "iumrah.hotel.\(job.id)", content: content, trigger: nil)
         try? await UNUserNotificationCenter.current().add(request)
     }

@@ -660,7 +660,7 @@ actor APIClient {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         guard BusinessSessionVault.sessionToken != nil else { throw APIError.unauthorized }
-        request.httpBody = try encoder.encode(PushDeviceRegistrationPayload(deviceToken: token, environment: environment))
+        request.httpBody = try encoder.encode(PushDeviceRegistrationPayload(deviceToken: token, environment: environment, soundMode: IumrahNotificationSound.mode))
         let (data, response) = try await perform(request)
         try validate(response, data: data)
         return try decoder.decode(PushDeviceRegistrationResponse.self, from: data)

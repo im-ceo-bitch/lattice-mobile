@@ -1,3 +1,4 @@
+import { saveNotificationSound, seedNotificationSound, loadNotificationSounds, appleNotificationSound } from "./notification-sound.js";
 import { flightExpired } from "../../IumrahBackend/package-engine/src/flight-expiration.mjs";
 import { careAdmin } from "../../IumrahBackend/core/telegram/care.js";
 import { tripSummaryForSnapshot } from "../../IumrahBackend/package-engine/src/trip-summary-pricing.mjs";
@@ -356,7 +357,8 @@ async function handleBusinessPush(request, env, parts, user, businessSession = n
         app_bundle_id=excluded.app_bundle_id, enabled=1, updated_at=excluded.updated_at, last_error=NULL,
         installation_id=excluded.installation_id
     `).bind(token, cleanText(user?.login, 180), environment, BUSINESS_APP_BUNDLE_ID, now, now, businessSession?.installation_id || null).run();
-    return json({ ok: true, ready: apnsConfigured(env) });
+    const soundMode = await saveNotificationSound(env.HOTELS_DB, token, BUSINESS_APP_BUNDLE_ID, environment, payload?.soundMode);
+    return json({ ok: true, ready: apnsConfigured(env), soundMode });
   }
   if (parts.length === 1 && parts[0] === 'test' && request.method === 'POST') {
     if (!businessSession?.installation_id) return json({ok:false,error:'BUSINESS_SESSION_REQUIRED'},401);
@@ -910,6 +912,7 @@ async function sendClientPushRows(env, rows, title, body, data, persistResult) {
 async function sendAPNsToRows(env, rows, title, body, data, persistResult, fallbackTopic = BUSINESS_APP_BUNDLE_ID) {
   if (!rows.length) return { ok: false, skipped: 'NO_DEVICES' };
   const jwt = await apnsJWT(env);
+  const sounds = await loadNotificationSounds(env.HOTELS_DB, rows);
   let sent = 0;
   for (const device of rows) {
     const base = device.environment === 'development' ? 'https://api.sandbox.push.apple.com' : 'https://api.push.apple.com';
@@ -927,7 +930,7 @@ async function sendAPNsToRows(env, rows, title, body, data, persistResult, fallb
       body: JSON.stringify({
         aps: {
           alert: { title, body },
-          sound: 'default',
+          sound: appleNotificationSound(sounds, device, topic),
           'thread-id': cleanText(data?.pilgrimID ? `care-${data.pilgrimID}` : data?.bookingID, 180) || 'iumrah'
         },
         ...data
@@ -1018,7 +1021,8 @@ export async function retryBookingPushOutbox(env,event=null){
           }else{
           const jwt=await apnsJWT(env);
           const base=device.environment==='development'?'https://api.sandbox.push.apple.com':'https://api.push.apple.com';
-          const response=await fetch(`${base}/3/device/${device.device_token}`,{method:'POST',headers:{authorization:`bearer ${jwt}`,'apns-topic':cleanText(device.app_bundle_id,220)||CLIENT_APP_BUNDLE_ID,'apns-push-type':'alert','apns-priority':'10','apns-id':row.id,'apns-collapse-id':row.id,'apns-expiration':String(Math.floor(Date.now()/1000)+3600),'content-type':'application/json'},body:JSON.stringify({aps:{alert:copy,sound:'default','thread-id':row.booking_id},type,bookingID:row.booking_id,...(['booking_status','booking_created'].includes(type)?{status:row.expected_status,destination:'booking',destinationBookingID:row.booking_id}:{}),...(scope.pilgrimID?{pilgrimID:pilgrimPublicID(scope.pilgrimID)}:{})})});
+          const sounds=await loadNotificationSounds(db,[device]);
+          const response=await fetch(`${base}/3/device/${device.device_token}`,{method:'POST',headers:{authorization:`bearer ${jwt}`,'apns-topic':cleanText(device.app_bundle_id,220)||CLIENT_APP_BUNDLE_ID,'apns-push-type':'alert','apns-priority':'10','apns-id':row.id,'apns-collapse-id':row.id,'apns-expiration':String(Math.floor(Date.now()/1000)+3600),'content-type':'application/json'},body:JSON.stringify({aps:{alert:copy,sound:appleNotificationSound(sounds,device,cleanText(device.app_bundle_id,220)||CLIENT_APP_BUNDLE_ID),'thread-id':row.booking_id},type,bookingID:row.booking_id,...(['booking_status','booking_created'].includes(type)?{status:row.expected_status,destination:'booking',destinationBookingID:row.booking_id}:{}),...(scope.pilgrimID?{pilgrimID:pilgrimPublicID(scope.pilgrimID)}:{})})});
           if(response.ok){state='sent';sent++;await persistCarePushResult(db,device,row.booking_id,{ok:true,response}).catch(()=>{});}
           else{const detail=await response.text().catch(()=>''),disable=response.status===410||/BadDeviceToken|Unregistered|DeviceTokenNotForTopic/i.test(detail);error=String(response.status);state=disable?'failed':(response.status===429||response.status===403||response.status>=500)?'pending':'failed';await persistCarePushResult(db,device,row.booking_id,{ok:false,response,disable,error}).catch(()=>{});}
           }
@@ -6993,6 +6997,7 @@ async function registerClientPushDevice(request,env){
  if(!auth.pilgrim){
    await env.HOTELS_DB.prepare(`INSERT INTO client_push_subscriptions(device_token,booking_id,environment,app_bundle_id,locale,enabled,created_at,updated_at,last_error) VALUES(?,?,?,?,?,1,?,?,NULL) ON CONFLICT(device_token,booking_id) DO UPDATE SET environment=excluded.environment,app_bundle_id=excluded.app_bundle_id,locale=excluded.locale,enabled=1,updated_at=excluded.updated_at,last_error=NULL`).bind(token,bookingID,environment,appBundleID,locale,now,now).run();
  }
+ const soundMode=await seedNotificationSound(env.HOTELS_DB,token,appBundleID,environment,payload?.soundMode);
  // Android's current registration does not send notifyCreated. Only send the
  // first receipt while the booking is still awaiting availability, once per token.
  // Resolve current ownership again so a claimed booking never targets old guests.
@@ -7002,7 +7007,7 @@ async function registerClientPushDevice(request,env){
    const device=targets.rows.find(row=>row.device_token===token);
    if(device)initialPushAccepted=await sendInitialBookingPush(env,bookingID,device,locale).catch(()=>false);
  }
- return json({ok:true,ready:clientPushReady(env,token),bookingID,appBundleID:CLIENT_APP_BUNDLE_ID,initialPushAccepted});
+ return json({ok:true,ready:clientPushReady(env,token),bookingID,appBundleID:CLIENT_APP_BUNDLE_ID,initialPushAccepted,soundMode});
 }
 
 
@@ -7096,6 +7101,7 @@ async function registerClientNotificationDevice(request, env) {
     now, now, now, account.tokenHash||null
   ).run();
 
+  const soundMode=await saveNotificationSound(env.HOTELS_DB,deviceToken,appBundleID,environment,payload?.soundMode);
   if(account.authenticated && deviceToken) {
     await env.HOTELS_DB.prepare('UPDATE client_push_subscriptions SET enabled=0 WHERE device_token=?').bind(deviceToken).run();
     // If checkout preceded APNs permission or the account session, replay the
@@ -7108,7 +7114,7 @@ async function registerClientNotificationDevice(request, env) {
       }
     }
   }
-  return json({ ok: true, ready: clientPushReady(env, deviceToken), installationID, appBundleID: CLIENT_APP_BUNDLE_ID, authenticated: !!authenticated, hasTrip: !!hasTrip });
+  return json({ ok: true, ready: clientPushReady(env, deviceToken), installationID, appBundleID: CLIENT_APP_BUNDLE_ID, authenticated: !!authenticated, hasTrip: !!hasTrip, soundMode });
 }
 
 async function clientSystemNotificationFeed(request, env) {

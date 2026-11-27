@@ -1,6 +1,7 @@
 // Verified checkout contact and durable creation dispatch. No raw OTP or booking
 // access token is persisted in the outbox. This module is called only internally.
 import {hashBookingToken} from './booking-store.js';
+import {seedNotificationSound} from '../../../HotelsWorker/src/notification-sound.js';
 const alphabet='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const bundle='com.iumrah.app';
 const err=code=>Object.assign(new Error(code),{checkoutError:true});
@@ -41,6 +42,7 @@ export async function prepareCreationIntent(env,raw,input,quoteProof,lang){
  if(claim?.booking_id!==id||!claim.consumed_at)throw err('NOTIFICATION_PROOF_INVALID');
  const device=String(raw.pushDeviceToken||'').toLowerCase();
  const deviceToken=raw.appBundleID===bundle&&/^[a-f0-9]{64}$/.test(device)?device:null;
+ if(deviceToken)await seedNotificationSound(db,deviceToken,bundle,raw.pushEnvironment,raw.soundMode);
  const profile={...(input.pilgrimProfile||{}),[field]:normalized,[field==='email'?'emailVerifiedAt':'phoneVerifiedAt']:row.verified_at};
  return {id,accessToken,requestHash,channel,locale:lang,profile,deviceToken,environment:raw.pushEnvironment==='development'?'development':'production'};
 }

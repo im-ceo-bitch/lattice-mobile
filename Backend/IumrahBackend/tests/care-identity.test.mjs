@@ -30,7 +30,7 @@ async function fixture(){
  }};
  const go=(path,headers={},method='GET',body)=>worker.fetch(new Request(base+path,{method,headers:{...headers,...(body?{'content-type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{})}),env);
  const add=(key,id,body=id)=>{sql.prepare('INSERT OR IGNORE INTO business_chat_threads(booking_id,last_message_preview,last_sender_type,unread_for_staff) VALUES(?,?,?,1)').run(key,body,'client');sql.prepare('INSERT INTO business_chat_messages(id,booking_id,sender_type,body,read_by_staff) VALUES(?,?,?,?,0)').run(id,key,'client',body);};
- const register=(id,token,headers)=>go(N,headers,'POST',{installationID:id,deviceToken:token,environment:'production',appBundleID:'com.iumrah.app',locale:'ru',hasTrip:true});
+ const register=(id,token,headers,soundMode)=>go(N,headers,'POST',{installationID:id,deviceToken:token,environment:'production',appBundleID:'com.iumrah.app',locale:'ru',hasTrip:true,...(soundMode?{soundMode}:{})});
  return {sql,db,env,go,add,register};
 }
 const data=async res=>{assert.ok(res.ok,`${res.status} ${await res.clone().text()}`);return res.json()};
@@ -71,11 +71,11 @@ test('real worker: account chat without trips survives booking deletion and appe
  }finally{sql.close()}});
 test('real worker: register two devices, push only to current account sessions, revoke/logout prevents delivery',async()=>{const {sql,db,env,go,register}=await fixture();const originalFetch=globalThis.fetch;try{
  const d1='1'.repeat(64),d2='2'.repeat(64),d3='3'.repeat(64),d4='4'.repeat(64);
- await data(await register('installation-00001',d1,accountA));await data(await register('installation-00002',d2,accountA));await data(await register('installation-00003',d3,accountB));await data(await register('installation-00004',d4,{}));
+ assert.equal((await data(await register('installation-00001',d1,accountA,'iumrah'))).soundMode,'iumrah');assert.equal((await data(await register('installation-00002',d2,accountA,'system'))).soundMode,'system');await data(await register('installation-00001',d1,accountA));await data(await register('installation-00003',d3,accountB));await data(await register('installation-00004',d4,{}));
  const targets=await carePushTargets(db,'a','com.iumrah.app');assert.deepEqual(new Set(targets.rows.map(r=>r.device_token)),new Set([d1,d2]));
  const {privateKey}=generateKeyPairSync('ec',{namedCurve:'prime256v1'});env.APNS_PRIVATE_KEY=privateKey.export({format:'pem',type:'pkcs8'});env.APNS_KEY_ID='fixture';env.APPLE_TEAM_ID='fixture';
  const delivered=[];globalThis.fetch=async(url,init)=>{delivered.push({url:String(url),payload:JSON.parse(init.body)});return new Response('',{status:200})};
- await data(await go(A+accountChatKey(1)+'/messages',staff,'POST',{body:'push test'}));assert.equal(delivered.length,2);assert.ok(delivered.every(x=>x.payload.bookingID==='account'&&x.payload.pilgrimID==='00000001'));
+ await data(await go(A+accountChatKey(1)+'/messages',staff,'POST',{body:'push test'}));assert.equal(delivered.length,2);assert.ok(delivered.every(x=>x.payload.bookingID==='account'&&x.payload.pilgrimID==='00000001'));assert.equal(delivered.find(x=>x.url.endsWith(d1)).payload.aps.sound,'iumrah-notification.wav');assert.equal(delivered.find(x=>x.url.endsWith(d2)).payload.aps.sound,'default');
  await data(await register('installation-00001',d1,{}));assert.deepEqual((await carePushTargets(db,'b','com.iumrah.app')).rows.map(x=>x.device_token),[d2]);
  sql.prepare('UPDATE iumrah_account_sessions SET revoked_at=? WHERE token_hash=?').run(stamp,sha(tokenA));assert.equal((await carePushTargets(db,'b','com.iumrah.app')).rows.length,0);assert.equal((await go(C+'account/messages',accountA)).status,401);
  assert.ok((await carePushTargets(db,'foreign','com.iumrah.app')).rows.some(x=>x.device_token===d3));

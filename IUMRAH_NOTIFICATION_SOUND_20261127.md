@@ -1,0 +1,9 @@
+# iumrah — notification sound (2026-11-27)
+
+- Client default: iumrah. Device-specific choice: `iumrah` or `system`. Local notification preview uses UNUserNotificationCenter; existing notification permission, Focus, silent mode and in-chat suppression remain intact.
+- Source audio: client `Resources/Animations/iumrah-booking-created.wav`. The new `Resources/iumrah-notification.wav` is an exact copy bundled explicitly in the app target. Booking success animation continues to use its original audio.
+- Backend accepts a validated sound preference at existing registration endpoints, scoped by APNs token, app bundle and environment. New table `notification_sound_preferences_v1` is created idempotently when a valid preference is first registered. No existing table altered, no workflow changes. Missing preference / lookup failure falls back to Apple's default. FCM Android stays unchanged.
+- Verified checkout seeds a missing preference without overriding a newer preference. Both direct APNs sends and durable booking status outbox consult the latest stored preference. Old clients may omit the new field.
+- Client settings: Account > Notifications (Signal), plus test sound. Business settings: Account > Notification sound (also accessible from Profile). Pending calendar reminders updated without re-enabling silent reminders.
+- Server: deploy before publishing both new app builds. On existing installations launch and allow normal APNs device registration. Offline selection applies locally; remote notifications use the last synchronized preference until sync succeeds.
+- Verification: 41 targeted runtime tests (sound policy, staff APNs, Care, booking outbox, verified checkout, FCM) + 3 existing APNs bundle contract checks passed. Swift syntax parse passed. Actual Xcode build, generated app bundle inspection and real device APNs playback remain unverified in Linux.

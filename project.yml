@@ -23,6 +23,8 @@ targets:
     # Asset catalogs are then routed to the Resources build phase.
     sources:
       - path: Sources
+      - path: Resources/iumrah-notification.wav
+        buildPhase: resources
       - path: Resources/Assets.xcassets
         buildPhase: resources
       - path: Resources/EndpointConfig.json

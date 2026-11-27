@@ -30,6 +30,10 @@ struct ProfileView: View {
                 ToolbarItem(placement: .topBarLeading) { Button("Закрыть") { dismiss() }.foregroundStyle(BusinessDesign.headerInk) }
             }
             ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink { BusinessNotificationSoundView() } label: { Image(systemName: "speaker.wave.2") }
+                    .accessibilityLabel("Звук уведомлений")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
                 NavigationLink { BusinessSecuritySettingsView() } label: {
                     Image(systemName: "lock.shield.fill")
                 }
