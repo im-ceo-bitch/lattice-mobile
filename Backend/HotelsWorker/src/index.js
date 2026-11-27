@@ -1,3 +1,4 @@
+import { kelvinAdmin } from './kelvin.js';
 import { saveNotificationSound, seedNotificationSound, loadNotificationSounds, appleNotificationSound } from "./notification-sound.js";
 import { flightExpired } from "../../IumrahBackend/package-engine/src/flight-expiration.mjs";
 import { careAdmin } from "../../IumrahBackend/core/telegram/care.js";
@@ -98,6 +99,10 @@ export default {
 
 async function handleAdmin(request, env, url, user, businessSession = null) {
   const parts = pathParts(url.pathname, '/api/admin/hotels');
+
+  if (parts[0] === 'kelvin') {
+    return kelvinAdmin(request, env, user, businessSession);
+  }
 
   if (parts[0] === 'intelligence') {
     return intelligenceAdmin(request, env, url, user);

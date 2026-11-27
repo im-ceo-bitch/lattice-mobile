@@ -1,3 +1,4 @@
+import { kelvinInternal } from '../../HotelsWorker/src/kelvin.js';
 import { purgeExpiredFlightCatalog } from "../package-engine/src/flight-expiration.mjs";
 import { fcmConfigured } from '../../HotelsWorker/src/fcm.js';
 import {botConfigured,telegramRetrySecret,notifyTelegramStatus} from '../core/lib/telegram-native.js';
@@ -44,6 +45,7 @@ export function isPendingHotelOperation(pathname) {
   return prefix===prefixes[0]?segment==='client':['chats','push','security','operations','telegram-care'].includes(segment);
 }
 export function resolveBackendRoute(pathname) {
+  if (matches(pathname, '/api/internal/kelvin')) return 'kelvin';
   if (pathname === '/__iumrah/health') return 'health';
   if (pathname === '/__iumrah/cutover') return 'cutover';
   if (pathname === '/') return 'root';
@@ -87,6 +89,10 @@ export function createBackendRouter({hotels, flights, packages, core, requestAer
         }
         return response;
       };
+      if (route === 'kelvin') {
+        if (!ready) return json({ok:false,error:'CORE_CUTOVER_PENDING'},503);
+        try { return await kelvinInternal(request,routedEnv); } catch { return json({ok:false,error:'KELVIN_UNAVAILABLE'},503); }
+      }
       if (route === 'core') {
         if (!ready && !(core && request.method==='GET' && publicCoreReads.has(pathname))) return json({ok:false,error:'CORE_CUTOVER_PENDING'},503);
         return reconcile(await core.fetch(request,routedEnv,ctx,dispatch));

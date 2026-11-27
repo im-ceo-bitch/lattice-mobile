@@ -26,6 +26,7 @@ struct BusinessAccountHome: View {
                 if owner { NavigationLink { ESIMCenterView() } label: { Label("eSIM Center", systemImage: "simcard.2") } }
             }
             Section("Управление") {
+                if owner { NavigationLink { KelvinView() } label: { Label("Kelvin", systemImage: "waveform") } }
                 if owner { NavigationLink { IntelligenceView() } label: { Label("Аналитика", systemImage: "chart.xyaxis.line") } }
                 NavigationLink { PaymentsView() } label: { Label("Платежи", systemImage: "creditcard") }
                 NavigationLink { EmployeesView() } label: { Label("Сотрудники", systemImage: "person.2") }

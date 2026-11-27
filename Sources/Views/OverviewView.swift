@@ -80,6 +80,19 @@ struct OverviewView: View {
         ScrollView {
             VStack(spacing: 16) {
                 BusinessPageHeading(title: "Обзор", subtitle: "Центр управления iumrah")
+                if auth.user?.role.lowercased() == "superadmin" {
+                    NavigationLink { KelvinView() } label: {
+                        HStack(spacing: 14) {
+                            Image(systemName: "waveform").font(.title2)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("kelvin.").font(.title2.weight(.semibold))
+                                Text("Личный бизнес-ассистент").font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "arrow.up.right").font(.subheadline)
+                        }.padding(18).foregroundStyle(.white).background(Color.black, in: RoundedRectangle(cornerRadius: 24))
+                    }.buttonStyle(.plain)
+                }
                 if let warning = store.refreshWarning {
                     Label(warning, systemImage: "exclamationmark.circle")
                         .font(.footnote).foregroundStyle(.secondary)
