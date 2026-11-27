@@ -259,6 +259,7 @@ struct KelvinView: View {
     @State private var pairingToken: String?
     @State private var confirmPair = false
     @State private var showMemory = false
+    @State private var showInsights = false
     @State private var showVoice = false
     @State private var confirmRevoke = false
     @State private var drawer = false
@@ -345,10 +346,10 @@ struct KelvinView: View {
             guard let raw = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt, AVAudioSession.InterruptionType(rawValue: raw) == .began else { return }
             micMuted = true; voicePlaying = false; pauseListening(); speech.stop()
         }
-        .onChange(of: usable) { _, active in if !active { suspendVoice(); showVoice = false; showMemory = false; showVoiceSettings = false; plugins = false; pairingToken = nil } }
+        .onChange(of: usable) { _, active in if !active { suspendVoice(); showVoice = false; showMemory = false; showInsights = false; showVoiceSettings = false; plugins = false; pairingToken = nil } }
         .onChange(of: auth.user?.login, initial: true) { _, login in
             if accountID != login {
-                sendTask?.cancel(); suspendVoice(); showVoice = false; showVoiceSettings = false; voiceProvider = nil; history = nil; draft = ""; localTurn = nil; initialized = false; connectionError = nil; error = nil; requestID = UUID().uuidString; lastSubmittedText = ""; externalChatGPT = false; animateAnswers = []; attachedText = nil; attachedName = nil; accountID = login
+                sendTask?.cancel(); suspendVoice(); showVoice = false; showMemory = false; showInsights = false; showVoiceSettings = false; voiceProvider = nil; history = nil; draft = ""; localTurn = nil; initialized = false; connectionError = nil; error = nil; requestID = UUID().uuidString; lastSubmittedText = ""; externalChatGPT = false; animateAnswers = []; attachedText = nil; attachedName = nil; accountID = login
             }
         }
         .task(id: usable) {
@@ -372,6 +373,7 @@ struct KelvinView: View {
         .alert("Kelvin", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) { Button("OK") { notice = nil } } message: { Text(notice ?? "") }
         .sheet(isPresented: Binding(get: { pairingToken != nil }, set: { if !$0 { pairingToken = nil } })) { pairingScreen }
         .sheet(isPresented: $showMemory) { NavigationStack { KelvinMemoryView() } }
+        .sheet(isPresented: $showInsights) { NavigationStack { KelvinInsightsView() } }
         .sheet(isPresented: $showVoiceSettings, onDismiss: closeVoiceSettings) { voiceSettings }
         .overlay {
             if showVoice && usable {
@@ -415,6 +417,7 @@ struct KelvinView: View {
             HStack { KelvinWordmark(width: 100); Spacer(); Button { setDrawer(false) } label: { Image(systemName: "xmark").frame(width: 44, height: 44) }.accessibilityLabel("Закрыть меню") }
             Button { setDrawer(false); openVoiceSettings() } label: { Label("Голос и язык", systemImage: "waveform") }
             Button { setDrawer(false); showMemory = true } label: { Label("Память", systemImage: "brain") }
+            Button { setDrawer(false); showInsights = true } label: { Label("Исследования и доклады", systemImage: "chart.bar.xaxis") }
             Button { setDrawer(false); confirmPair = true } label: { Label("Подключить MacBook", systemImage: "laptopcomputer") }
             Button { setDrawer(false); confirmRevoke = true } label: { Label("Отключить MacBook", systemImage: "lock") }
             Divider()
@@ -763,10 +766,19 @@ struct KelvinView: View {
             initialized = true; connectionError = nil
             if history?.turns != value.turns || history?.online != value.online || history?.paired != value.paired { history = value }
             if let localTurn, value.turns.contains(where: { $0.id == localTurn.id }) { self.localTurn = nil }
-            if !showVoiceSettings, let id = voiceRequest, let turn = value.turns.first(where: { $0.id == id }), ["done", "failed"].contains(turn.status) {
-                voiceRequest = nil
-                if showVoice && !showVoiceSettings && voiceEnabled && turn.status == "done", let answer = turn.answer { voicePlaying = true; speak(answer) }
-                else if turn.status == "failed" { error = turn.answer ?? "Не удалось выполнить голосовой запрос." }
+            if !showVoiceSettings, let id = voiceRequest, !submitting {
+                // A voice turn can leave the 60-item history window. Fetch it by its exact owner-scoped ID.
+                let turn: KelvinTurn
+                if let recent = value.turns.first(where: { $0.id == id }) { turn = recent }
+                else { turn = try await APIClient.shared.kelvinTurn(id: id) }
+                // The lookup can suspend; never play a result after cancel, account switch or lock.
+                guard usable, login == auth.user?.login, !Task.isCancelled,
+                      voiceRequest == id, !showVoiceSettings else { return }
+                if ["done", "failed"].contains(turn.status) {
+                    voiceRequest = nil
+                    if showVoice && !showVoiceSettings && voiceEnabled && turn.status == "done", let answer = turn.answer { voicePlaying = true; speak(answer) }
+                    else if turn.status == "failed" { error = turn.answer ?? "Не удалось выполнить голосовой запрос." }
+                }
             }
         } catch is CancellationError {} catch { if usable && login == auth.user?.login && !Task.isCancelled { self.connectionError = error.localizedDescription } }
     }
@@ -835,13 +847,108 @@ private struct KelvinAnswerText: View {
 
 private struct KelvinMemoryView: View {
     @Environment(\.dismiss) private var dismiss
-    @State private var notes: [KelvinNote] = []
+    @State private var records: [KelvinMemoryRecord] = []
+    @State private var next: String?
     @State private var text = ""
+    @State private var kind = "personal"
+    @State private var editing: KelvinMemoryRecord?
+    @State private var deletion: KelvinMemoryRecord?
+    @State private var busy = false
     @State private var error: String?
-    var body: some View { List {
-        Section("Общая память") { TextField("Что нужно запомнить?",text: $text,axis: .vertical); Button("Запомнить") { Task { do { try await APIClient.shared.kelvinRemember(id: UUID().uuidString,text: text); text = ""; await load() } catch { self.error = error.localizedDescription } } }.disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }
-        Section("Заметки") { ForEach(notes) { note in Text(note.content).swipeActions { Button("Удалить",role:.destructive) { Task { do { try await APIClient.shared.kelvinForget(id:note.id); await load() } catch { self.error = error.localizedDescription } } } } } }
-        if let error { Text(error).foregroundStyle(.secondary) }
-    }.navigationTitle("Память Kelvin").businessNavigationSurface().toolbar { ToolbarItem(placement:.confirmationAction) { Button("Готово") { dismiss() } } }.task { await load() } }
-    private func load() async { do { notes = try await APIClient.shared.kelvinNotes() } catch { self.error = error.localizedDescription } }
+    @State private var saveID = UUID().uuidString
+    private let kinds = ["personal", "business", "episodic", "decision", "task", "research"]
+    private func name(_ value: String) -> String {
+        switch value { case "personal": "Личное"; case "business": "Бизнес"; case "episodic": "Событие"; case "decision": "Решение"; case "task": "Задача"; case "research": "Исследование"; default: value }
+    }
+    var body: some View {
+        List {
+            Section(editing == nil ? "Новая запись" : "Исправление записи") {
+                Picker("Тип", selection: $kind) { ForEach(kinds,id: \.self) { Text(name($0)).tag($0) } }
+                TextField("Что нужно запомнить?", text: $text, axis: .vertical).lineLimit(2...6)
+                Button(editing == nil ? "Запомнить" : "Сохранить исправление") { Task { await save() } }
+                    .disabled(busy || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || text.utf8.count > 2000)
+                if editing != nil { Button("Отмена", role: .cancel) { resetEditor() } }
+            }
+            Section("Общая память") {
+                ForEach(records) { record in
+                    VStack(alignment: .leading,spacing: 6) {
+                        HStack { Text(name(record.kind)).font(.caption.weight(.semibold)); Spacer(); Text(record.trust == "candidate" ? "На проверке" : "v\(record.version)").font(.caption).foregroundStyle(.secondary) }
+                        Text(record.content).textSelection(.enabled)
+                        Text(Date(timeIntervalSince1970: Double(record.updated_at)/1000), style: .date).font(.caption2).foregroundStyle(.secondary)
+                        HStack {
+                            Button("Исправить") { editing = record; kind = record.kind; text = record.content }.buttonStyle(.borderless)
+                            if record.trust == "candidate" { Button("Подтвердить") { Task { await confirm(record) } }.buttonStyle(.borderless) }
+                        }.font(.caption).disabled(busy)
+                    }.swipeActions { Button("Удалить",role:.destructive) { deletion = record }.disabled(busy) }
+                }
+                if next != nil { Button("Загрузить ещё") { Task { await load(append: true) } }.disabled(busy) }
+            }
+            if let error { Text(error).font(.caption).foregroundStyle(.secondary) }
+        }
+        .navigationTitle("Память Kelvin")
+        .businessNavigationSurface()
+        .toolbar { ToolbarItem(placement:.confirmationAction) { Button("Готово") { dismiss() } } }
+        .refreshable { await load() }.task { await load() }
+        .confirmationDialog("Исключить запись из памяти? История чата останется видимой, но прежние сообщения не будут поданы модели.", isPresented: Binding(get: { deletion != nil }, set: { if !$0 { deletion = nil } }), titleVisibility: .visible) {
+            Button("Удалить", role: .destructive) { if let record = deletion { deletion = nil; Task { await remove(record) } } }
+        }
+    }
+    private func resetEditor() { editing = nil; text = ""; kind = "personal"; saveID = UUID().uuidString }
+    private func load(append: Bool = false) async {
+        guard !busy else { return }; busy = true; defer { busy = false }
+        do { let page = try await APIClient.shared.kelvinRecords(after: append ? (next ?? "") : ""); if append { let ids = Set(records.map(\.id)); records += page.records.filter { !ids.contains($0.id) } } else { records = page.records }; next = page.next; error = nil } catch { self.error = error.localizedDescription }
+    }
+    private func save() async {
+        guard !busy else { return }; busy = true
+        do { if let editing { try await APIClient.shared.kelvinCorrectRecord(editing,kind:kind,content:text) } else { try await APIClient.shared.kelvinSaveRecord(id:saveID,kind:kind,content:text) }; resetEditor(); busy = false; await load() } catch { busy = false; self.error = error.localizedDescription }
+    }
+    private func confirm(_ record: KelvinMemoryRecord) async {
+        guard !busy else { return }; busy = true
+        do { try await APIClient.shared.kelvinConfirmRecord(record); busy = false; await load() } catch { busy = false; self.error = error.localizedDescription }
+    }
+    private func remove(_ record: KelvinMemoryRecord) async {
+        guard !busy else { return }; busy = true
+        do { try await APIClient.shared.kelvinDeleteRecord(record); if editing?.id == record.id { resetEditor() }; busy = false; await load() } catch { busy = false; self.error = error.localizedDescription }
+    }
+}
+
+private struct KelvinInsightsView: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var items: [KelvinInsight] = []
+    @State private var loaded = false
+    @State private var error: String?
+    private func title(_ kind: String) -> String {
+        switch kind {
+        case "morning": return "Утренний брифинг"
+        case "evening": return "Вечерний обзор"
+        case "important", "critical": return "Важное событие"
+        default: return "Исследование"
+        }
+    }
+    var body: some View {
+        Group {
+            if let error { ContentUnavailableView("Не удалось загрузить", systemImage: "exclamationmark.circle", description: Text(error)) }
+            else if !loaded { ProgressView() }
+            else if items.isEmpty { ContentUnavailableView("Пока нет исследований", systemImage: "doc.text.magnifyingglass") }
+            else {
+                List(items) { item in
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(title(item.kind)).font(.headline)
+                        Text(Date(timeIntervalSince1970: Double(item.createdAt) / 1000), style: .date).font(.caption).foregroundStyle(.secondary)
+                        Text(item.text).font(.body).textSelection(.enabled)
+                    }.padding(.vertical, 8)
+                }
+            }
+        }
+        .navigationTitle("Исследования и доклады")
+        .businessNavigationSurface()
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Готово") { dismiss() } } }
+        .task { await refresh() }
+        .refreshable { await refresh() }
+    }
+    @MainActor private func refresh() async {
+        do { items = try await APIClient.shared.kelvinInsights(); loaded = true; error = nil }
+        catch { self.error = error.localizedDescription }
+    }
 }

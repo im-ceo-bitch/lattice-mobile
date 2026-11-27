@@ -1,3 +1,4 @@
+import {careControl,kelvinReply,reserveAuto,setCareMode,reserveStaff,kelvinCareAction,expireCareSends} from "./care-kelvin.js";
 // Telegram Care: no booking/account required. Staff routes are behind the existing Business device session.
 const now=()=>new Date().toISOString();
 const json=(value,status=200)=>Response.json(value,{status,headers:{'cache-control':'no-store'}});
@@ -13,7 +14,7 @@ Object.assign(copy.ru,{greeting:'Ассаламу алейкум! Чем мож�
 Object.assign(copy.en,{greeting:'Welcome! Can we help you choose an Umrah trip, explain packages or check your booking?',thanks:'Happy to help! Write here if you have more Umrah questions.'});
 Object.assign(copy.uz,{greeting:'Assalomu alaykum! Umra tanlash, paketlar yoki safaringiz bo‘yicha qanday yordam bera olamiz?',thanks:'Yordam berishdan mamnunmiz! Umra haqida savollaringiz bo‘lsa, shu yerga yozing.'});
 Object.assign(copy.uz_cyrl,{greeting:'Ассалому алайкум! Умра танлаш, пакетлар ёки сафарингиз бўйича қандай ёрдам бера оламиз?',thanks:'Ёрдам беришдан мамнунмиз! Умра ҳақида саволларингиз бўлса, шу ерга ёзинг.'});
-const sensitive=t=>/\b(?:\d[\s-]?){6,}\b|[\w.+-]+@[\w.-]+\.[a-z]{2,}|\b[A-Z]{2}\d{6,}\b|https?:\/\/|паспорт|password|пароль|passport|otp|пин-код|cvv|parol|парол/i.test(t);
+const sensitive=t=>/\b(?:\d[\s-]?){6,}\b|[\w.+-]+@[\w.-]+\.[a-z]{2,}|\b[A-Z]{2}\d{6,}\b|https?:\/\/|\b(?:sk-ant-|gh[pousr]_|github_pat_)[A-Za-z0-9_-]+|\b[0-9a-f]{48,}\b|паспорт|password|пароль|passport|otp|пин-код|cvv|parol|парол/i.test(t);
 export async function classifyCare(key,text,previous='',fetcher=fetch){
  if(sensitive(text))return 'private';
  if(/^(?:ассаламу алейкум|ассалому алайкум|салам|привет|здравствуйте|hello|hi|salom|assalomu alaykum|салом)[!.\s]*$/iu.test(text))return 'greeting';
@@ -36,15 +37,29 @@ export async function careIncoming(env,user,locale,text,messageID,send,notify,fo
  const clean=String(text).slice(0,2000),safe=sensitive(clean)?c.private:clean;
  const inserted=await record(db,id,'user',safe,external);if(!Number(inserted.meta?.changes))return;
  await db.prepare('UPDATE telegram_care_threads SET updated_at=? WHERE user_id=?').bind(now(),id).run();
- if(t.mode==='human'){await notify?.().catch(()=>{});if(sensitive(clean))await send(c.private);return;}
+ const control=await careControl(db);
+ await expireCareSends(db,id);
+ if(t.mode==='human'){await notify?.().catch(()=>{});if(control?.enabled!==1&&sensitive(clean))await send(c.private);return;}
+ if(control?.enabled===1){
+  const fresh=await db.prepare('SELECT mode,topic FROM telegram_care_threads WHERE user_id=?').bind(id).first();
+  if(fresh?.mode!=='auto'){await notify?.().catch(()=>{});return;}
+  const prior=fresh.topic==='price'?(await db.prepare("SELECT body FROM telegram_care_messages WHERE user_id=? AND role='user' AND external_id<>? AND created_at>=? ORDER BY id DESC LIMIT 8").bind(id,external,new Date(Date.now()-1800000).toISOString()).all()).results.reverse().map(r=>r.body):[];
+  const reply=kelvinReply(clean,locale,fresh.topic,careCopy,{privateInput:sensitive(clean),forceHuman,history:prior});
+  const ext='reply:'+external;
+  if(!await reserveAuto(db,id,ext,reply.answer)){await notify?.().catch(()=>{});return;}
+  // Reserve before sending. A staff take/reply returns busy while this send is in flight.
+  await db.prepare("UPDATE telegram_care_threads SET topic=?,mode=CASE WHEN ?=1 THEN 'human' ELSE mode END,updated_at=? WHERE user_id=?").bind(reply.label,reply.human?1:0,now(),id).run();
+  try{await send(reply.answer);await db.prepare("UPDATE telegram_care_messages SET delivery='sent' WHERE user_id=? AND external_id=? AND delivery='sending'").bind(id,ext).run();}
+  catch{await db.prepare("UPDATE telegram_care_messages SET delivery='uncertain' WHERE user_id=? AND external_id=? AND delivery='sending'").bind(id,ext).run();await db.prepare("UPDATE telegram_care_threads SET mode='human' WHERE user_id=?").bind(id).run();await notify?.().catch(()=>{});return;}
+  if(reply.human)await notify?.().catch(()=>{});return;
+ }
  const label=forceHuman?'contact':await classifyCare(env.GEMINI_API_KEY,clean,t.topic);const needsStaff=label==='contact'||label==='unknown';
- if(needsStaff){const changed=await db.prepare("UPDATE telegram_care_threads SET mode='human',updated_at=? WHERE user_id=? AND mode='auto'").bind(now(),id).run();if(!Number(changed.meta?.changes))return;await notify?.().catch(()=>{});}
- else {const changed=await db.prepare("UPDATE telegram_care_threads SET topic=? WHERE user_id=? AND mode='auto'").bind(label,id).run();if(!Number(changed.meta?.changes))return;}
- const answer=needsStaff?c.handoff:c[label]||c.unknown;
- if(!needsStaff){const current=await db.prepare('SELECT mode FROM telegram_care_threads WHERE user_id=?').bind(id).first();if(current?.mode!=='auto')return;}
- await record(db,id,'auto',answer,'reply:'+external,'pending');
- try{await send(answer);await db.prepare("UPDATE telegram_care_messages SET delivery='sent' WHERE user_id=? AND external_id=?").bind(id,'reply:'+external).run();}
- catch{await db.prepare("UPDATE telegram_care_messages SET delivery='uncertain' WHERE user_id=? AND external_id=?").bind(id,'reply:'+external).run();await db.prepare("UPDATE telegram_care_threads SET mode='human' WHERE user_id=?").bind(id).run();await notify?.().catch(()=>{});}
+ const answer=needsStaff?c.handoff:c[label]||c.unknown,ext='reply:'+external;
+ if(!await reserveAuto(db,id,ext,answer))return;
+ await db.prepare("UPDATE telegram_care_threads SET topic=CASE WHEN ?=1 THEN topic ELSE ? END,mode=CASE WHEN ?=1 THEN 'human' ELSE mode END,updated_at=? WHERE user_id=?").bind(needsStaff?1:0,label,needsStaff?1:0,now(),id).run();
+ if(needsStaff)await notify?.().catch(()=>{});
+ try{await send(answer);await db.prepare("UPDATE telegram_care_messages SET delivery='sent' WHERE user_id=? AND external_id=? AND delivery='sending'").bind(id,ext).run();}
+ catch{await db.prepare("UPDATE telegram_care_messages SET delivery='uncertain' WHERE user_id=? AND external_id=? AND delivery='sending'").bind(id,ext).run();await db.prepare("UPDATE telegram_care_threads SET mode='human' WHERE user_id=?").bind(id).run();await notify?.().catch(()=>{});}
 }
 const publicMessage=r=>({id:Number(r.id),role:r.role,body:r.body,createdAt:r.created_at,delivery:r.delivery});
 export async function careAdmin(request,env,parts){const db=env.BOOKINGS_DB;if(!db)return json({error:'CARE_DB_UNAVAILABLE'},503);await ensureCare(db);const method=request.method;
@@ -52,9 +67,16 @@ export async function careAdmin(request,env,parts){const db=env.BOOKINGS_DB;if(!
  const id=parts[0];if(!/^\d{1,16}$/.test(id||''))return json({error:'INVALID_THREAD'},400);const t=await db.prepare('SELECT * FROM telegram_care_threads WHERE user_id=?').bind(id).first();if(!t)return json({error:'NOT_FOUND'},404);
  if(parts.length===1&&method==='GET'){const rows=await db.prepare('SELECT * FROM telegram_care_messages WHERE user_id=? ORDER BY id DESC LIMIT 150').bind(id).all();return json({mode:t.mode,messages:rows.results.reverse().map(publicMessage)});}
  if(parts.length!==2||method!=='POST')return json({error:'NOT_FOUND'},404);
- if(parts[1]==='mode'){const body=await request.json().catch(()=>null);if(!['auto','human'].includes(body?.mode))return json({error:'INVALID_MODE'},400);await db.prepare('UPDATE telegram_care_threads SET mode=?,updated_at=? WHERE user_id=?').bind(body.mode,now(),id).run();return json({ok:true});}
+ if(parts[1]==='mode'){const body=await request.json().catch(()=>null);if(!['auto','human'].includes(body?.mode))return json({error:'INVALID_MODE'},400);if(!await setCareMode(db,id,body.mode))return json({error:'CARE_SEND_IN_PROGRESS'},409);return json({ok:true});}
  if(parts[1]!=='reply')return json({error:'NOT_FOUND'},404);const b=await request.json().catch(()=>null),text=typeof b?.body==='string'?b.body.trim():'',clientID=b?.clientMessageID;if(!text||text.length>3500||typeof clientID!=='string'||!/^[a-f0-9-]{36}$/i.test(clientID))return json({error:'INVALID_MESSAGE'},400);
  if(!env.IUMRAH_TELEGRAM_BOT_TOKEN)return json({error:'TELEGRAM_NOT_CONFIGURED'},503);
- await db.prepare("UPDATE telegram_care_threads SET mode='human',updated_at=? WHERE user_id=?").bind(now(),id).run();const ext='staff:'+clientID;const insert=await record(db,id,'staff',text,ext,'sending');if(!Number(insert.meta?.changes)){const old=await db.prepare('SELECT * FROM telegram_care_messages WHERE user_id=? AND external_id=?').bind(id,ext).first();return old?.delivery==='sent'?json({ok:true,message:publicMessage(old)}):json({error:'DELIVERY_UNCERTAIN'},409);}
+ const ext='staff:'+clientID;const old=await db.prepare('SELECT * FROM telegram_care_messages WHERE user_id=? AND external_id=?').bind(id,ext).first();if(old)return old.delivery==='sent'&&old.body===text?json({ok:true,message:publicMessage(old)}):json({error:'DELIVERY_UNCERTAIN'},409);
+ if(!await setCareMode(db,id,'human')||!await reserveStaff(db,id,ext,text))return json({error:'CARE_SEND_IN_PROGRESS'},409);
  try{const r=await fetch('https://api.telegram.org/bot'+env.IUMRAH_TELEGRAM_BOT_TOKEN.trim()+'/sendMessage',{method:'POST',redirect:'error',signal:AbortSignal.timeout(10000),headers:{'content-type':'application/json'},body:JSON.stringify({chat_id:Number(id),text,protect_content:true,disable_web_page_preview:true})});if(!r.ok||!(await r.json()).ok)throw Error('TELEGRAM_DELIVERY');await db.prepare("UPDATE telegram_care_messages SET delivery='sent' WHERE user_id=? AND external_id=?").bind(id,ext).run();return json({ok:true});}catch{await db.prepare("UPDATE telegram_care_messages SET delivery='uncertain' WHERE user_id=? AND external_id=?").bind(id,ext).run();return json({error:'TELEGRAM_DELIVERY_UNCERTAIN'},502);}
+}
+
+// Internal owner bridge only; caller has already validated the paired owner token.
+export async function careKelvinBridge(env,owner,input){
+ const db=env.BOOKINGS_DB;if(!db)return [503,{error:'CARE_DB_UNAVAILABLE'}];if(input?.action==='enable'&&!env.IUMRAH_TELEGRAM_BOT_TOKEN)return [503,{error:'TELEGRAM_NOT_CONFIGURED'}];await ensureCare(db);
+ return kelvinCareAction(db,owner,input,(parts,data)=>careAdmin(new Request('https://internal.invalid/care',{method:data?'POST':'GET',...(data?{headers:{'content-type':'application/json'},body:JSON.stringify(data)}:{})}),env,parts));
 }

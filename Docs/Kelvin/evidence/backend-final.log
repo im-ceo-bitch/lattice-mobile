@@ -1,0 +1,1750 @@
+
+> iumrah-backend@1.0.0 test
+> node --test tests/*.test.mjs
+
+TAP version 13
+# (node:14541) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: payment is a deliberate staff decision, partial, rejected and duplicate receipts cannot settle a booking
+ok 1 - payment is a deliberate staff decision, partial, rejected and duplicate receipts cannot settle a booking
+  ---
+  duration_ms: 39.394427
+  type: 'test'
+  ...
+# Subtest: documents require both directions for each traveler; revoked and unassigned documents never count
+ok 2 - documents require both directions for each traveler; revoked and unassigned documents never count
+  ---
+  duration_ms: 13.128702
+  type: 'test'
+  ...
+# Subtest: guest token must be verified by the source and tied to this booking
+ok 3 - guest token must be verified by the source and tied to this booking
+  ---
+  duration_ms: 3.847873
+  type: 'test'
+  ...
+# Subtest: currency precision and document scope invariants
+ok 4 - currency precision and document scope invariants
+  ---
+  duration_ms: 0.47627
+  type: 'test'
+  ...
+# Subtest: document replacement preserves coverage, retains history, rejects stale repeat and cleans unused objects
+ok 5 - document replacement preserves coverage, retains history, rejects stale repeat and cleans unused objects
+  ---
+  duration_ms: 12.585194
+  type: 'test'
+  ...
+# Subtest: per-document progress is scoped to booking requirements, and cannot substitute for published files
+ok 6 - per-document progress is scoped to booking requirements, and cannot substitute for published files
+  ---
+  duration_ms: 8.766773
+  type: 'test'
+  ...
+# Subtest: replacement racing with a revocation does not publish a stale file
+ok 7 - replacement racing with a revocation does not publish a stale file
+  ---
+  duration_ms: 3.575331
+  type: 'test'
+  ...
+# Subtest: payment review timer follows oldest pending receipt and clears after partial or rejected review
+ok 8 - payment review timer follows oldest pending receipt and clears after partial or rejected review
+  ---
+  duration_ms: 6.040645
+  type: 'test'
+  ...
+# Subtest: availability delay requires 30 minutes, current stage, and a staff audit cooldown; no APNs is not success
+ok 9 - availability delay requires 30 minutes, current stage, and a staff audit cooldown; no APNs is not success
+  ---
+  duration_ms: 3.696785
+  type: 'test'
+  ...
+# Subtest: Trip Summary 2 visa gate blocks tickets until every visa is issued and submitted visa cannot be reset
+ok 10 - Trip Summary 2 visa gate blocks tickets until every visa is issued and submitted visa cannot be reset
+  ---
+  duration_ms: 13.59107
+  type: 'test'
+  ...
+# (node:14542) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: fresh bootstrap has empty counter; first guest gets both IDs and retries preserve them
+ok 11 - fresh bootstrap has empty counter; first guest gets both IDs and retries preserve them
+  ---
+  duration_ms: 31.770792
+  type: 'test'
+  ...
+# Subtest: missing or stale counter starts above real existing booking numbers, never renumbers
+ok 12 - missing or stale counter starts above real existing booking numbers, never renumbers
+  ---
+  duration_ms: 21.162867
+  type: 'test'
+  ...
+# Subtest: repair existing trip without number keeps original pilgrim and booking
+ok 13 - repair existing trip without number keeps original pilgrim and booking
+  ---
+  duration_ms: 19.21816
+  type: 'test'
+  ...
+# Subtest: trip insertion failure rolls back provisional profile, retry succeeds
+ok 14 - trip insertion failure rolls back provisional profile, retry succeeds
+  ---
+  duration_ms: 20.918047
+  type: 'test'
+  ...
+# (node:14543) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: package scope and deadline queue: only selected services, both directions, overdue tasks first
+ok 15 - package scope and deadline queue: only selected services, both directions, overdue tasks first
+  ---
+  duration_ms: 3.232583
+  type: 'test'
+  ...
+# Subtest: service gate prevents premature confirmation; flight changes invalidate previous confirmation; manager is validated
+ok 16 - service gate prevents premature confirmation; flight changes invalidate previous confirmation; manager is validated
+  ---
+  duration_ms: 78.202879
+  type: 'test'
+  ...
+# Subtest: cancellation is idempotent request, reason required, review pending receipts first, refunds retain ledger and cannot exceed payment
+ok 17 - cancellation is idempotent request, reason required, review pending receipts first, refunds retain ledger and cannot exceed payment
+  ---
+  duration_ms: 19.082585
+  type: 'test'
+  ...
+# Subtest: itinerary is not completed by time; staff marks actual execution and changing a plan resets it
+ok 18 - itinerary is not completed by time; staff marks actual execution and changing a plan resets it
+  ---
+  duration_ms: 12.203433
+  type: 'test'
+  ...
+# Subtest: mutation lease rejects competing writes and releases on success or failure
+ok 19 - mutation lease rejects competing writes and releases on success or failure
+  ---
+  duration_ms: 17.135244
+  type: 'test'
+  ...
+# Subtest: feedback only after trip completion, valid rating, single durable review
+ok 20 - feedback only after trip completion, valid rating, single durable review
+  ---
+  duration_ms: 5.71339
+  type: 'test'
+  ...
+# Subtest: financial closing preserves external refunds, explicit costs/retention and blocks duplicate or later refunds
+ok 21 - financial closing preserves external refunds, explicit costs/retention and blocks duplicate or later refunds
+  ---
+  duration_ms: 9.371415
+  type: 'test'
+  ...
+# Subtest: completed travel without verified payments cannot be financially closed
+ok 22 - completed travel without verified payments cannot be financially closed
+  ---
+  duration_ms: 4.875896
+  type: 'test'
+  ...
+# Subtest: certificate requires actual explicit staff confirmation, completed trip and named complete pilgrim; idempotent
+ok 23 - certificate requires actual explicit staff confirmation, completed trip and named complete pilgrim; idempotent
+  ---
+  duration_ms: 11.082561
+  type: 'test'
+  ...
+# Subtest: manager schedule time persists, validates, legacy edits preserve it and time changes reset execution
+ok 24 - manager schedule time persists, validates, legacy edits preserve it and time changes reset execution
+  ---
+  duration_ms: 9.036209
+  type: 'test'
+  ...
+# Subtest: travel notification copies use four languages and distinct schedule/certificate events
+ok 25 - travel notification copies use four languages and distinct schedule/certificate events
+  ---
+  duration_ms: 0.663032
+  type: 'test'
+  ...
+# Subtest: historic payments require explicit privileged reconciliation before close; original receipts retained
+ok 26 - historic payments require explicit privileged reconciliation before close; original receipts retained
+  ---
+  duration_ms: 6.747312
+  type: 'test'
+  ...
+# Subtest: certificate corrections retire old identity and record reason; revoked certificates disappear from active list
+ok 27 - certificate corrections retire old identity and record reason; revoked certificates disappear from active list
+  ---
+  duration_ms: 7.018862
+  type: 'test'
+  ...
+# Subtest: APNs queue retries only unsuccessful current targets, rejects stale status and expires exhausted attempts
+ok 28 - APNs queue retries only unsuccessful current targets, rejects stale status and expires exhausted attempts
+  ---
+  duration_ms: 7.483384
+  type: 'test'
+  ...
+# Subtest: Business uses only the unified public backend URL for flight and Intelligence reads
+ok 29 - Business uses only the unified public backend URL for flight and Intelligence reads
+  ---
+  duration_ms: 2.611785
+  type: 'test'
+  ...
+# Subtest: staff authorization forwarding remains confined to trusted unified admin routes
+ok 30 - staff authorization forwarding remains confined to trusted unified admin routes
+  ---
+  duration_ms: 1.548979
+  type: 'test'
+  ...
+# Subtest: Business persistence uses the exact Worker staff cookie and logout clears it
+ok 31 - Business persistence uses the exact Worker staff cookie and logout clears it
+  ---
+  duration_ms: 1.620358
+  type: 'test'
+  ...
+# Subtest: login errors are distinct and push only registers after a device session exists
+ok 32 - login errors are distinct and push only registers after a device session exists
+  ---
+  duration_ms: 1.423229
+  type: 'test'
+  ...
+# Subtest: V33 Business acknowledges the received cursor and listens to chat and operational push events
+ok 33 - V33 Business acknowledges the received cursor and listens to chat and operational push events
+  ---
+  duration_ms: 1.623182
+  type: 'test'
+  ...
+# Subtest: V3 preserves cancelled bookings and refreshes cannot overwrite unsaved operations
+ok 34 - V3 preserves cancelled bookings and refreshes cannot overwrite unsaved operations
+  ---
+  duration_ms: 1.236949
+  type: 'test'
+  ...
+# Subtest: Configurator 2: backwards-compatible pricing, group discount and per pilgrim total
+ok 35 - Configurator 2: backwards-compatible pricing, group discount and per pilgrim total
+  ---
+  duration_ms: 1.888573
+  type: 'test'
+  ...
+# Subtest: Configurator 2: invalid discounts and nonpositive final price cannot publish
+ok 36 - Configurator 2: invalid discounts and nonpositive final price cannot publish
+  ---
+  duration_ms: 0.270819
+  type: 'test'
+  ...
+# Subtest: Configurator 2: pricing rounds individual cost lines and commission to cents
+ok 37 - Configurator 2: pricing rounds individual cost lines and commission to cents
+  ---
+  duration_ms: 0.138259
+  type: 'test'
+  ...
+# (node:14596) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# CARE_CHAT_PUSH_DELIVERY {
+#   type: 'chat_message',
+#   sent: 0,
+#   total: 0,
+#   skipped: 'PUSH_NOT_CONFIGURED'
+# }
+# Subtest: real worker: one account conversation, old booking messages, staff list deduplicates, guest token stays scoped
+ok 38 - real worker: one account conversation, old booking messages, staff list deduplicates, guest token stays scoped
+  ---
+  duration_ms: 90.418661
+  type: 'test'
+  ...
+# Subtest: real worker: claim exposes old guest messages without rewriting them and resets cursor on ownership change
+ok 39 - real worker: claim exposes old guest messages without rewriting them and resets cursor on ownership change
+  ---
+  duration_ms: 21.499876
+  type: 'test'
+  ...
+# Subtest: real worker: private media requires owning account, preserves original R2 key
+ok 40 - real worker: private media requires owning account, preserves original R2 key
+  ---
+  duration_ms: 31.080789
+  type: 'test'
+  ...
+# Subtest: real worker: account chat without trips survives booking deletion and appears in Business
+ok 41 - real worker: account chat without trips survives booking deletion and appears in Business
+  ---
+  duration_ms: 21.430051
+  type: 'test'
+  ...
+# Subtest: real worker: register two devices, push only to current account sessions, revoke/logout prevents delivery
+ok 42 - real worker: register two devices, push only to current account sessions, revoke/logout prevents delivery
+  ---
+  duration_ms: 26.258645
+  type: 'test'
+  ...
+# Subtest: guest booking keeps its own push; claiming it switches delivery to authenticated account devices
+ok 43 - guest booking keeps its own push; claiming it switches delivery to authenticated account devices
+  ---
+  duration_ms: 16.443369
+  type: 'test'
+  ...
+# CARE_CHAT_PUSH_DELIVERY {
+#   type: 'chat_message',
+#   sent: 0,
+#   total: 0,
+#   skipped: 'PUSH_NOT_CONFIGURED'
+# }
+# Subtest: staff cursor acknowledgement never consumes an unseen message, even across trips or after a reply
+ok 44 - staff cursor acknowledgement never consumes an unseen message, even across trips or after a reply
+  ---
+  duration_ms: 33.131581
+  type: 'test'
+  ...
+# Subtest: invalid or stale acknowledgement cannot mark a newly claimed booking read
+ok 45 - invalid or stale acknowledgement cannot mark a newly claimed booking read
+  ---
+  duration_ms: 24.298623
+  type: 'test'
+  ...
+# CLIENT_CHAT_WRITE_FAILED care-pilgrim:1 Error: fixture reject
+#     at Object.run (file:///tmp/kfinal/lattice-mobile-main/Backend/IumrahBackend/tests/care-identity.test.mjs:20:222)
+#     at Object.batch (file:///tmp/kfinal/lattice-mobile-main/Backend/IumrahBackend/tests/care-identity.test.mjs:20:338)
+#     at async sendClientChatMessage (file:///tmp/kfinal/lattice-mobile-main/Backend/HotelsWorker/src/index.js:7557:5)
+#     at async Object.fetch (file:///tmp/kfinal/lattice-mobile-main/Backend/HotelsWorker/src/index.js:68:25)
+#     at async TestContext.<anonymous> (file:///tmp/kfinal/lattice-mobile-main/Backend/IumrahBackend/tests/care-identity.test.mjs:117:16)
+#     at async Test.run (node:internal/test_runner/test:1054:7)
+#     at async Test.processPendingSubtests (node:internal/test_runner/test:744:7) {
+#   code: 'ERR_SQLITE_ERROR',
+#   errcode: 1811,
+#   errstr: 'constraint failed'
+# }
+# Subtest: failed client insert rolls back thread preview; same message key is idempotent
+ok 46 - failed client insert rolls back thread preview; same message key is idempotent
+  ---
+  duration_ms: 21.680434
+  type: 'test'
+  ...
+# BOOKING_DETAIL_UPSTREAM_FALLBACK Error: BOOKINGS_UPSTREAM_404
+#     at fetchUpstreamBookings (file:///tmp/kfinal/lattice-mobile-main/Backend/HotelsWorker/src/index.js:4188:27)
+#     at async rawBookingForDetail (file:///tmp/kfinal/lattice-mobile-main/Backend/HotelsWorker/src/index.js:4875:22)
+#     at async operationsBookingDetail (file:///tmp/kfinal/lattice-mobile-main/Backend/HotelsWorker/src/index.js:5438:20)
+#     at async withBookingMutation (file:///tmp/kfinal/lattice-mobile-main/Backend/HotelsWorker/src/index.js:6611:13)
+#     at async Object.fetch (file:///tmp/kfinal/lattice-mobile-main/Backend/HotelsWorker/src/index.js:64:25)
+#     at async TestContext.<anonymous> (file:///tmp/kfinal/lattice-mobile-main/Backend/IumrahBackend/tests/care-identity.test.mjs:163:15)
+#     at async Test.run (node:internal/test_runner/test:1054:7)
+#     at async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+# CARE_CHAT_PUSH_DELIVERY { type: 'chat_message', sent: 1, total: 2, skipped: null }
+# Subtest: real Worker routes Android FCM and Apple APNs, keeps case, scopes guest/account, broadcasts Signal
+ok 47 - real Worker routes Android FCM and Apple APNs, keeps case, scopes guest/account, broadcasts Signal
+  ---
+  duration_ms: 389.86092
+  type: 'test'
+  ...
+# Subtest: FCM-only booking outbox retries temporary failures and skips stale or already accepted events
+ok 48 - FCM-only booking outbox retries temporary failures and skips stale or already accepted events
+  ---
+  duration_ms: 520.419143
+  type: 'test'
+  ...
+# (node:14607) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: initial and subsequent page return only messages newer than cursor, even same timestamp
+ok 49 - initial and subsequent page return only messages newer than cursor, even same timestamp
+  ---
+  duration_ms: 3.125982
+  type: 'test'
+  ...
+# Subtest: pages preserve full histories beyond 500, no duplicates or gaps
+ok 50 - pages preserve full histories beyond 500, no duplicates or gaps
+  ---
+  duration_ms: 22.278227
+  type: 'test'
+  ...
+# Subtest: read receipts only for this booking; no full content on empty delta
+ok 51 - read receipts only for this booking; no full content on empty delta
+  ---
+  duration_ms: 0.831376
+  type: 'test'
+  ...
+# Subtest: invalid cursor rejected, legacy contract remains available
+ok 52 - invalid cursor rejected, legacy contract remains available
+  ---
+  duration_ms: 1.328817
+  type: 'test'
+  ...
+# Business password recovery: NOT VERIFIED (RECOVERY_STATUS_MISSING).
+# Flight catalog verified, but core release gate is blocked: {"missing":["IUMRAH_CORE_PARITY_ATTESTATION"]}
+# Provider configuration gaps (independent of Core activation): sms
+# Provider configuration gaps (independent of Core activation): esim, telegramOAuth
+# Optional integrations deferred (not release blockers): esim, telegramOAuth
+# Business password recovery: NOT VERIFIED (RECOVERY_STATUS_MISSING).
+# Business password recovery: NOT VERIFIED (RECOVERY_STATUS_MISSING).
+# TELEGRAM_WEBHOOK_VERIFIED: https://iumrah-backend.helloiumrah.workers.dev/api/telegram/webhook
+# Business password recovery: NOT VERIFIED (RECOVERY_STATUS_MISSING).
+# Business password recovery: NOT VERIFIED (RECOVERY_STATUS_MISSING).
+# Subtest: verifies all required endpoints on only iumrah-backend
+ok 53 - verifies all required endpoints on only iumrah-backend
+  ---
+  duration_ms: 1.8865
+  type: 'test'
+  ...
+# Subtest: published Worker must not report success when core is pending
+ok 54 - published Worker must not report success when core is pending
+  ---
+  duration_ms: 21.701852
+  type: 'test'
+  ...
+# Subtest: release check refuses missing provider configuration, without blocking core request handling
+ok 55 - release check refuses missing provider configuration, without blocking core request handling
+  ---
+  duration_ms: 1.246694
+  type: 'test'
+  ...
+# Subtest: deferred eSIM and Telegram OAuth do not fail deployment while configured core services remain required
+ok 56 - deferred eSIM and Telegram OAuth do not fail deployment while configured core services remain required
+  ---
+  duration_ms: 1.001853
+  type: 'test'
+  ...
+# Subtest: configured Telegram is switched and verified by existing CI credential
+ok 57 - configured Telegram is switched and verified by existing CI credential
+  ---
+  duration_ms: 2.652346
+  type: 'test'
+  ...
+# Subtest: release check exposes safe setup stage and provider code, never raw response
+ok 58 - release check exposes safe setup stage and provider code, never raw response
+  ---
+  duration_ms: 1.884948
+  type: 'test'
+  ...
+# Subtest: deployment verification must fail if public share handler or migration is absent
+ok 59 - deployment verification must fail if public share handler or migration is absent
+  ---
+  duration_ms: 1.287304
+  type: 'test'
+  ...
+# (node:14629) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Clean launch: 63 customer/misplaced tables checked; 3 existing guest notification devices preserved; R2 private; no legacy parity claimed.
+# CORE_ACTIVATED_NEW_ACCOUNT: registration and bookings enabled; separate provider and device tests still required.
+# Subtest: fresh database accepts only actual bound resources and generates matching identity fingerprint
+ok 60 - fresh database accepts only actual bound resources and generates matching identity fingerprint
+  ---
+  duration_ms: 31.122241
+  type: 'test'
+  ...
+# Subtest: fresh launch safely rejects {"publicBucket":true}
+ok 61 - fresh launch safely rejects {"publicBucket":true}
+  ---
+  duration_ms: 8.459319
+  type: 'test'
+  ...
+# Subtest: fresh launch safely rejects {"existing":true}
+ok 62 - fresh launch safely rejects {"existing":true}
+  ---
+  duration_ms: 14.257797
+  type: 'test'
+  ...
+# Subtest: fresh launch safely rejects {"misplaced":true}
+ok 63 - fresh launch safely rejects {"misplaced":true}
+  ---
+  duration_ms: 19.228987
+  type: 'test'
+  ...
+# Subtest: fresh launch safely rejects {"wrongId":true}
+ok 64 - fresh launch safely rejects {"wrongId":true}
+  ---
+  duration_ms: 6.241863
+  type: 'test'
+  ...
+# Subtest: fresh launch safely rejects {"foreign":true}
+ok 65 - fresh launch safely rejects {"foreign":true}
+  ---
+  duration_ms: 11.217905
+  type: 'test'
+  ...
+# Subtest: operator policy and complete valid pending state required
+ok 66 - operator policy and complete valid pending state required
+  ---
+  duration_ms: 0.372212
+  type: 'test'
+  ...
+# Subtest: clean activation is not migration parity; wrong resources, missing flag, malformed key block runtime
+ok 67 - clean activation is not migration parity; wrong resources, missing flag, malformed key block runtime
+  ---
+  duration_ms: 1.633437
+  type: 'test'
+  ...
+# Subtest: deploy verifier activates with three existing guest installations then keeps provider gate independent
+ok 68 - deploy verifier activates with three existing guest installations then keeps provider gate independent
+  ---
+  duration_ms: 24.784658
+  type: 'test'
+  ...
+# Subtest: D1 rejects global PRAGMA and internal tables; scoped checks still pass
+ok 69 - D1 rejects global PRAGMA and internal tables; scoped checks still pass
+  ---
+  duration_ms: 21.222788
+  type: 'test'
+  ...
+# Subtest: HTTP 400 on batch retries individual reads and still checks all tables
+ok 70 - HTTP 400 on batch retries individual reads and still checks all tables
+  ---
+  duration_ms: 51.174031
+  type: 'test'
+  ...
+# Subtest: batch fallback cannot conceal existing records
+ok 71 - batch fallback cannot conceal existing records
+  ---
+  duration_ms: 33.075652
+  type: 'test'
+  ...
+# Subtest: D1 HTTP 400 on a single table reports precise stage and code without raw message
+ok 72 - D1 HTTP 400 on a single table reports precise stage and code without raw message
+  ---
+  duration_ms: 9.490685
+  type: 'test'
+  ...
+# Subtest: D1 metadata failure distinguished from SQL failure
+ok 73 - D1 metadata failure distinguished from SQL failure
+  ---
+  duration_ms: 5.661792
+  type: 'test'
+  ...
+# Subtest: incomplete batch cannot yield activation attestation
+ok 74 - incomplete batch cannot yield activation attestation
+  ---
+  duration_ms: 11.973571
+  type: 'test'
+  ...
+# Subtest: three guest notification devices survive activation unchanged, including local trip hint
+ok 75 - three guest notification devices survive activation unchanged, including local trip hint
+  ---
+  duration_ms: 11.348502
+  type: 'test'
+  ...
+# Subtest: guest exception rejects linked, legacy or malformed installation {"auth":1}
+ok 76 - guest exception rejects linked, legacy or malformed installation {"auth":1}
+  ---
+  duration_ms: 12.853416
+  type: 'test'
+  ...
+# Subtest: guest exception rejects linked, legacy or malformed installation {"pilgrim":123}
+ok 77 - guest exception rejects linked, legacy or malformed installation {"pilgrim":123}
+  ---
+  duration_ms: 11.715857
+  type: 'test'
+  ...
+# Subtest: guest exception rejects linked, legacy or malformed installation {"id":"legacy:0123456789012345","trip":1}
+ok 78 - guest exception rejects linked, legacy or malformed installation {"id":"legacy:0123456789012345","trip":1}
+  ---
+  duration_ms: 10.885754
+  type: 'test'
+  ...
+# Subtest: guest exception rejects linked, legacy or malformed installation {"id":"bad id"}
+ok 79 - guest exception rejects linked, legacy or malformed installation {"id":"bad id"}
+  ---
+  duration_ms: 8.621183
+  type: 'test'
+  ...
+# Subtest: guest exception rejects linked, legacy or malformed installation {"bundle":"other.app"}
+ok 80 - guest exception rejects linked, legacy or malformed installation {"bundle":"other.app"}
+  ---
+  duration_ms: 8.532529
+  type: 'test'
+  ...
+# Subtest: guest device in wrong D1 is never exempt
+ok 81 - guest device in wrong D1 is never exempt
+  ---
+  duration_ms: 11.815557
+  type: 'test'
+  ...
+# Subtest: guest registry exception cannot conceal customer accounts
+ok 82 - guest registry exception cannot conceal customer accounts
+  ---
+  duration_ms: 11.099937
+  type: 'test'
+  ...
+# Subtest: guest device exception also works on single-query D1 fallback
+ok 83 - guest device exception also works on single-query D1 fallback
+  ---
+  duration_ms: 26.994967
+  type: 'test'
+  ...
+# Subtest: Concierge understands four supported languages and keeps unknown questions out of automated actions
+ok 84 - Concierge understands four supported languages and keeps unknown questions out of automated actions
+  ---
+  duration_ms: 2.42261
+  type: 'test'
+  ...
+# Subtest: Concierge quote draft validates dates, travelers and contact without creating booking
+ok 85 - Concierge quote draft validates dates, travelers and contact without creating booking
+  ---
+  duration_ms: 2.269218
+  type: 'test'
+  ...
+# Subtest: Concierge never treats submitted receipts as paid and does not invent visa readiness
+ok 86 - Concierge never treats submitted receipts as paid and does not invent visa readiness
+  ---
+  duration_ms: 0.830605
+  type: 'test'
+  ...
+# Subtest: Concierge schedule respects actual execution state and Saudi local day
+ok 87 - Concierge schedule respects actual execution state and Saudi local day
+  ---
+  duration_ms: 0.351641
+  type: 'test'
+  ...
+# Subtest: Concierge rejects group, mismatched identity and bot senders before data access
+ok 88 - Concierge rejects group, mismatched identity and bot senders before data access
+  ---
+  duration_ms: 0.458473
+  type: 'test'
+  ...
+# Subtest: one worker, three bound D1 databases and staging without destructive route takeover
+ok 89 - one worker, three bound D1 databases and staging without destructive route takeover
+  ---
+  duration_ms: 3.012109
+  type: 'test'
+  ...
+# Subtest: rejects missing, duplicate and malformed production database IDs
+ok 90 - rejects missing, duplicate and malformed production database IDs
+  ---
+  duration_ms: 0.541919
+  type: 'test'
+  ...
+# Subtest: missing media bucket is supported for staging without R2 binding
+ok 91 - missing media bucket is supported for staging without R2 binding
+  ---
+  duration_ms: 0.452574
+  type: 'test'
+  ...
+# Subtest: route cutover requires zone ID; crons remain explicit opt in
+ok 92 - route cutover requires zone ID; crons remain explicit opt in
+  ---
+  duration_ms: 0.967953
+  type: 'test'
+  ...
+# (node:14662) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: cutover guard refuses booking writes before explicit activation; foreign Origin rejected
+ok 93 - cutover guard refuses booking writes before explicit activation; foreign Origin rejected
+  ---
+  duration_ms: 4.876907
+  type: 'test'
+  ...
+# Subtest: staff login cookie is signed, secure and accepted by migrated session route
+ok 94 - staff login cookie is signed, secure and accepted by migrated session route
+  ---
+  duration_ms: 18.392021
+  type: 'test'
+  ...
+# Subtest: booking create/read and admin list use the same D1; invalid token cannot read
+ok 95 - booking create/read and admin list use the same D1; invalid token cannot read
+  ---
+  duration_ms: 24.132489
+  type: 'test'
+  ...
+# Subtest: static snapshot route is not swallowed by the dynamic package id route
+ok 96 - static snapshot route is not swallowed by the dynamic package id route
+  ---
+  duration_ms: 0.314986
+  type: 'test'
+  ...
+# Subtest: account facade calls package module inside same router rather than legacy network
+ok 97 - account facade calls package module inside same router rather than legacy network
+  ---
+  duration_ms: 2.116847
+  type: 'test'
+  ...
+# Subtest: airport API and real request adaptation
+ok 98 - airport API and real request adaptation
+  ---
+  duration_ms: 16.008151
+  type: 'test'
+  ...
+# Subtest: public airport and catalog reads can reach the unified worker before private cutover; private mutations remain blocked
+ok 99 - public airport and catalog reads can reach the unified worker before private cutover; private mutations remain blocked
+  ---
+  duration_ms: 7.151032
+  type: 'test'
+  ...
+# Subtest: staff password cookie lasts seven days, carries signed authentication time, and expires without sliding
+ok 100 - staff password cookie lasts seven days, carries signed authentication time, and expires without sliding
+  ---
+  duration_ms: 9.227809
+  type: 'test'
+  ...
+# Subtest: wrong staff password has its own error code; never issues a cookie
+ok 101 - wrong staff password has its own error code; never issues a cookie
+  ---
+  duration_ms: 424.507245
+  type: 'test'
+  ...
+# Subtest: Business manual create: authorization, canonical cost, idempotency and read-only share
+ok 102 - Business manual create: authorization, canonical cost, idempotency and read-only share
+  ---
+  duration_ms: 35.784143
+  type: 'test'
+  ...
+# Subtest: Sales & Offers: authorized creation, preview, revision, immutable quote, conversion, stable link and revocation
+ok 103 - Sales & Offers: authorized creation, preview, revision, immutable quote, conversion, stable link and revocation
+  ---
+  duration_ms: 63.722645
+  type: 'test'
+  ...
+# Subtest: merged native offers use existing Sales schema, revision, verified contact and stable link; retry does not leak booking token
+ok 104 - merged native offers use existing Sales schema, revision, verified contact and stable link; retry does not leak booking token
+  ---
+  duration_ms: 34.021241
+  type: 'test'
+  ...
+# Subtest: saved package immutable sharing, capability-separated support and staff room decision
+ok 105 - saved package immutable sharing, capability-separated support and staff room decision
+  ---
+  duration_ms: 23.673228
+  type: 'test'
+  ...
+# (node:14673) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: diagnose is read-only; restore only active approved records; resume safely
+ok 106 - diagnose is read-only; restore only active approved records; resume safely
+  ---
+  duration_ms: 3.875755
+  type: 'test'
+  ...
+# Subtest: never overwrite a populated independent destination
+ok 107 - never overwrite a populated independent destination
+  ---
+  duration_ms: 1.02562
+  type: 'test'
+  ...
+# Subtest: unified deployment never references absent Flight Hub SQL files
+ok 108 - unified deployment never references absent Flight Hub SQL files
+  ---
+  duration_ms: 1.170778
+  type: 'test'
+  ...
+# Subtest: Flight Hub CI credentials are masked before reaching subsequent job environments
+ok 109 - Flight Hub CI credentials are masked before reaching subsequent job environments
+  ---
+  duration_ms: 39.783024
+  type: 'test'
+  ...
+# Subtest: discovers the three exact D1 names shown in the Cloudflare account
+ok 110 - discovers the three exact D1 names shown in the Cloudflare account
+  ---
+  duration_ms: 1.745437
+  type: 'test'
+  ...
+# Subtest: does not exclude existing hotel DB when old hotels table is absent
+ok 111 - does not exclude existing hotel DB when old hotels table is absent
+  ---
+  duration_ms: 0.339993
+  type: 'test'
+  ...
+# Subtest: discovers the other previously known existing R2 bucket
+ok 112 - discovers the other previously known existing R2 bucket
+  ---
+  duration_ms: 0.234414
+  type: 'test'
+  ...
+# Subtest: allows deployment preview with an absent R2 bucket
+ok 113 - allows deployment preview with an absent R2 bucket
+  ---
+  duration_ms: 0.355327
+  type: 'test'
+  ...
+# Subtest: stops rather than creating a missing existing D1 database
+ok 114 - stops rather than creating a missing existing D1 database
+  ---
+  duration_ms: 0.727669
+  type: 'test'
+  ...
+# Subtest: stops when duplicate D1 names make identity ambiguous
+ok 115 - stops when duplicate D1 names make identity ambiguous
+  ---
+  duration_ms: 0.269307
+  type: 'test'
+  ...
+# Subtest: supports optional non-secret exact name overrides
+ok 116 - supports optional non-secret exact name overrides
+  ---
+  duration_ms: 0.331731
+  type: 'test'
+  ...
+# Subtest: preserves the deployed exact private R2 binding without guessing
+ok 117 - preserves the deployed exact private R2 binding without guessing
+  ---
+  duration_ms: 0.567587
+  type: 'test'
+  ...
+# Subtest: blocks ambiguous new media binding instead of choosing the wrong bucket
+ok 118 - blocks ambiguous new media binding instead of choosing the wrong bucket
+  ---
+  duration_ms: 0.590752
+  type: 'test'
+  ...
+# Subtest: APNs normalization remains compatible; FCM case and long token preserved; reject malformed input
+ok 119 - APNs normalization remains compatible; FCM case and long token preserved; reject malformed input
+  ---
+  duration_ms: 1.463641
+  type: 'test'
+  ...
+# Subtest: FCM v1 authenticates with signed JWT and delivers Android payload; caches OAuth token
+ok 120 - FCM v1 authenticates with signed JWT and delivers Android payload; caches OAuth token
+  ---
+  duration_ms: 42.294006
+  type: 'test'
+  ...
+# Subtest: provider errors only disable definitively unregistered tokens; no raw response or secret logged
+ok 121 - provider errors only disable definitively unregistered tokens; no raw response or secret logged
+  ---
+  duration_ms: 2.260575
+  type: 'test'
+  ...
+# CLIENT_APNS_DELIVERY_FAILED
+# Subtest: 401 refreshes access token once and retries message
+ok 122 - 401 refreshes access token once and retries message
+  ---
+  duration_ms: 6.561641
+  type: 'test'
+  ...
+# Subtest: mixed recipients route separately and a broken APNs transport does not prevent FCM
+ok 123 - mixed recipients route separately and a broken APNs transport does not prevent FCM
+  ---
+  duration_ms: 2.645186
+  type: 'test'
+  ...
+# (node:14728) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# FLIGHT_CATALOG_HARD_DELETE {"offers":1,"snapshotOffers":0,"searchCache":0,"calendarCache":0}
+# FLIGHT_CATALOG_HARD_DELETE {"offers":1,"snapshotOffers":0,"searchCache":0,"calendarCache":0}
+# Subtest: exact instant, airport timezone, midnight and both legs; date metadata does not override an exact timestamp
+ok 124 - exact instant, airport timezone, midnight and both legs; date metadata does not override an exact timestamp
+  ---
+  duration_ms: 1.703303
+  type: 'test'
+  ...
+# Subtest: physically removes expired published and draft rows; prunes all snapshots and caches; preserves bookings, live results, tokens; rerun is idempotent
+ok 125 - physically removes expired published and draft rows; prunes all snapshots and caches; preserves bookings, live results, tokens; rerun is idempotent
+  ---
+  duration_ms: 15.489337
+  type: 'test'
+  ...
+# Subtest: unified cron runs hard delete in both catalog bindings without invoking a supplier or hotel scheduler
+ok 126 - unified cron runs hard delete in both catalog bindings without invoking a supplier or hotel scheduler
+  ---
+  duration_ms: 1.917356
+  type: 'test'
+  ...
+# (node:14739) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: guide dates filter employees and never disclose another booking
+ok 127 - guide dates filter employees and never disclose another booking
+  ---
+  duration_ms: 12.961639
+  type: 'test'
+  ...
+# Subtest: client preference is not an assignment; same-day overlap is rejected at write
+ok 128 - client preference is not an assignment; same-day overlap is rejected at write
+  ---
+  duration_ms: 12.209493
+  type: 'test'
+  ...
+# Subtest: booking parser preserves preferred guide ID without changing price or old-client payloads
+ok 129 - booking parser preserves preferred guide ID without changing price or old-client payloads
+  ---
+  duration_ms: 1.077468
+  type: 'test'
+  ...
+# Subtest: three distinct biographies survive partial updates; owner and unavailable guides remain visible without private contacts
+ok 130 - three distinct biographies survive partial updates; owner and unavailable guides remain visible without private contacts
+  ---
+  duration_ms: 8.706992
+  type: 'test'
+  ...
+# (node:14745) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: 30 approved RU/UZ intent fixtures ru
+ok 131 - 30 approved RU/UZ intent fixtures ru
+  ---
+  duration_ms: 6.050605
+  type: 'test'
+  ...
+# Subtest: 30 approved RU/UZ intent fixtures uz
+ok 132 - 30 approved RU/UZ intent fixtures uz
+  ---
+  duration_ms: 0.702491
+  type: 'test'
+  ...
+# Subtest: price follow-up only requests missing slots and escalates complete request
+ok 133 - price follow-up only requests missing slots and escalates complete request
+  ---
+  duration_ms: 10.697279
+  type: 'test'
+  ...
+# Subtest: new price request resets slot context and Cyrillic Uzbek uses fixed copy
+ok 134 - new price request resets slot context and Cyrillic Uzbek uses fixed copy
+  ---
+  duration_ms: 0.262486
+  type: 'test'
+  ...
+# Subtest: enable is opt-in, no backlog or duplicate owner notice, second owner denied
+ok 135 - enable is opt-in, no backlog or duplicate owner notice, second owner denied
+  ---
+  duration_ms: 5.002596
+  type: 'test'
+  ...
+# Subtest: greetings skipped, meaningful answer and context retained
+ok 136 - greetings skipped, meaningful answer and context retained
+  ---
+  duration_ms: 7.660947
+  type: 'test'
+  ...
+# Subtest: 20 concurrent takeover scenarios: busy until send completes, then no auto replies; resume only new events
+ok 137 - 20 concurrent takeover scenarios: busy until send completes, then no auto replies; resume only new events
+  ---
+  duration_ms: 93.094728
+  type: 'test'
+  ...
+# Subtest: 30 duplicate failed events never retry and mark delivery uncertain
+ok 138 - 30 duplicate failed events never retry and mark delivery uncertain
+  ---
+  duration_ms: 5.540439
+  type: 'test'
+  ...
+# Subtest: claim restart after missing ack becomes uncertain without resend
+ok 139 - claim restart after missing ack becomes uncertain without resend
+  ---
+  duration_ms: 1.942755
+  type: 'test'
+  ...
+# Subtest: staff manual reply uses canonical message, stable idempotency and mode
+ok 140 - staff manual reply uses canonical message, stable idempotency and mode
+  ---
+  duration_ms: 6.511757
+  type: 'test'
+  ...
+# Subtest: 30 malicious or cross-customer inputs cannot execute commands, disclose prior thread, or send raw secrets
+ok 141 - 30 malicious or cross-customer inputs cannot execute commands, disclose prior thread, or send raw secrets
+  ---
+  duration_ms: 18.562479
+  type: 'test'
+  ...
+# Subtest: human requests and sensitive follow-ups never auto send when enabled
+ok 142 - human requests and sensitive follow-ups never auto send when enabled
+  ---
+  duration_ms: 1.589971
+  type: 'test'
+  ...
+# Subtest: paired token required, revoke old key, explicit enable/disable, no Meta
+ok 143 - paired token required, revoke old key, explicit enable/disable, no Meta
+  ---
+  duration_ms: 16.833038
+  type: 'test'
+  ...
+# Subtest: stale automatic send is quarantined, not replayed, then visible to owner
+ok 144 - stale automatic send is quarantined, not replayed, then visible to owner
+  ---
+  duration_ms: 1.587277
+  type: 'test'
+  ...
+# Subtest: confirmed staff takeover blocks an overlapping staff send and explicit resume
+ok 145 - confirmed staff takeover blocks an overlapping staff send and explicit resume
+  ---
+  duration_ms: 2.46918
+  type: 'test'
+  ...
+# (node:14752) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: exact seven-day half-open periods and boundary assignment
+ok 146 - exact seven-day half-open periods and boundary assignment
+  ---
+  duration_ms: 6.032642
+  type: 'test'
+  ...
+# Subtest: all booking statuses: cohort not sales
+ok 147 - all booking statuses: cohort not sales
+  ---
+  duration_ms: 1.255286
+  type: 'test'
+  ...
+# Subtest: missing database vs known empty
+ok 148 - missing database vs known empty
+  ---
+  duration_ms: 1.307505
+  type: 'test'
+  ...
+# Subtest: origin allowlist, unknown folded, no PII
+ok 149 - origin allowlist, unknown folded, no PII
+  ---
+  duration_ms: 1.425613
+  type: 'test'
+  ...
+# Subtest: Care party size counts children and infants; not unique customers
+ok 150 - Care party size counts children and infants; not unique customers
+  ---
+  duration_ms: 1.607729
+  type: 'test'
+  ...
+# Subtest: Care month exact and flexible; invalid month folded
+ok 151 - Care month exact and flexible; invalid month folded
+  ---
+  duration_ms: 1.335608
+  type: 'test'
+  ...
+# Subtest: hotel stars separate from plan tier
+ok 152 - hotel stars separate from plan tier
+  ---
+  duration_ms: 1.470191
+  type: 'test'
+  ...
+# Subtest: due records point in time excludes closed and equal due
+ok 153 - due records point in time excludes closed and equal due
+  ---
+  duration_ms: 1.29085
+  type: 'test'
+  ...
+# Subtest: same-session dedup, internal exclusion, no cross-platform merge
+ok 154 - same-session dedup, internal exclusion, no cross-platform merge
+  ---
+  duration_ms: 2.068254
+  type: 'test'
+  ...
+# Subtest: events crossing window not treated as both
+ok 155 - events crossing window not treated as both
+  ---
+  duration_ms: 2.491783
+  type: 'test'
+  ...
+# Subtest: partial schema failure does not poison other aggregates
+ok 156 - partial schema failure does not poison other aggregates
+  ---
+  duration_ms: 1.07858
+  type: 'test'
+  ...
+# Subtest: fixed SELECT only; 8 analytics queries, no changes to source data
+ok 157 - fixed SELECT only; 8 analytics queries, no changes to source data
+  ---
+  duration_ms: 1.133232
+  type: 'test'
+  ...
+# Subtest: strategy only requested for periodic snapshot; auth enforced on API
+ok 158 - strategy only requested for periodic snapshot; auth enforced on API
+  ---
+  duration_ms: 57.139746
+  type: 'test'
+  ...
+# Subtest: existing bootstrap-v21 table schemas accept all strategic queries
+ok 159 - existing bootstrap-v21 table schemas accept all strategic queries
+  ---
+  duration_ms: 11.941198
+  type: 'test'
+  ...
+# Subtest: autonomy decisions scoped to owner, exclude nondecisions/deleted records
+ok 160 - autonomy decisions scoped to owner, exclude nondecisions/deleted records
+  ---
+  duration_ms: 10.869588
+  type: 'test'
+  ...
+# Subtest: small talk and explicit memory operations skip full data snapshot
+ok 161 - small talk and explicit memory operations skip full data snapshot
+  ---
+  duration_ms: 0.729803
+  type: 'test'
+  ...
+# (node:14772) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: speech route owner and device session only; config status contains no key
+ok 162 - speech route owner and device session only; config status contains no key
+  ---
+  duration_ms: 23.234868
+  type: 'test'
+  ...
+# Subtest: 30 real voice IDs, consent, size and secret checks before provider
+ok 163 - 30 real voice IDs, consent, size and secret checks before provider
+  ---
+  duration_ms: 3.207706
+  type: 'test'
+  ...
+# Subtest: Gemini request uses fixed URL, selected voice, only transcript, stateless WAV
+ok 164 - Gemini request uses fixed URL, selected voice, only transcript, stateless WAV
+  ---
+  duration_ms: 3.351373
+  type: 'test'
+  ...
+# Subtest: provider errors sanitized, invalid audio rejected; quota counts failures, owner isolated
+ok 165 - provider errors sanitized, invalid audio rejected; quota counts failures, owner isolated
+  ---
+  duration_ms: 3.370931
+  type: 'test'
+  ...
+# Subtest: legacy Gemini key never configures Kelvin speech or reaches provider
+ok 166 - legacy Gemini key never configures Kelvin speech or reaches provider
+  ---
+  duration_ms: 1.672116
+  type: 'test'
+  ...
+# (node:14783) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: route separation and strict role/device auth
+ok 167 - route separation and strict role/device auth
+  ---
+  duration_ms: 15.724091
+  type: 'test'
+  ...
+# Subtest: one shared history, deduplication, sequential claim, scoped note and result
+ok 168 - one shared history, deduplication, sequential claim, scoped note and result
+  ---
+  duration_ms: 23.453092
+  type: 'test'
+  ...
+# Subtest: key rotation fences old claim, requeues, revoke and secrets rejected
+ok 169 - key rotation fences old claim, requeues, revoke and secrets rejected
+  ---
+  duration_ms: 13.330777
+  type: 'test'
+  ...
+# Subtest: aggregate query uses real schema columns, excludes personal fields and missing is unknown
+ok 170 - aggregate query uses real schema columns, excludes personal fields and missing is unknown
+  ---
+  duration_ms: 1.773169
+  type: 'test'
+  ...
+# Subtest: typed memory: 100 records, paginated; idempotent, owner scoped, source and version
+ok 171 - typed memory: 100 records, paginated; idempotent, owner scoped, source and version
+  ---
+  duration_ms: 81.859497
+  type: 'test'
+  ...
+# Subtest: 20 corrections/deletions: optimistic version, tombstones, no replay; audit and legacy migration
+ok 172 - 20 corrections/deletions: optimistic version, tombstones, no replay; audit and legacy migration
+  ---
+  duration_ms: 47.910711
+  type: 'test'
+  ...
+# Subtest: 20 alternating channels, 10 duplicate events, 3 expired leases; same history and no duplicate turns
+ok 173 - 20 alternating channels, 10 duplicate events, 3 expired leases; same history and no duplicate turns
+  ---
+  duration_ms: 64.1528
+  type: 'test'
+  ...
+# Subtest: candidate source, owner confirmation, role/token/lease fencing; no candidate auto trust
+ok 174 - candidate source, owner confirmation, role/token/lease fencing; no candidate auto trust
+  ---
+  duration_ms: 23.121536
+  type: 'test'
+  ...
+# Subtest: autonomy archive is separate from conversation, owner scoped, idempotent, read only snapshot
+ok 175 - autonomy archive is separate from conversation, owner scoped, idempotent, read only snapshot
+  ---
+  duration_ms: 69.330256
+  type: 'test'
+  ...
+# Subtest: voice turn lookup is exact, owner scoped, idempotent, independent of recent history
+ok 176 - voice turn lookup is exact, owner scoped, idempotent, independent of recent history
+  ---
+  duration_ms: 10.300679
+  type: 'test'
+  ...
+# Subtest: block 07 diagnostics exposes only owner queue counts, not credentials or text
+ok 177 - block 07 diagnostics exposes only owner queue counts, not credentials or text
+  ---
+  duration_ms: 5.71957
+  type: 'test'
+  ...
+# Subtest: block 07 exact completion replay after lost HTTP response; changed or rotated lease rejected
+ok 178 - block 07 exact completion replay after lost HTTP response; changed or rotated lease rejected
+  ---
+  duration_ms: 7.38786
+  type: 'test'
+  ...
+# Subtest: merged native voice and protocol 7 coexist in the same authenticated owner database
+ok 179 - merged native voice and protocol 7 coexist in the same authenticated owner database
+  ---
+  duration_ms: 12.722007
+  type: 'test'
+  ...
+# (node:14794) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: device choice survives legacy registrations and is scoped to topic and environment
+ok 180 - device choice survives legacy registrations and is scoped to topic and environment
+  ---
+  duration_ms: 4.385043
+  type: 'test'
+  ...
+# Subtest: Business APNs sends different sounds to each device; switching back updates next notification
+ok 181 - Business APNs sends different sounds to each device; switching back updates next notification
+  ---
+  duration_ms: 39.508029
+  type: 'test'
+  ...
+# (node:14800) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: package route resolves to the actual packages module, not binding health; unknown path stays 404
+ok 182 - package route resolves to the actual packages module, not binding health; unknown path stays 404
+  ---
+  duration_ms: 65.622961
+  type: 'test'
+  ...
+# Subtest: both account session paths reject missing, wrong, expired and revoked credentials; valid existing session reads same HOTELS_DB
+ok 183 - both account session paths reject missing, wrong, expired and revoked credentials; valid existing session reads same HOTELS_DB
+  ---
+  duration_ms: 25.289329
+  type: 'test'
+  ...
+# Subtest: package logout revokes exactly the current session; existing legacy session endpoint immediately observes revocation
+ok 184 - package logout revokes exactly the current session; existing legacy session endpoint immediately observes revocation
+  ---
+  duration_ms: 18.327001
+  type: 'test'
+  ...
+# Subtest: new package session routes preserve the migration safety gate
+ok 185 - new package session routes preserve the migration safety gate
+  ---
+  duration_ms: 14.043994
+  type: 'test'
+  ...
+# Subtest: auxiliary deploy schema is additive and idempotent; preserves existing account and session records
+ok 186 - auxiliary deploy schema is additive and idempotent; preserves existing account and session records
+  ---
+  duration_ms: 12.94925
+  type: 'test'
+  ...
+# BOOKING_IDENTITY_PENDING IUM-2027-GAJCXVP fixture outage
+# Subtest: guest booking API returns server IDs, reopens without login, activates same profile, and links next trip
+ok 187 - guest booking API returns server IDs, reopens without login, activates same profile, and links next trip
+  ---
+  duration_ms: 78.419817
+  type: 'test'
+  ...
+# Subtest: V6 verified checkout commits notification intent, deduplicates replay, dispatches SMS + APNs and signs into the same guest profile
+ok 188 - V6 verified checkout commits notification intent, deduplicates replay, dispatches SMS + APNs and signs into the same guest profile
+  ---
+  duration_ms: 141.286064
+  type: 'test'
+  ...
+# Subtest: account deletion removes only the authenticated trip-free identity and revokes access
+ok 189 - account deletion removes only the authenticated trip-free identity and revokes access
+  ---
+  duration_ms: 15.895339
+  type: 'test'
+  ...
+# Subtest: booking links route to a private-safe app landing page and AASA
+ok 190 - booking links route to a private-safe app landing page and AASA
+  ---
+  duration_ms: 14.072206
+  type: 'test'
+  ...
+# Subtest: package contracts are served by a module of the unified Worker, without changing hotel or flight routing
+ok 191 - package contracts are served by a module of the unified Worker, without changing hotel or flight routing
+  ---
+  duration_ms: 13.413131
+  type: 'test'
+  ...
+# Subtest: cutover never falsely declares the missing core implemented or old data safe to delete
+ok 192 - cutover never falsely declares the missing core implemented or old data safe to delete
+  ---
+  duration_ms: 1.185731
+  type: 'test'
+  ...
+# Subtest: package cron starts only with core cutover and explicit scheduler enablement
+ok 193 - package cron starts only with core cutover and explicit scheduler enablement
+  ---
+  duration_ms: 1.093532
+  type: 'test'
+  ...
+# Subtest: newly imported account and booking mutations cannot write to an unverified Core
+ok 194 - newly imported account and booking mutations cannot write to an unverified Core
+  ---
+  duration_ms: 3.82014
+  type: 'test'
+  ...
+# Subtest: legacy activation flag alone cannot unlock private data or mutations
+ok 195 - legacy activation flag alone cannot unlock private data or mutations
+  ---
+  duration_ms: 0.884616
+  type: 'test'
+  ...
+# Subtest: Resend retry can run independently of package maintenance, only with active Core
+ok 196 - Resend retry can run independently of package maintenance, only with active Core
+  ---
+  duration_ms: 0.335807
+  type: 'test'
+  ...
+# Subtest: missing old hotels table yields a visible warning, not false discovery failure
+ok 197 - missing old hotels table yields a visible warning, not false discovery failure
+  ---
+  duration_ms: 2.883335
+  type: 'test'
+  ...
+# Subtest: an unavailable R2 may be omitted in staging but is explicitly reported
+ok 198 - an unavailable R2 may be omitted in staging but is explicitly reported
+  ---
+  duration_ms: 0.607588
+  type: 'test'
+  ...
+# Subtest: missing D1 blocks publishing and no replacement database is created
+ok 199 - missing D1 blocks publishing and no replacement database is created
+  ---
+  duration_ms: 10.417907
+  type: 'test'
+  ...
+# Subtest: D1 name mismatch blocks publishing
+ok 200 - D1 name mismatch blocks publishing
+  ---
+  duration_ms: 0.456149
+  type: 'test'
+  ...
+# Subtest: allows only known schedules for a single unified Worker
+ok 201 - allows only known schedules for a single unified Worker
+  ---
+  duration_ms: 0.416369
+  type: 'test'
+  ...
+# Subtest: all reviewed advisor entries and exact audio routes are available without Supabase credentials
+ok 202 - all reviewed advisor entries and exact audio routes are available without Supabase credentials
+  ---
+  duration_ms: 51.902021
+  type: 'test'
+  ...
+# Subtest: prayer, weather and exchange rates preserve client contract with fixed upstream destinations
+ok 203 - prayer, weather and exchange rates preserve client contract with fixed upstream destinations
+  ---
+  duration_ms: 1.577273
+  type: 'test'
+  ...
+# Subtest: rejects invalid inputs, arbitrary audio URLs, provider redirects and invalid responses
+ok 204 - rejects invalid inputs, arbitrary audio URLs, provider redirects and invalid responses
+  ---
+  duration_ms: 1.977597
+  type: 'test'
+  ...
+# Subtest: router preserves public catalog and blocks private HotelsWorker bypass before activation
+ok 205 - router preserves public catalog and blocks private HotelsWorker bypass before activation
+  ---
+  duration_ms: 3.560808
+  type: 'test'
+  ...
+# Subtest: live Advisor edits pass through only known keys and safe audio origins; offline catalogue remains available
+ok 206 - live Advisor edits pass through only known keys and safe audio origins; offline catalogue remains available
+  ---
+  duration_ms: 2.685547
+  type: 'test'
+  ...
+# Subtest: Telegram outbox retry uses internal dispatch only after cutover and valid secret
+ok 207 - Telegram outbox retry uses internal dispatch only after cutover and valid secret
+  ---
+  duration_ms: 12.994598
+  type: 'test'
+  ...
+# (node:14856) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:14856) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time
+# Subtest: D1 share schema is additive, repeat-safe and references the canonical booking table
+ok 208 - D1 share schema is additive, repeat-safe and references the canonical booking table
+  ---
+  duration_ms: 5.386466
+  type: 'test'
+  ...
+# Subtest: owner create, public read-only status and audited document readiness, revocation
+ok 209 - owner create, public read-only status and audited document readiness, revocation
+  ---
+  duration_ms: 28.514472
+  type: 'test'
+  ...
+# Subtest: account session ownership checked by HOTELS_DB, not any public share token
+ok 210 - account session ownership checked by HOTELS_DB, not any public share token
+  ---
+  duration_ms: 10.576952
+  type: 'test'
+  ...
+# Subtest: expired opaque tokens and methods are rejected, regardless of query parameters
+ok 211 - expired opaque tokens and methods are rejected, regardless of query parameters
+  ---
+  duration_ms: 10.378347
+  type: 'test'
+  ...
+# Subtest: unified router forwards only the share endpoints without opening other pending booking mutations
+ok 212 - unified router forwards only the share endpoints without opening other pending booking mutations
+  ---
+  duration_ms: 1.768872
+  type: 'test'
+  ...
+# Subtest: public projection itself never treats a client supplied visa flag as proof
+ok 213 - public projection itself never treats a client supplied visa flag as proof
+  ---
+  duration_ms: 0.224369
+  type: 'test'
+  ...
+# Subtest: production smoke uses valid device credentials and revokes test session
+ok 214 - production smoke uses valid device credentials and revokes test session
+  ---
+  duration_ms: 50.445023
+  type: 'test'
+  ...
+# Subtest: public-only checks do not authenticate or declare production ready
+ok 215 - public-only checks do not authenticate or declare production ready
+  ---
+  duration_ms: 3.41632
+  type: 'test'
+  ...
+# Subtest: missing provider data blocks activation smoke before credentials used
+ok 216 - missing provider data blocks activation smoke before credentials used
+  ---
+  duration_ms: 6.192344
+  type: 'test'
+  ...
+# IUMRAH_BACKEND_UNKNOWN_CRON 0 * * * *
+# Subtest: preserves exact existing hotel endpoints
+ok 217 - preserves exact existing hotel endpoints
+  ---
+  duration_ms: 1.626016
+  type: 'test'
+  ...
+# Subtest: routes old and unified flight API into same flight handler
+ok 218 - routes old and unified flight API into same flight handler
+  ---
+  duration_ms: 0.260514
+  type: 'test'
+  ...
+# Subtest: routes core contracts and does not intercept unrelated paths
+ok 219 - routes core contracts and does not intercept unrelated paths
+  ---
+  duration_ms: 0.270999
+  type: 'test'
+  ...
+# Subtest: routes Telegram Mini App and its assets to core without intercepting unrelated paths
+ok 220 - routes Telegram Mini App and its assets to core without intercepting unrelated paths
+  ---
+  duration_ms: 0.228545
+  type: 'test'
+  ...
+# Subtest: existing handlers receive original request and environment unchanged
+ok 221 - existing handlers receive original request and environment unchanged
+  ---
+  duration_ms: 8.172194
+  type: 'test'
+  ...
+# Subtest: health distinguishes presence of bindings from actual DB health
+ok 222 - health distinguishes presence of bindings from actual DB health
+  ---
+  duration_ms: 2.438924
+  type: 'test'
+  ...
+# Subtest: cron executes exactly one relevant subsystem
+ok 223 - cron executes exactly one relevant subsystem
+  ---
+  duration_ms: 1.38324
+  type: 'test'
+  ...
+# Subtest: health reports FCM configuration shape without returning credentials
+ok 224 - health reports FCM configuration shape without returning credentials
+  ---
+  duration_ms: 1.312462
+  type: 'test'
+  ...
+# (node:14889) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# HOTELS_DB: schema verified, created 88 tables, added 0 columns; existing rows preserved.
+# BOOKINGS_DB: schema verified, created 14 tables, added 0 columns; existing rows preserved.
+# Schema readiness only; existing user/booking data parity and R2 migration are NOT verified. Core cutover remains gated.
+# HOTELS_DB: schema verified, created 0 tables, added 0 columns; existing rows preserved.
+# BOOKINGS_DB: schema verified, created 0 tables, added 0 columns; existing rows preserved.
+# Schema readiness only; existing user/booking data parity and R2 migration are NOT verified. Core cutover remains gated.
+# Subtest: new hotel D1 with intelligence tables only is bootstrapped, not reset
+ok 225 - new hotel D1 with intelligence tables only is bootstrapped, not reset
+  ---
+  duration_ms: 43.71278
+  type: 'test'
+  ...
+# Subtest: new bookings D1 schema includes booking documents and room columns; repeat is safe
+ok 226 - new bookings D1 schema includes booking documents and room columns; repeat is safe
+  ---
+  duration_ms: 3.185271
+  type: 'test'
+  ...
+# Subtest: non-additive changes are rejected rather than fabricated
+ok 227 - non-additive changes are rejected rather than fabricated
+  ---
+  duration_ms: 0.919388
+  type: 'test'
+  ...
+# Subtest: remote schema deploy path repairs the discovered partial databases and is safe on retry
+ok 228 - remote schema deploy path repairs the discovered partial databases and is safe on retry
+  ---
+  duration_ms: 184.119309
+  type: 'test'
+  ...
+# Subtest: V21 provisions original account security, referral ledger and Care schema before activation
+ok 229 - V21 provisions original account security, referral ledger and Care schema before activation
+  ---
+  duration_ms: 28.824811
+  type: 'test'
+  ...
+# (node:14900) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# STAFF_RECOVERY_MAIL_ACCEPTED test-message-id
+# Subtest: owner recovery is routed, hashes credentials, consumes code, revokes old cookies and preserves canonical staff identity
+ok 230 - owner recovery is routed, hashes credentials, consumes code, revokes old cookies and preserves canonical staff identity
+  ---
+  duration_ms: 1121.684919
+  type: 'test'
+  ...
+# STAFF_RECOVERY_MAIL_ACCEPTED test-message-id
+# Subtest: only configured owner can initiate or finish; missing configuration fails closed
+ok 231 - only configured owner can initiate or finish; missing configuration fails closed
+  ---
+  duration_ms: 60.246083
+  type: 'test'
+  ...
+# STAFF_RECOVERY_MAIL_ACCEPTED test-message-id
+# Subtest: OTP lockout is atomic and correct code cannot bypass five wrong guesses
+ok 232 - OTP lockout is atomic and correct code cannot bypass five wrong guesses
+  ---
+  duration_ms: 21.652773
+  type: 'test'
+  ...
+# STAFF_RECOVERY_MAIL_ACCEPTED test-message-id
+# STAFF_RECOVERY_MAIL_ACCEPTED test-message-id
+# Subtest: concurrent issue and confirm cannot send or consume twice; expiry enforced
+ok 233 - concurrent issue and confirm cannot send or consume twice; expiry enforced
+  ---
+  duration_ms: 73.759732
+  type: 'test'
+  ...
+# STAFF_RECOVERY_MAIL_FAILED STAFF_RECOVERY_EMAIL_FAILED
+# STAFF_RECOVERY_MAIL_ACCEPTED test-message-id
+# STAFF_RECOVERY_MAIL_ACCEPTED test-message-id
+# STAFF_RECOVERY_MAIL_ACCEPTED test-message-id
+# STAFF_RECOVERY_MAIL_ACCEPTED test-message-id
+# Subtest: provider failure invalidates code without clearing rate limits; hourly limit stays enforced
+ok 234 - provider failure invalidates code without clearing rate limits; hourly limit stays enforced
+  ---
+  duration_ms: 22.710379
+  type: 'test'
+  ...
+# Subtest: additive schema includes recovery table in core DB only
+ok 235 - additive schema includes recovery table in core DB only
+  ---
+  duration_ms: 6.079313
+  type: 'test'
+  ...
+# STAFF_RECOVERY_MAIL_ACCEPTED test-message-id
+# Subtest: V37 recovery traverses the real unified router with core enabled, not only the core handler
+ok 236 - V37 recovery traverses the real unified router with core enabled, not only the core handler
+  ---
+  duration_ms: 130.39558
+  type: 'test'
+  ...
+# Subtest: V37 distinguishes missing config and missing D1 schema without sending email or leaking values
+ok 237 - V37 distinguishes missing config and missing D1 schema without sending email or leaking values
+  ---
+  duration_ms: 9.387881
+  type: 'test'
+  ...
+# STAFF_RECOVERY_MAIL_FAILED STAFF_RECOVERY_MAIL_AUTH
+# STAFF_RECOVERY_MAIL_FAILED STAFF_RECOVERY_MAIL_AUTH
+# STAFF_RECOVERY_MAIL_FAILED STAFF_RECOVERY_MAIL_RATE_LIMIT
+# STAFF_RECOVERY_MAIL_FAILED STAFF_RECOVERY_MAIL_REJECTED
+# STAFF_RECOVERY_MAIL_FAILED STAFF_RECOVERY_MAIL_UNCONFIRMED
+# Subtest: V37 mail rejection reports safe reason; provider success without id is not success
+ok 238 - V37 mail rejection reports safe reason; provider success without id is not success
+  ---
+  duration_ms: 10.171468
+  type: 'test'
+  ...
+# STAFF_RECOVERY_MAIL_ACCEPTED test-message-id
+# Subtest: V37 uses explicitly configured sender but never caller-selected recipient or sender
+ok 239 - V37 uses explicitly configured sender but never caller-selected recipient or sender
+  ---
+  duration_ms: 2.222257
+  type: 'test'
+  ...
+# (node:14911) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: Gemini output is an allowlisted topic, never arbitrary text or invented prices; credentials bypass model
+ok 240 - Gemini output is an allowlisted topic, never arbitrary text or invented prices; credentials bypass model
+  ---
+  duration_ms: 6.928185
+  type: 'test'
+  ...
+# Subtest: guest conversation stores history, deduplicates messages, transfers to staff, pauses Gemini and resumes on explicit staff action
+ok 241 - guest conversation stores history, deduplicates messages, transfers to staff, pauses Gemini and resumes on explicit staff action
+  ---
+  duration_ms: 14.456076
+  type: 'test'
+  ...
+# Subtest: human handoff is idempotent and uncertain staff delivery is visible, not automatically duplicated
+ok 242 - human handoff is idempotent and uncertain staff delivery is visible, not automatically duplicated
+  ---
+  duration_ms: 3.125702
+  type: 'test'
+  ...
+# Subtest: staff Care route is behind the existing staff + device middleware and cutover gate
+ok 243 - staff Care route is behind the existing staff + device middleware and cutover gate
+  ---
+  duration_ms: 3.674541
+  type: 'test'
+  ...
+# (node:14922) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: eSIM and Telegram OAuth are optional, but email and bot token still gate configured release
+ok 244 - eSIM and Telegram OAuth are optional, but email and bot token still gate configured release
+  ---
+  duration_ms: 7.142409
+  type: 'test'
+  ...
+# Subtest: guest booking owner generates a one-time link; wrong access token is refused before provider calls
+ok 245 - guest booking owner generates a one-time link; wrong access token is refused before provider calls
+  ---
+  duration_ms: 37.332091
+  type: 'test'
+  ...
+# Subtest: webhook verifies secret, ignores group messages, binds only once and sends notification
+ok 246 - webhook verifies secret, ignores group messages, binds only once and sends notification
+  ---
+  duration_ms: 17.760268
+  type: 'test'
+  ...
+# Subtest: expired link cannot rebind; status changes send only once; retry endpoint requires derived secret
+ok 247 - expired link cannot rebind; status changes send only once; retry endpoint requires derived secret
+  ---
+  duration_ms: 17.1591
+  type: 'test'
+  ...
+# Subtest: deployment setup is protected, uses fixed webhook and Mini App, preserves pending updates
+ok 248 - deployment setup is protected, uses fixed webhook and Mini App, preserves pending updates
+  ---
+  duration_ms: 4.499516
+  type: 'test'
+  ...
+# Subtest: Mini App routes signed Telegram identity through unified booking and Care APIs only
+ok 249 - Mini App routes signed Telegram identity through unified booking and Care APIs only
+  ---
+  duration_ms: 63.597101
+  type: 'test'
+  ...
+# Subtest: existing notification-only subscription can reconnect; old Telegram identity loses access after rebind
+ok 250 - existing notification-only subscription can reconnect; old Telegram identity loses access after rebind
+  ---
+  duration_ms: 35.461215
+  type: 'test'
+  ...
+# Subtest: Mini App assets are served by one Worker and browser script parses
+ok 251 - Mini App assets are served by one Worker and browser script parses
+  ---
+  duration_ms: 15.055413
+  type: 'test'
+  ...
+# TELEGRAM_SETUP_FAILED WEBHOOK TELEGRAM_getMe_HTTP_401
+# TELEGRAM_SETUP_FAILED MENU TELEGRAM_setChatMenuButton_HTTP_400
+# Subtest: setup reports failing provider method without leaking token, retries temporary failures only
+ok 252 - setup reports failing provider method without leaking token, retries temporary failures only
+  ---
+  duration_ms: 357.329485
+  type: 'test'
+  ...
+# TELEGRAM_SETUP_FAILED WEBHOOK TELEGRAM_getMe_HTTP_302
+# Subtest: Cloudflare-compatible setup rejects redirects without following or retrying them
+ok 253 - Cloudflare-compatible setup rejects redirects without following or retrying them
+  ---
+  duration_ms: 2.529281
+  type: 'test'
+  ...
+# Subtest: Concierge reads linked booking; explicit manager text opens Telegram Care for Business
+ok 254 - Concierge reads linked booking; explicit manager text opens Telegram Care for Business
+  ---
+  duration_ms: 28.227959
+  type: 'test'
+  ...
+# (node:14933) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: signed Telegram initData required for storefront, document and trip mutation
+ok 255 - signed Telegram initData required for storefront, document and trip mutation
+  ---
+  duration_ms: 8.129109
+  type: 'test'
+  ...
+# Subtest: quote uses fixed canonical endpoints and encrypts authoritative price and owner
+ok 256 - quote uses fixed canonical endpoints and encrypts authoritative price and owner
+  ---
+  duration_ms: 48.074608
+  type: 'test'
+  ...
+# Subtest: rejects invalid city, capacity, and manipulated flight route
+ok 257 - rejects invalid city, capacity, and manipulated flight route
+  ---
+  duration_ms: 4.901094
+  type: 'test'
+  ...
+# Subtest: checkout refuses foreign, altered and missing consent decision
+ok 258 - checkout refuses foreign, altered and missing consent decision
+  ---
+  duration_ms: 4.867573
+  type: 'test'
+  ...
+# Subtest: verified checkout links only owner, queues status, and is idempotent
+ok 259 - verified checkout links only owner, queues status, and is idempotent
+  ---
+  duration_ms: 13.482015
+  type: 'test'
+  ...
+# Subtest: OTP delegates to existing contact service; invalid channels denied
+ok 260 - OTP delegates to existing contact service; invalid channels denied
+  ---
+  duration_ms: 0.825187
+  type: 'test'
+  ...
+# Subtest: signed owner can read published document and update traveler; other identity cannot access either
+ok 261 - signed owner can read published document and update traveler; other identity cannot access either
+  ---
+  duration_ms: 23.055326
+  type: 'test'
+  ...
+# Subtest: guest may book without Telegram notification consent
+ok 262 - guest may book without Telegram notification consent
+  ---
+  duration_ms: 15.022442
+  type: 'test'
+  ...
+# Subtest: agreed 4120 package preserves total, unchanged flights/hotels/visa, round guide and true fee
+ok 263 - agreed 4120 package preserves total, unchanged flights/hotels/visa, round guide and true fee
+  ---
+  duration_ms: 6.886838
+  type: 'test'
+  ...
+# Subtest: rounding and payment reconcile cents, priced add-ons are not silently dropped
+ok 264 - rounding and payment reconcile cents, priced add-ons are not silently dropped
+  ---
+  duration_ms: 0.92015
+  type: 'test'
+  ...
+# Subtest: deep discount or missing addon does not invent client price or negative supplier amounts
+ok 265 - deep discount or missing addon does not invent client price or negative supplier amounts
+  ---
+  duration_ms: 0.273203
+  type: 'test'
+  ...
+# Subtest: only adults are used for five-person escalation
+ok 266 - only adults are used for five-person escalation
+  ---
+  duration_ms: 0.198881
+  type: 'test'
+  ...
+# Subtest: transfer exactly 24 hours, late penalty, caps and post-start manual review
+ok 267 - transfer exactly 24 hours, late penalty, caps and post-start manual review
+  ---
+  duration_ms: 4.445676
+  type: 'test'
+  ...
+# Subtest: visa preparation and actual submission are separate; refusals require review
+ok 268 - visa preparation and actual submission are separate; refusals require review
+  ---
+  duration_ms: 0.190147
+  type: 'test'
+  ...
+# Subtest: refund estimate excludes unverified supplier terms and paid fee, uses actual visa state and late transfer penalty
+ok 269 - refund estimate excludes unverified supplier terms and paid fee, uses actual visa state and late transfer penalty
+  ---
+  duration_ms: 0.667929
+  type: 'test'
+  ...
+1..269
+# tests 269
+# suites 0
+# pass 269
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 5592.835989

@@ -1,0 +1,6 @@
+FAIL: test_chat_defaults_to_all_threads (test_business_design_v35.BusinessDesignContracts.test_chat_defaults_to_all_threads)
+FAIL: test_all_explicit_navigation_titles_have_brand_surface (test_design_consistency_block1.DesignConsistency.test_all_explicit_navigation_titles_have_brand_surface)
+FAIL: test_rail_and_price_preview (test_design_consistency_block1.DesignConsistency.test_rail_and_price_preview)
+FAIL: test_concierge_is_separate_and_safe (test_design_consistency_block2.Block2.test_concierge_is_separate_and_safe)
+Ran 34 tests in 0.953s
+FAILED (failures=4)
