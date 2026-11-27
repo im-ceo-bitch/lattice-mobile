@@ -2,11 +2,13 @@ import SwiftUI
 
 @MainActor
 final class BusinessNavigationStore: ObservableObject {
-    @Published var selection: BusinessWorkspaceSection = .overview
+    @Published var selection: BusinessWorkspaceSection = .kelvin
     @Published var bookingFilterRequest: String?
     @Published var unreadChatCount = 0
     @Published var openFlightCatalog = false
     @Published var openRequests = false
+    @Published var configuratorRequest = 0
+    func showConfigurator() { configuratorRequest += 1; selection = .overview }
     func showRequests() { openRequests = true; selection = .bookings }
     func openBookings(filter: String = "all") { bookingFilterRequest = filter; selection = .bookings }
 
@@ -18,7 +20,7 @@ final class BusinessNavigationStore: ObservableObject {
 
 enum BusinessWorkspaceSection: String, Identifiable, CaseIterable, Hashable {
     case overview
-    case create
+    case kelvin
     case account
     case bookings
     case chats
@@ -39,7 +41,7 @@ enum BusinessWorkspaceSection: String, Identifiable, CaseIterable, Hashable {
     var title: String {
         switch self {
         case .overview: return "Обзор"
-        case .create: return "Создать"
+        case .kelvin: return "Kelvin"
         case .account: return "Аккаунт"
         case .bookings: return "Поездки"
         case .chats: return "Чаты"
@@ -60,7 +62,7 @@ enum BusinessWorkspaceSection: String, Identifiable, CaseIterable, Hashable {
     var systemImage: String {
         switch self {
         case .overview: return "square.grid.2x2.fill"
-        case .create: return "plus.circle"
+        case .kelvin: return "waveform"
         case .account: return "person.crop.circle"
         case .bookings: return "suitcase.rolling.fill"
         case .chats: return "message.fill"
@@ -79,7 +81,7 @@ enum BusinessWorkspaceSection: String, Identifiable, CaseIterable, Hashable {
     }
 
     static let primary: [BusinessWorkspaceSection] = [
-        .overview, .bookings, .create, .chats, .account
+        .kelvin, .bookings, .overview, .chats, .account
     ]
 
     static let administration: [BusinessWorkspaceSection] = [
@@ -92,6 +94,7 @@ enum BusinessWorkspaceSection: String, Identifiable, CaseIterable, Hashable {
 /// - iPad regular/wide: persistent product sidebar.
 /// - Mac Catalyst: desktop sidebar at every supported window size.
 struct BusinessTabView: View {
+    @EnvironmentObject private var auth: AuthStore
     @EnvironmentObject private var navigation: BusinessNavigationStore
     @Environment(\.businessAdaptiveLayout) private var layout
 
@@ -110,8 +113,14 @@ struct BusinessTabView: View {
         .onReceive(NotificationCenter.default.publisher(for: .iumrahBusinessBookingOpen)) { _ in
             navigation.navigate(to: .bookings)
         }
+        .task(id: auth.user?.login) { await updateUnreadChats() }
+        .onReceive(NotificationCenter.default.publisher(for: .iumrahBusinessChatChanged)) { _ in Task { await updateUnreadChats() } }
+        .onReceive(NotificationCenter.default.publisher(for: .iumrahBusinessChatRead)) { _ in Task { await updateUnreadChats() } }
         .onReceive(NotificationCenter.default.publisher(for: .iumrahBusinessChatOpen)) { _ in
             navigation.navigate(to: .chats)
+        }
+        .onChange(of: auth.user?.role, initial: true) { _, role in
+            if role?.lowercased() != "superadmin" && navigation.selection == .kelvin { navigation.selection = .overview }
         }
         .onAppear {
             if BusinessNotificationRoute.pendingBooking != nil || BusinessNotificationRoute.pendingOffer != nil { navigation.navigate(to: .bookings) }
@@ -120,6 +129,11 @@ struct BusinessTabView: View {
                 navigation.openFlightCatalog = true; navigation.navigate(to: .account)
             }
         }
+    }
+    private func updateUnreadChats() async {
+        let login = auth.user?.login
+        guard login != nil, let threads = try? await APIClient.shared.businessChatThreads(), !Task.isCancelled, login == auth.user?.login else { return }
+        navigation.unreadChatCount = threads.filter(\.unreadForStaff).count
     }
 }
 
@@ -131,15 +145,15 @@ private struct BusinessCompactTabView: View {
     var body: some View {
         Group {
             TabView(selection: $navigation.selection) {
-                NavigationStack { OverviewView() }
-                    .tag(BusinessWorkspaceSection.overview)
-                    .tabItem { Label("Обзор", systemImage: "square.grid.2x2.fill") }
+                NavigationStack { KelvinView(isSelected: navigation.selection == .kelvin) }
+                    .tag(BusinessWorkspaceSection.kelvin)
+                    .tabItem { Label("Kelvin", systemImage: "waveform") }
                 NavigationStack { BookingsView() }
                     .tag(BusinessWorkspaceSection.bookings)
                     .tabItem { Label("Поездки", systemImage: "suitcase.rolling.fill") }
                 NavigationStack { BusinessNativeConfiguratorView(owner: auth.user?.login ?? "") }
-                    .tag(BusinessWorkspaceSection.create)
-                    .tabItem { Label("Создать", systemImage: "plus.circle") }
+                    .tag(BusinessWorkspaceSection.overview)
+                    .tabItem { Label("Обзор", systemImage: "square.grid.2x2.fill") }
                 NavigationStack { ChatsView() }
                     .tag(BusinessWorkspaceSection.chats)
                     .tabItem { Label("Чаты", systemImage: "message.fill") }
@@ -200,14 +214,22 @@ private struct BusinessWorkspaceView: View {
                 }
             }
             .listStyle(.sidebar)
-            .navigationTitle("iumrah Business").navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
+            .navigationTitle("Kelvin").navigationBarTitleDisplayMode(.inline).businessNavigationSurface()
             .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 300)
         } detail: {
             BusinessAdaptivePaneHost {
-                NavigationStack {
-                    workspaceDestination(navigation.selection)
+                ZStack {
+                    if auth.user?.role.lowercased() == "superadmin" {
+                        NavigationStack { KelvinView(isSelected: navigation.selection == .kelvin) }
+                            .opacity(navigation.selection == .kelvin ? 1 : 0)
+                            .allowsHitTesting(navigation.selection == .kelvin)
+                            .accessibilityHidden(navigation.selection != .kelvin)
+                    }
+                    if navigation.selection != .kelvin || auth.user?.role.lowercased() != "superadmin" {
+                        NavigationStack { workspaceDestination(navigation.selection) }
+                            .id(navigation.selection)
+                    }
                 }
-                .id(navigation.selection)
             }
         }
         .navigationSplitViewStyle(.balanced)
@@ -240,8 +262,8 @@ private struct BusinessWorkspaceView: View {
     @ViewBuilder
     private func workspaceDestination(_ section: BusinessWorkspaceSection) -> some View {
         switch section {
-        case .overview: OverviewView()
-        case .create: BusinessNativeConfiguratorView(owner: auth.user?.login ?? "")
+        case .overview: BusinessNativeConfiguratorView(owner: auth.user?.login ?? "")
+        case .kelvin: KelvinView()
         case .account: BusinessAccountHome()
         case .bookings: BookingsView()
         case .chats: ChatsView()
@@ -265,11 +287,11 @@ struct BusinessNavigationCommands: Commands {
 
     var body: some Commands {
         CommandMenu("Navigate") {
-            Button("Обзор") { navigation.navigate(to: .overview) }
+            Button("Kelvin") { navigation.navigate(to: .kelvin) }
                 .keyboardShortcut("1", modifiers: .command)
             Button("Бронирования") { navigation.navigate(to: .bookings) }
                 .keyboardShortcut("2", modifiers: .command)
-            Button("Создать") { navigation.navigate(to: .create) }.keyboardShortcut("3", modifiers: .command)
+            Button("Обзор") { navigation.navigate(to: .overview) }.keyboardShortcut("3", modifiers: .command)
             Button("Чаты") { navigation.navigate(to: .chats) }.keyboardShortcut("4", modifiers: .command)
             Button("Аккаунт") { navigation.navigate(to: .account) }.keyboardShortcut("5", modifiers: .command)
 

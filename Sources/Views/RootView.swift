@@ -5,11 +5,17 @@ struct RootView: View {
     @EnvironmentObject private var navigation: BusinessNavigationStore
     @EnvironmentObject private var appLock: BusinessAppLockStore
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.businessAdaptiveLayout) private var layout
+
+    @State private var launchRevealing = true
+    @State private var launchCollapsed = false
+    @State private var launchStarted = Date()
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ZStack {
             switch auth.state {
-            case .checking: LaunchView()
+            case .checking: Color(uiColor: .systemBackground)
             case .signedOut: LoginView()
             case .signedIn:
                 BusinessTabView()
@@ -22,6 +28,23 @@ struct RootView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background { BusinessDesign.background.ignoresSafeArea() }
         .tint(BusinessDesign.ink)
+        .overlay {
+            if launchRevealing || auth.state == .checking {
+                KelvinLaunchMark(collapsed: launchCollapsed).transition(.opacity).zIndex(1)
+            }
+        }
+        .task(id: auth.state) {
+            guard launchRevealing, auth.state != .checking else { return }
+            let remaining = max(0, 0.82 - Date().timeIntervalSince(launchStarted))
+            if !reduceMotion { try? await Task.sleep(for: .seconds(remaining)) }
+            guard !Task.isCancelled else { return }
+            if !reduceMotion && auth.state == .signedIn && !appLock.isLocked && !layout.usesWorkspaceNavigation && navigation.selection == .kelvin && auth.user?.role.lowercased() == "superadmin" {
+                withAnimation(.easeInOut(duration: 0.42)) { launchCollapsed = true }
+                try? await Task.sleep(for: .milliseconds(420))
+            }
+            guard !Task.isCancelled else { return }
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.22)) { launchRevealing = false }
+        }
         .overlay {
             // Prevent displaying Business data in app-switcher snapshots.
             if auth.state == .signedIn && scenePhase != .active {
@@ -39,7 +62,8 @@ struct RootView: View {
                 appLock.didSignOut()
                 navigation.unreadChatCount = 0
                 navigation.bookingFilterRequest = nil
-                navigation.selection = .overview
+                navigation.configuratorRequest = 0
+                navigation.selection = .kelvin
                 BusinessNotificationRoute.pendingOffer = nil
                 BusinessNotificationRoute.pendingBooking = nil
                 BusinessNotificationRoute.pendingChat = nil
@@ -68,17 +92,3 @@ struct RootView: View {
     }
 }
 
-private struct LaunchView: View {
-    @State private var pulse = false
-    var body: some View {
-        VStack(spacing: 18) {
-            BusinessBrandLogo(height: 62)
-                .frame(maxWidth: 300)
-            Capsule()
-                .fill(BusinessDesign.ink.opacity(0.85))
-                .frame(width: pulse ? 72 : 28, height: 3)
-                .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: pulse)
-        }
-        .onAppear { pulse = true }
-    }
-}

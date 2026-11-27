@@ -77,22 +77,16 @@ struct OverviewView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 16) {
+        VStack(spacing: 16) {
                 BusinessPageHeading(title: "Обзор", subtitle: "Центр управления iumrah")
-                if auth.user?.role.lowercased() == "superadmin" {
-                    NavigationLink { KelvinView() } label: {
-                        HStack(spacing: 14) {
-                            Image(systemName: "waveform").font(.title2)
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("kelvin.").font(.title2.weight(.semibold))
-                                Text("Личный бизнес-ассистент").font(.caption).foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Image(systemName: "arrow.up.right").font(.subheadline)
-                        }.padding(18).foregroundStyle(.white).background(Color.black, in: RoundedRectangle(cornerRadius: 24))
-                    }.buttonStyle(.plain)
-                }
+                HStack {
+                    Button { Task { await store.reload(); await store.reloadSecurityEvents() } } label: { Label("Обновить", systemImage: "arrow.clockwise") }
+                    Spacer()
+                    Menu {
+                        Button("Диагностика уведомлений") { showPush = true }
+                        Button("Выйти", role: .destructive) { Task { await auth.logout() } }
+                    } label: { Image(systemName: "ellipsis.circle") }
+                }.font(.subheadline).foregroundStyle(BusinessDesign.ink)
                 if let warning = store.refreshWarning {
                     Label(warning, systemImage: "exclamationmark.circle")
                         .font(.footnote).foregroundStyle(.secondary)
@@ -101,12 +95,6 @@ struct OverviewView: View {
                 if let event = store.recentSecurityEvent, event.id != dismissedSecurityEvent {
                     securityBanner(event)
                 }
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Индивидуальная умра").font(BusinessDesign.TypeStyle.section)
-                    Text("Соберите пакет, отправьте предложение или оформите бронирование.").font(.subheadline).foregroundStyle(.secondary)
-                    Button { navigation.navigate(to: .create) } label: { Label("Создать умру", systemImage: "plus") }.buttonStyle(BusinessActionStyle())
-                }.padding(18).businessCard(radius: BusinessDesign.Radius.hero)
-
                 Button { navigation.showRequests() } label: {
                     HStack(spacing: 12) {
                         Image(systemName: "bubble.left.and.bubble.right").font(.title2).frame(width: 44, height: 44).background(BusinessDesign.secondarySurface, in: RoundedRectangle(cornerRadius: 15))
@@ -144,26 +132,8 @@ struct OverviewView: View {
                     IgnavUsageCard(usage: store.ignavUsage, loading: store.loading)
                 }.padding(16).businessCard(radius: 22)
             }
-            .businessAdaptiveReadableWidth()
-            .padding(16)
-        }
-        .background(BusinessDesign.background)
-        .navigationTitle("")
-        .navigationBarTitleDisplayMode(.inline)
-        .businessNavigationSurface()
-        .safeAreaInset(edge: .top, spacing: 0) { BusinessWorldMapHeader() }
+        .frame(maxWidth: .infinity)
         .sheet(isPresented: $showPush) { NavigationStack { BusinessPushDiagnosticsView() } }
-        .toolbar {
-            ToolbarItem(placement: .topBarLeading) { BusinessSidebarButton() }
-            ToolbarItem(placement: .principal) { BusinessBrandLogo(width: 150, foreground: .white).frame(height: 36) }
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button("Диагностика уведомлений") { showPush = true }
-                    Button("Обновить") { Task { await store.reload() } }
-                    Button("Выйти", role: .destructive) { Task { await auth.logout() } }
-                } label: { Image(systemName: "ellipsis.circle").foregroundStyle(.white) }
-            }
-        }
         .onChange(of: store.unreadChats, initial: true) { _, count in if store.hasLoadedChats { navigation.unreadChatCount = count } }
         .onChange(of: store.hasLoadedChats) { _, loaded in if loaded { navigation.unreadChatCount = store.unreadChats } }
         .task {

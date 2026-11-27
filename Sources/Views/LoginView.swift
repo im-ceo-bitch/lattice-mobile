@@ -83,12 +83,7 @@ struct LoginView: View {
 
     private var topBrandRow: some View {
         HStack {
-            Image("Logo")
-                .renderingMode(.template)
-                .resizable()
-                .scaledToFit()
-                .frame(width: 150, height: 44)
-                .foregroundStyle(BusinessDesign.ink)
+            KelvinWordmark(width: 150).frame(height: 44)
             Spacer()
             Label("Защищено", systemImage: "lock.fill")
                 .font(.caption.weight(.semibold))
@@ -100,7 +95,7 @@ struct LoginView: View {
 
     private var heroCopy: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("IUMRAH BUSINESS")
+            Text("KELVIN · IUMRAH BUSINESS")
                 .font(.caption2.weight(.bold))
                 .tracking(2.6)
                 .foregroundStyle(.secondary)

@@ -80,6 +80,7 @@ public struct KelvinVoiceOrb: View {
 
     @State private var epoch = Date()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var scheme
 
     public init(state: KelvinVoiceState = .listening,
                 audioLevel: Double? = nil,
@@ -100,22 +101,20 @@ public struct KelvinVoiceOrb: View {
         TimelineView(.animation(minimumInterval: 1.0 / 60.0,
                                 paused: referenceTime != nil || reduceMotion)) { timeline in
             let time = referenceTime ?? (reduceMotion ? 0 : max(0, timeline.date.timeIntervalSince(epoch)))
-            Canvas(opaque: true, colorMode: .nonLinear, rendersAsynchronously: false) { context, size in
+            Canvas(opaque: false, colorMode: .nonLinear, rendersAsynchronously: true) { context, size in
                 Self.draw(in: context, size: size, time: time,
-                          state: state, audioLevel: audioLevel)
+                          state: state, audioLevel: audioLevel, dark: scheme == .dark)
             }
         }
         .frame(maxWidth: maximumWidth)
         .frame(height: height)
         .frame(maxWidth: .infinity)
-        .background(Self.background)
         .accessibilityHidden(true)
     }
 
     private static func draw(in context: GraphicsContext, size: CGSize,
-                             time: Double, state: KelvinVoiceState, audioLevel: Double?) {
+                             time: Double, state: KelvinVoiceState, audioLevel: Double?, dark: Bool) {
         let bounds = Path(CGRect(origin: .zero, size: size))
-        context.fill(bounds, with: .color(background))
         let w = Double(size.width)
         let h = Double(size.height)
         guard w > 0, h > 0, time.isFinite else { return }
@@ -130,7 +129,7 @@ public struct KelvinVoiceOrb: View {
         let glow = Gradient(stops: [
             .init(color: Color(.sRGB, red: 220.0 / 255.0,
                                green: 230.0 / 255.0, blue: 240.0 / 255.0,
-                               opacity: 0.10), location: 0),
+                               opacity: dark ? 0.10 : 0), location: 0),
             .init(color: Color(.sRGB, red: 1, green: 1, blue: 1,
                                opacity: 0), location: 1)
         ])
@@ -151,8 +150,8 @@ public struct KelvinVoiceOrb: View {
                 else { path.addLine(to: cgPoint) }
             }
             // The JS prototype never calls closePath(); preserve that detail.
-            let ink = Color(.sRGB, red: 230.0 / 255.0,
-                            green: 236.0 / 255.0, blue: 245.0 / 255.0,
+            let ink = Color(.sRGB, red: dark ? 230.0 / 255.0 : 0.06,
+                            green: dark ? 236.0 / 255.0 : 0.06, blue: dark ? 245.0 / 255.0 : 0.06,
                             opacity: KelvinOrbGeometry.opacity(line: j))
             context.stroke(path, with: .color(ink),
                            style: StrokeStyle(lineWidth: CGFloat(KelvinOrbGeometry.lineWidth),

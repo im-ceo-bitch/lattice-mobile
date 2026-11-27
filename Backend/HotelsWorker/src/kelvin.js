@@ -1,3 +1,4 @@
+import { kelvinSpeech } from './kelvin-voice.js';
 // Owner-only shared Kelvin conversation; Mac pulls work over HTTPS. No LLM in Worker.
 const base='/api/admin/hotels/kelvin';
 const internal='/api/internal/kelvin';
@@ -54,6 +55,7 @@ export async function kelvinAdmin(request,env,user,session){
  if(String(user?.role).toLowerCase()!=='superadmin'||!session)return fail('KELVIN_OWNER_SESSION_REQUIRED',403);
  const db=env.HOTELS_DB,owner=String(user.login||'').trim().toLowerCase(); if(!db||!owner)return fail('KELVIN_UNAVAILABLE',503);
  const path=new URL(request.url).pathname.slice(base.length);
+ if(path==='/speech') return kelvinSpeech(request,env,owner);
  await setup(db);
  if(path==='/pair'&&request.method==='POST'){
   const token=secret(); await db.prepare('INSERT INTO kelvin_links(owner,token_hash,last_seen) VALUES(?,?,0) ON CONFLICT(owner) DO UPDATE SET token_hash=excluded.token_hash,last_seen=0').bind(owner,await hash(token)).run();

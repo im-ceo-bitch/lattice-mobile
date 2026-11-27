@@ -91,7 +91,7 @@ struct BookingsView: View {
         }
         .toolbar {
             ToolbarItem(placement: .topBarLeading) { BusinessSidebarButton() }
-            ToolbarItem(placement: .topBarTrailing) { Button { navigation.navigate(to: .create) } label: { Image(systemName: "plus").foregroundStyle(.white) }.accessibilityLabel("Создать умру") }
+            ToolbarItem(placement: .topBarTrailing) { Button { navigation.showConfigurator() } label: { Image(systemName: "plus").foregroundStyle(.white) }.accessibilityLabel("Создать умру") }
             ToolbarItem(placement: .principal) {
                 BusinessBrandLogo(width: 150, foreground: .white).frame(height: 36)
             }

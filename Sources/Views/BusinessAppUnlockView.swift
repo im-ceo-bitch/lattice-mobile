@@ -17,7 +17,7 @@ struct BusinessAppUnlockView: View {
                         BusinessOrbit(diameter: 186, pinnedSymbol: showingBiometrics ? "faceid" : "lock.shield.fill", isActive: !pinFocused)
                             .accessibilityIdentifier("business.orbit.unlock")
                         VStack(spacing: 7) {
-                            Text("iumrah Business заблокирован")
+                            Text("Kelvin заблокирован")
                                 .font(.title2.bold())
                                 .multilineTextAlignment(.center)
                             Text("Введите шестизначный PIN-код")
@@ -109,7 +109,7 @@ struct BusinessAppPrivacyShield: View {
         ZStack {
             BusinessDesign.background.ignoresSafeArea()
             VStack(spacing: 16) {
-                BusinessBrandLogo(height: 54).frame(maxWidth: 220)
+                KelvinWordmark(width: 210)
                 Image(systemName: "lock.shield.fill")
                     .font(.title3)
                     .foregroundStyle(.secondary)

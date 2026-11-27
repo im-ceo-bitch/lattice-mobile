@@ -37,7 +37,10 @@ class BusinessDesignContracts(unittest.TestCase):
         for name in ['OverviewView', 'BookingsView', 'ChatsView', 'FlightCurationView']:
             text = source(f'Views/{name}.swift')
             self.assertIn('BusinessPageHeading(', text)
-            self.assertIn('.businessNavigationSurface()', text)
+            if name != 'OverviewView':
+                self.assertIn('.businessNavigationSurface()', text)
+            else:
+                self.assertIn('OverviewView()', source('Views/BusinessNativeConfiguratorView.swift'))
     @unittest.skipUnless(shutil.which('swiftc'), 'Swift compiler required')
     def test_compiled_layout_policy(self):
         layout = source('Core/BusinessAdaptiveLayout.swift').split('private struct BusinessAdaptiveLayoutKey')[0]

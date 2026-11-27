@@ -13,7 +13,7 @@ class NoLegacyHotelAdminNavigation(unittest.TestCase):
             self.assertNotIn('PrimaryHotelsView(', text)
             self.assertNotIn('case .hotels:', text)
             self.assertNotIn('case .primaryHotels:', text)
-        self.assertIn('.overview, .bookings, .chats, .flights', tab)
+        self.assertIn('.kelvin, .bookings, .overview, .chats, .account', tab)
 
     def test_existing_booking_hotel_records_not_removed(self):
         booking = (ROOT / 'Sources/Views/BookingDetailView.swift').read_text()

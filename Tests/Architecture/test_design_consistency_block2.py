@@ -12,7 +12,10 @@ class Block2(unittest.TestCase):
         for fragment in ['Canvas','TimelineView','accessibilityReduceMotion','scenePhase != .active','allowsHitTesting(false)','accessibilityHidden(true)']:
             self.assertIn(fragment,view)
         self.assertNotIn('URLSession',view)
-        self.assertIn('.safeAreaInset(edge: .top, spacing: 0) { BusinessWorldMapHeader() }',src('Views/OverviewView.swift'))
+        home = (ROOT / 'ClientConfigurator/Sources/Views/Home/HomeDashboardView.swift').read_text()
+        self.assertIn('IumrahHomeJourneySearchHero', home)
+        self.assertLess(home.index('publishedFlightSection'), home.index('businessConfigurator.homeActions()'))
+        self.assertIn('OverviewView()', src('Views/BusinessNativeConfiguratorView.swift'))
     def test_booking_actual_status_and_operations(self):
         view=src('Views/BookingDetailView.swift')
         for fragment in ['BusinessBookingProgress(status: actual)','if let actual = detail.operation?.tripStatus','workspacePicker','case 1:', 'case 2:', 'case 3:', 'hasUnsavedOperations && workspace != 0','DisclosureGroup(isExpanded: $showAdvanced)','transitionDialog = true','await save()','availabilityExpectation(operation)','financesOnly: true']:

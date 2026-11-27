@@ -10,13 +10,16 @@ import IumrahClientConfigurator
         IumrahNativeConfigurator(review: { snapshot in
             AnyView(BusinessNativeConfiguratorReview(owner: owner, snapshot: snapshot))
         }, homeActions: {
-            AnyView(NavigationLink {
+            AnyView(VStack(spacing: 20) {
+                OverviewView()
+                NavigationLink {
                 UmrahBuilderView(owner: owner, embedded: true)
             } label: {
                 Label("Черновики и ручное оформление", systemImage: "tray.full")
                     .frame(maxWidth: .infinity)
-            }.buttonStyle(BusinessActionStyle(primary: false)))
-        }, onNotifications: { navigation.navigate(to: .notifications) })
+            }.buttonStyle(BusinessActionStyle(primary: false))
+            })
+        }, onNotifications: { navigation.navigate(to: .notifications) }, homeRequest: navigation.configuratorRequest)
         .id(owner)
     }
 }

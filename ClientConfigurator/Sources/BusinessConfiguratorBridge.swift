@@ -119,9 +119,11 @@ extension EnvironmentValues {
     @StateObject private var manual = IumrahManualJourneyStore()
     private let context: BusinessConfiguratorContext
     private let onNotifications: () -> Void
-    public init(review: @escaping (BusinessConfiguratorSnapshot) -> AnyView, homeActions: @escaping () -> AnyView, onNotifications: @escaping () -> Void) {
+    private let homeRequest: Int
+    public init(review: @escaping (BusinessConfiguratorSnapshot) -> AnyView, homeActions: @escaping () -> AnyView, onNotifications: @escaping () -> Void, homeRequest: Int = 0) {
         context = .init(review: review, homeActions: homeActions)
         self.onNotifications = onNotifications
+        self.homeRequest = homeRequest
     }
     public var body: some View {
         IumrahAdaptiveLayoutHost {
@@ -138,6 +140,9 @@ extension EnvironmentValues {
             .environment(\.locale, Locale(identifier: settings.language.localeIdentifier))
             .environment(\.layoutDirection, settings.language.isRightToLeft ? .rightToLeft : .leftToRight)
             .onAppear { settings.language = .russian }
+            .onChange(of: homeRequest, initial: true) { _, revision in
+                if revision > 0 { chrome.currentTab = .home; chrome.openUmrahPlan() }
+            }
             .onChange(of: chrome.requestedTab) { _, next in
                 guard let next else { return }
                 if next == .home || next == .hotels { chrome.currentTab = next }

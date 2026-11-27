@@ -1,0 +1,421 @@
+{
+  "base": "lattice-mobile-main 5.zip",
+  "supersedes": "iumrah-business-kelvin-native-voice-v2-20261127.zip",
+  "files": [
+    {
+      "path": "Backend/HotelsWorker/src/kelvin-voice.js",
+      "sha256": "27f8dad817ceaf8b740ca09051c88e8129b00ffcbe220141f983fe5516a85904",
+      "bytes": 3714
+    },
+    {
+      "path": "Backend/HotelsWorker/src/kelvin.js",
+      "sha256": "750deef5b4fc69ddd5e2dafa9f311e5819729a1e5e2c10fa79bd4ea0f0f2a7bf",
+      "bytes": 12301
+    },
+    {
+      "path": "Backend/IumrahBackend/tests/kelvin-voice.test.mjs",
+      "sha256": "baed81a2fbdac559d86180830247f50fcae2d1498d82656c8d0e4f399e537e1d",
+      "bytes": 4801
+    },
+    {
+      "path": "ClientConfigurator/Sources/BusinessConfiguratorBridge.swift",
+      "sha256": "a642a1e43b6fea467c6335f4673e688c0630fe327aa9313d3ab66c39f2de7455",
+      "bytes": 10561
+    },
+    {
+      "path": "KELVIN_NATIVE_EXPERIENCE_20261127.md",
+      "sha256": "296c75c2f963c015f3468f25c716b2a6f112ccdc190691f26987467af825cecb",
+      "bytes": 8906
+    },
+    {
+      "path": "KELVIN_VOICE_EDITION_20261127.md",
+      "sha256": "97faf7839db7a55ecdd370c02dc79c24e22a2878da074dbabe3dc88bf7d09602",
+      "bytes": 4803
+    },
+    {
+      "path": "Resources/AppIcon60x60@2x.png",
+      "sha256": "54f1ec52cd1a5b0390436af5e636cd427bceaaed653fd346ff81846e54665946",
+      "bytes": 5053
+    },
+    {
+      "path": "Resources/AppIcon60x60@3x.png",
+      "sha256": "b904dd28e57c25e9459922983976182f47ea4effad6127230953b0ae226dd8fc",
+      "bytes": 14402
+    },
+    {
+      "path": "Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
+      "sha256": "1ddb8056cfd0c9d4bc1873fc51ec43f8c7785e4c81d8c016c77d9426ec0dbbbe",
+      "bytes": 495163
+    },
+    {
+      "path": "Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-20@2x.png",
+      "sha256": "431e1137e741001a66891ffd815c5d4ec66f670707e7a00e32c222f7d7399260",
+      "bytes": 695
+    },
+    {
+      "path": "Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-20@3x.png",
+      "sha256": "e9de63edd2fce0b6856d847e95b7802f1b4b46851f1c54d449cfc3aabe8e9e4b",
+      "bytes": 1241
+    },
+    {
+      "path": "Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-29@2x.png",
+      "sha256": "a609e8170ee20b4eece438fe90dbbc563b8634e02f65d6f42d35116a43c72aee",
+      "bytes": 1216
+    },
+    {
+      "path": "Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-29@3x.png",
+      "sha256": "69826b055fc298d94b029e4e6abf4de5f88cacb6d49549598a227133c4a9b01a",
+      "bytes": 2386
+    },
+    {
+      "path": "Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-40@2x.png",
+      "sha256": "0d4badfe659af4f0788caa10e87b11c7576ab494c999fced57564203906515de",
+      "bytes": 1993
+    },
+    {
+      "path": "Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-40@3x.png",
+      "sha256": "54f1ec52cd1a5b0390436af5e636cd427bceaaed653fd346ff81846e54665946",
+      "bytes": 5053
+    },
+    {
+      "path": "Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-60@2x.png",
+      "sha256": "54f1ec52cd1a5b0390436af5e636cd427bceaaed653fd346ff81846e54665946",
+      "bytes": 5053
+    },
+    {
+      "path": "Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-60@3x.png",
+      "sha256": "b904dd28e57c25e9459922983976182f47ea4effad6127230953b0ae226dd8fc",
+      "bytes": 14402
+    },
+    {
+      "path": "Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-Mac-128.png",
+      "sha256": "8313b8fc221b67db628d40150780ac48731a738089f181bc844f6c7e45366588",
+      "bytes": 5814
+    },
+    {
+      "path": "Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-Mac-128@2x.png",
+      "sha256": "5d833dd729176f11ae490dbb5d04ed930214b27845231bc054cd6f7be686be0b",
+      "bytes": 34063
+    },
+    {
+      "path": "Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-Mac-16.png",
+      "sha256": "935b0bf653d4b52b2c0aa2c029c9040941f943a5ea535195ae02772241644068",
+      "bytes": 267
+    },
+    {
+      "path": "Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-Mac-16@2x.png",
+      "sha256": "2d642f66bce128f1ff1d1f877aadcca1f24a71e1d1697421247502fa48176ca0",
+      "bytes": 570
+    },
+    {
+      "path": "Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-Mac-256.png",
+      "sha256": "5d833dd729176f11ae490dbb5d04ed930214b27845231bc054cd6f7be686be0b",
+      "bytes": 34063
+    },
+    {
+      "path": "Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-Mac-256@2x.png",
+      "sha256": "814bf1a706147694b2f5adbd90702c8348da1f76445a5bf9ce6b1a03668ca60d",
+      "bytes": 150773
+    },
+    {
+      "path": "Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-Mac-32.png",
+      "sha256": "2d642f66bce128f1ff1d1f877aadcca1f24a71e1d1697421247502fa48176ca0",
+      "bytes": 570
+    },
+    {
+      "path": "Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-Mac-32@2x.png",
+      "sha256": "8fbd18bbe8609a0ee5c2fa3d567aaa8d74f19c5edd4729ee61f9972d73203b01",
+      "bytes": 1344
+    },
+    {
+      "path": "Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-Mac-512.png",
+      "sha256": "814bf1a706147694b2f5adbd90702c8348da1f76445a5bf9ce6b1a03668ca60d",
+      "bytes": 150773
+    },
+    {
+      "path": "Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-Mac-512@2x.png",
+      "sha256": "1ddb8056cfd0c9d4bc1873fc51ec43f8c7785e4c81d8c016c77d9426ec0dbbbe",
+      "bytes": 495163
+    },
+    {
+      "path": "Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-iPad-20.png",
+      "sha256": "749408b70936a060074abbbedab1dddb9188f38d0e163805067387cad235b6d1",
+      "bytes": 322
+    },
+    {
+      "path": "Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-iPad-20@2x.png",
+      "sha256": "431e1137e741001a66891ffd815c5d4ec66f670707e7a00e32c222f7d7399260",
+      "bytes": 695
+    },
+    {
+      "path": "Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-iPad-29.png",
+      "sha256": "ce52392ed5c63e39794aa0c1364f0d26fe7bad03f34aeaab01632d067892bdc1",
+      "bytes": 483
+    },
+    {
+      "path": "Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-iPad-29@2x.png",
+      "sha256": "a609e8170ee20b4eece438fe90dbbc563b8634e02f65d6f42d35116a43c72aee",
+      "bytes": 1216
+    },
+    {
+      "path": "Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-iPad-40.png",
+      "sha256": "431e1137e741001a66891ffd815c5d4ec66f670707e7a00e32c222f7d7399260",
+      "bytes": 695
+    },
+    {
+      "path": "Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-iPad-40@2x.png",
+      "sha256": "0d4badfe659af4f0788caa10e87b11c7576ab494c999fced57564203906515de",
+      "bytes": 1993
+    },
+    {
+      "path": "Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-iPad-76.png",
+      "sha256": "fd0281ccfdbd803ff4eb88a964002946a2ce08737764ffeef36aee77216c11fc",
+      "bytes": 1875
+    },
+    {
+      "path": "Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-iPad-76@2x.png",
+      "sha256": "6d18109e1cc789f6f23e92f4391442e328cb6c178009612867033595f6fc5632",
+      "bytes": 9282
+    },
+    {
+      "path": "Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-iPad-83.5@2x.png",
+      "sha256": "a532fc0cea6e3d0fdf77fe92fbf59336366f0f22b1a88a5991232a301a82ba42",
+      "bytes": 12015
+    },
+    {
+      "path": "Resources/Assets.xcassets/AppIcon.appiconset/Contents.json",
+      "sha256": "3cb5b52a02b59a4f636cd501e9a903f9ebbe96652f64f4ef71dfa10cd44e3ac2",
+      "bytes": 1672
+    },
+    {
+      "path": "Resources/Assets.xcassets/AppIcon.appiconset/KelvinIconDark.png",
+      "sha256": "4c637b15ab2f1f2cb5c34624616ad49f58f4ec71b8f4626a2f4fcf8113dc520a",
+      "bytes": 227748
+    },
+    {
+      "path": "Resources/Assets.xcassets/AppIcon.appiconset/KelvinIconLight.png",
+      "sha256": "1ddb8056cfd0c9d4bc1873fc51ec43f8c7785e4c81d8c016c77d9426ec0dbbbe",
+      "bytes": 495163
+    },
+    {
+      "path": "Resources/Assets.xcassets/KelvinLetter0.imageset/Contents.json",
+      "sha256": "cea0f1564170f37ab30b9f8e9ba41936bce62882b2d1d6ab6591237dfbdfded2",
+      "bytes": 335
+    },
+    {
+      "path": "Resources/Assets.xcassets/KelvinLetter0.imageset/dark.png",
+      "sha256": "3671f19dbae66770e23c4a16f1215b9e2b059ab17badceedcf15d4ae0bc18693",
+      "bytes": 6371
+    },
+    {
+      "path": "Resources/Assets.xcassets/KelvinLetter0.imageset/light.png",
+      "sha256": "15b5ceac9368c482c3fcfb9824d6f3e60070d0cb985d8aaeae081f1639f6ebeb",
+      "bytes": 6319
+    },
+    {
+      "path": "Resources/Assets.xcassets/KelvinLetter1.imageset/Contents.json",
+      "sha256": "cea0f1564170f37ab30b9f8e9ba41936bce62882b2d1d6ab6591237dfbdfded2",
+      "bytes": 335
+    },
+    {
+      "path": "Resources/Assets.xcassets/KelvinLetter1.imageset/dark.png",
+      "sha256": "76f79719d167d16c18681cb105b1784ae803160d27dd08ae39c6e7588a267a20",
+      "bytes": 7717
+    },
+    {
+      "path": "Resources/Assets.xcassets/KelvinLetter1.imageset/light.png",
+      "sha256": "961fe367c66d304b0b13e4bab833b8af9cdc31dbe28f58674f1fefaa1e2fa957",
+      "bytes": 7201
+    },
+    {
+      "path": "Resources/Assets.xcassets/KelvinLetter2.imageset/Contents.json",
+      "sha256": "cea0f1564170f37ab30b9f8e9ba41936bce62882b2d1d6ab6591237dfbdfded2",
+      "bytes": 335
+    },
+    {
+      "path": "Resources/Assets.xcassets/KelvinLetter2.imageset/dark.png",
+      "sha256": "85a55a30fe678fadfa09a16f9afacaab8ab951732f501cc58ba811f316acc957",
+      "bytes": 1452
+    },
+    {
+      "path": "Resources/Assets.xcassets/KelvinLetter2.imageset/light.png",
+      "sha256": "640f188f5701d98b6ceb076f52ccf18d32910f0da90334b3df757e88251353f4",
+      "bytes": 1444
+    },
+    {
+      "path": "Resources/Assets.xcassets/KelvinLetter3.imageset/Contents.json",
+      "sha256": "cea0f1564170f37ab30b9f8e9ba41936bce62882b2d1d6ab6591237dfbdfded2",
+      "bytes": 335
+    },
+    {
+      "path": "Resources/Assets.xcassets/KelvinLetter3.imageset/dark.png",
+      "sha256": "00935cbd5c85443e5d96f9ca2c1305c717714d7b7e583cf73f9f84f2439e840c",
+      "bytes": 6745
+    },
+    {
+      "path": "Resources/Assets.xcassets/KelvinLetter3.imageset/light.png",
+      "sha256": "aa9fa9e60ea4b34b363b753bc09798256a498815ab1e0fc7f1c0eaa36e7b3d63",
+      "bytes": 6608
+    },
+    {
+      "path": "Resources/Assets.xcassets/KelvinLetter4.imageset/Contents.json",
+      "sha256": "cea0f1564170f37ab30b9f8e9ba41936bce62882b2d1d6ab6591237dfbdfded2",
+      "bytes": 335
+    },
+    {
+      "path": "Resources/Assets.xcassets/KelvinLetter4.imageset/dark.png",
+      "sha256": "963782da205390eb32b4e5dba7b342873550d627494a45720350125174db0955",
+      "bytes": 2780
+    },
+    {
+      "path": "Resources/Assets.xcassets/KelvinLetter4.imageset/light.png",
+      "sha256": "63ee7a285898242ffb5b6a383324ce28ae4746f157590252819ff5f300bc869b",
+      "bytes": 2666
+    },
+    {
+      "path": "Resources/Assets.xcassets/KelvinLetter5.imageset/Contents.json",
+      "sha256": "cea0f1564170f37ab30b9f8e9ba41936bce62882b2d1d6ab6591237dfbdfded2",
+      "bytes": 335
+    },
+    {
+      "path": "Resources/Assets.xcassets/KelvinLetter5.imageset/dark.png",
+      "sha256": "0a6131d2cdedfae2228676d776add294051c7e41ae7bfaba0972fe6a638831dd",
+      "bytes": 4720
+    },
+    {
+      "path": "Resources/Assets.xcassets/KelvinLetter5.imageset/light.png",
+      "sha256": "553ce29f59089324a065bb27b7a920ad7fd8cba404abd289e028520191de1229",
+      "bytes": 4598
+    },
+    {
+      "path": "Resources/Assets.xcassets/KelvinLetter6.imageset/Contents.json",
+      "sha256": "cea0f1564170f37ab30b9f8e9ba41936bce62882b2d1d6ab6591237dfbdfded2",
+      "bytes": 335
+    },
+    {
+      "path": "Resources/Assets.xcassets/KelvinLetter6.imageset/dark.png",
+      "sha256": "4252d634f791fc2ed45b04815cdfa9fe3d7d2369e8c759b8ae6dbb5b4424db6f",
+      "bytes": 1707
+    },
+    {
+      "path": "Resources/Assets.xcassets/KelvinLetter6.imageset/light.png",
+      "sha256": "434a062bf8c0846127c89d4e96c0f8a9def51ce9917077dfa2eb7c4ea04c7939",
+      "bytes": 1474
+    },
+    {
+      "path": "Resources/Assets.xcassets/KelvinWordmark.imageset/Contents.json",
+      "sha256": "cea0f1564170f37ab30b9f8e9ba41936bce62882b2d1d6ab6591237dfbdfded2",
+      "bytes": 335
+    },
+    {
+      "path": "Resources/Assets.xcassets/KelvinWordmark.imageset/dark.png",
+      "sha256": "9f3a1cbea75d55b4e49ffd8dcdf51496c579d834feb8d6ec4cb26b1d1249aeda",
+      "bytes": 29956
+    },
+    {
+      "path": "Resources/Assets.xcassets/KelvinWordmark.imageset/light.png",
+      "sha256": "0a5bd0fa7d35b8d31dcb3258b8726b806ce27b50fde98332eb53273085d28dae",
+      "bytes": 29933
+    },
+    {
+      "path": "Sources/Networking/APIClient+Kelvin.swift",
+      "sha256": "a1ec6a8d7ea4bec37a224073cb508e8a2ed3c111ca7fa070ccdd5e55545f7f9b",
+      "bytes": 3444
+    },
+    {
+      "path": "Sources/Views/BookingsView.swift",
+      "sha256": "5b26cc84da4bd78c8b557a4078d831e5969dae78bd327629e23d9c0398a833fc",
+      "bytes": 18352
+    },
+    {
+      "path": "Sources/Views/BusinessAccountHome.swift",
+      "sha256": "9341570fac14775f5658308b07e007fe0b0ff87620cedaff65216d5cb2aa60fd",
+      "bytes": 3818
+    },
+    {
+      "path": "Sources/Views/BusinessAppUnlockView.swift",
+      "sha256": "1a5444769bfcd1f5f47b74b295d68d4efff1e45b3edfc8489a2ceb83c9df5ff9",
+      "bytes": 5516
+    },
+    {
+      "path": "Sources/Views/BusinessNativeConfiguratorView.swift",
+      "sha256": "86bcb2684bebb008b9078608beecd217703ae582a7ff1e75878440c369905ad5",
+      "bytes": 14033
+    },
+    {
+      "path": "Sources/Views/BusinessTabView.swift",
+      "sha256": "faa7f16cdd29030071316a0f6087a9aa74e15fed99e799c50974c4e686897ae5",
+      "bytes": 13528
+    },
+    {
+      "path": "Sources/Views/KelvinBrand.swift",
+      "sha256": "9e7aab1ad9ab807895d8d2fb93f6f9c8a2b698926c98b2ac84273723b86e6f86",
+      "bytes": 1455
+    },
+    {
+      "path": "Sources/Views/KelvinView.swift",
+      "sha256": "c03638074fe1feb9b7cb619fa405688f8c8752060bf91fe95d1089fe9c61e414",
+      "bytes": 61090
+    },
+    {
+      "path": "Sources/Views/KelvinVoiceOrb.swift",
+      "sha256": "94b8e319015365c04b00527e0c7ac15bc40af36438ac5775a1c1963224d4e12d",
+      "bytes": 7805
+    },
+    {
+      "path": "Sources/Views/KelvinVoicePreferences.swift",
+      "sha256": "5e615bfdd8488171366d8e45e421b5bce6e183f5a415800446b9e85e0215f03f",
+      "bytes": 2685
+    },
+    {
+      "path": "Sources/Views/LoginView.swift",
+      "sha256": "8459be46fcca78e52c21232b4d5d5f9ea28c4b12e403fc81b48941687e236c5d",
+      "bytes": 14984
+    },
+    {
+      "path": "Sources/Views/OverviewView.swift",
+      "sha256": "3ed0b7e52aac1f8385f3f4199d44b4755dc9a2a6a7942f49d78ff0c8449c45e7",
+      "bytes": 19539
+    },
+    {
+      "path": "Sources/Views/RootView.swift",
+      "sha256": "59e2c8cb7693d5fffb85dfb7c77e1049d173ecf75fb5917285e4029e4699c1ba",
+      "bytes": 4263
+    },
+    {
+      "path": "Support/Info.plist",
+      "sha256": "0e4c39395f4f03165cae8b03aa8da471ad9d272fb84df6e664c1461f2ad28a6d",
+      "bytes": 1270
+    },
+    {
+      "path": "Tests/Architecture/test_business_design_v35.py",
+      "sha256": "5f78a93a58b20fd4c57c3f3cfa6feac7623bde4369ab2528d63b89a8101cd3ac",
+      "bytes": 4752
+    },
+    {
+      "path": "Tests/Architecture/test_business_navigation.py",
+      "sha256": "139cbd8c44a04071824597e24ce6ced6108febc068ff24507f00f731fdca6e3c",
+      "bytes": 1343
+    },
+    {
+      "path": "Tests/Architecture/test_design_consistency_block2.py",
+      "sha256": "b398a4ef418f329732a804bdd029259f11f750204210dd263911a44546b52847",
+      "bytes": 3189
+    },
+    {
+      "path": "Tests/Architecture/test_kelvin_native.py",
+      "sha256": "3dbbf9f5dbf30b9796d9e7e9131ace580d3aa406ffc31f906d8011177b1b5d0a",
+      "bytes": 2878
+    },
+    {
+      "path": "Tests/Architecture/test_kelvin_voice.py",
+      "sha256": "23204b3f6bfe6b4a98e09cc3ae012da39cbea0b99ac255b7f4c60daf47ffc7fa",
+      "bytes": 1702
+    },
+    {
+      "path": "project.yml",
+      "sha256": "882f2f140b33fb06c69a00da5049582722892950c0e998161688bddea36676ff",
+      "bytes": 4128
+    }
+  ]
+}
