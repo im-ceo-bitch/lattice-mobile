@@ -1,0 +1,10 @@
+{
+  "base": "V2.1 + V4",
+  "files": {
+    "Sources/Views/RootView.swift": "103a6948621c67d28391ea897ed357ff27c39a62e2d98f4365bf2433e996369c",
+    "Backend/IumrahBackend/src/router.js": "cee89cacce08756070e0cab53bbee3eb279d02ad7e06288370e80a1f8e7c856a",
+    "Backend/IumrahBackend/tests/kelvin-bridge-router.test.mjs": "cea58d3eee3520429a544beb8e2680858454fad5026f9109e3a69e306e8729be",
+    "scripts/kelvin-pairing-diagnose.py": "52a498c2e8b4d2974013e09a62e99a99c216375813a9b6b04f1cb8365fc5568b",
+    "KELVIN_PAIRING_DIAGNOSTICS_V5.md": "2b783c64e8e84ec739421a4782b12af9e04a4b796666c963377069ad2c41598f"
+  }
+}

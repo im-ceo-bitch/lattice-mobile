@@ -45,12 +45,6 @@ struct RootView: View {
             guard !Task.isCancelled else { return }
             withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.22)) { launchRevealing = false }
         }
-        .overlay {
-            // Prevent displaying Business data in app-switcher snapshots.
-            if auth.state == .signedIn && scenePhase != .active {
-                BusinessAppPrivacyShield()
-            }
-        }
         .onReceive(NotificationCenter.default.publisher(for: .iumrahBusinessSessionInvalidated)) { notification in
             auth.handleSessionInvalidated(token: notification.object as? String)
         }

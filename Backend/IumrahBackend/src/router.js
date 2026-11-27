@@ -62,16 +62,33 @@ const json = (value, status = 200) => new Response(JSON.stringify(value), {
   status,
   headers: {'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff'}
 });
+// Correlate Kelvin pairing failures without exposing tokens, owner IDs or bodies.
+// This marker does not grant access and does not change the authorization policy.
+const kelvinBridgeRevision = 'kelvin-bridge-diagnostics-v5';
+function traceKelvin(response, operation, stage, requestId) {
+  const headers = new Headers(response.headers);
+  headers.set('x-kelvin-bridge-revision', kelvinBridgeRevision);
+  headers.set('x-kelvin-request-id', requestId);
+  headers.set('x-kelvin-stage', stage);
+  if (!response.ok || operation === 'pair') {
+    console.info(JSON.stringify({event:'KELVIN_BRIDGE',operation,stage,status:response.status,requestId,revision:kelvinBridgeRevision}));
+  }
+  return new Response(response.body,{status:response.status,statusText:response.statusText,headers});
+}
 export function createBackendRouter({hotels, flights, packages, core, requestAeroDataBox, aeroDataBoxConfiguration, verifyBookingQuote, verifySavedPackageQuote, sendBookingEmailStatus, retryBookingStatusEmails, materializeBookingIdentity, syncReferralForBooking, bookingRewardsAmounts, sendStaffPush, sendBookingSMSStatus, retryBookingPushOutbox, retryBookingSMSStatuses, dispatchCreationNotifications}) {
   if (typeof hotels?.fetch !== 'function' || typeof flights?.fetch !== 'function') throw Error('BACKEND_HANDLERS_REQUIRED');
   const router = {
     async fetch(request, env, ctx) {
       const pathname = new URL(request.url).pathname;
       const route = resolveBackendRoute(pathname);
+      const kelvinOperation = pathname === '/api/admin/hotels/kelvin/pair' ? 'pair' :
+        route === 'kelvin' ? (pathname === '/api/internal/kelvin/heartbeat' ? 'heartbeat' : 'internal') : null;
+      const kelvinRequestId = kelvinOperation ? crypto.randomUUID() : null;
+      const traced = (response,stage) => kelvinOperation ? traceKelvin(response,kelvinOperation,stage,kelvinRequestId) : response;
       if (route === 'services') return publicServices(request,fetch,env);
       if (!['GET','HEAD','OPTIONS'].includes(request.method)) {
         const origin=request.headers.get('origin');
-        if (origin && !(pathname === '/api/catalog/hotels/intelligence/events' && ['https://www.iumrah.app','https://www.iumrah.uz'].includes(origin)) && !['https://iumrah.app','https://iumrah.uz','https://iumrah.us','https://iumrahproject.com','https://iumrah-backend.helloiumrah.workers.dev'].includes(origin)) return json({ok:false,error:'CROSS_ORIGIN_REQUEST'},403);
+        if (origin && !(pathname === '/api/catalog/hotels/intelligence/events' && ['https://www.iumrah.app','https://www.iumrah.uz'].includes(origin)) && !['https://iumrah.app','https://iumrah.uz','https://iumrah.us','https://iumrahproject.com','https://iumrah-backend.helloiumrah.workers.dev'].includes(origin)) return traced(json({ok:false,error:'CROSS_ORIGIN_REQUEST'},403),'origin');
       }
       const sharedEnv = requestAeroDataBox ? {...env, IUMRAH_AERO_REQUEST: (endpoint) => requestAeroDataBox(env, endpoint)} : env;
       const ready = coreReady(env,core);
@@ -90,8 +107,9 @@ export function createBackendRouter({hotels, flights, packages, core, requestAer
         return response;
       };
       if (route === 'kelvin') {
-        if (!ready) return json({ok:false,error:'CORE_CUTOVER_PENDING'},503);
-        try { return await kelvinInternal(request,routedEnv); } catch { return json({ok:false,error:'KELVIN_UNAVAILABLE'},503); }
+        if (!ready) return traced(json({ok:false,error:'CORE_CUTOVER_PENDING'},503),'core-readiness');
+        try { return traced(await kelvinInternal(request,routedEnv),'service-auth-handler'); }
+        catch { return traced(json({ok:false,error:'KELVIN_UNAVAILABLE'},503),'service-exception'); }
       }
       if (route === 'core') {
         if (!ready && !(core && request.method==='GET' && publicCoreReads.has(pathname))) return json({ok:false,error:'CORE_CUTOVER_PENDING'},503);
@@ -100,7 +118,7 @@ export function createBackendRouter({hotels, flights, packages, core, requestAer
       if (route === 'flights') return flights.fetch(request, routedEnv, ctx);
       if (route === 'hotels') {
         if (!ready && isPendingHotelOperation(pathname)) return json({ok:false,error:'CORE_CUTOVER_PENDING'},503);
-        return reconcile(await hotels.fetch(request, routedEnv, ctx));
+        return traced(await reconcile(await hotels.fetch(request, routedEnv, ctx)),'staff-auth-handler');
       }
       if (route === 'packages' && packages) {
         if (isPendingCorePackage(pathname) && !isPublicTripSharePath(pathname) && !ready) return json({ok:false,error:'CORE_CUTOVER_PENDING'},503);
