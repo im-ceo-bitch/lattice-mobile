@@ -231,11 +231,13 @@ struct KelvinView: View {
     init(isSelected: Bool = true) { self.isSelected = isSelected }
     @EnvironmentObject private var auth: AuthStore
     @EnvironmentObject private var appLock: BusinessAppLockStore
+    @EnvironmentObject private var navigation: BusinessNavigationStore
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.openURL) private var openURL
     @StateObject private var speech = KelvinSpeech()
     @FocusState private var focused: Bool
+    @FocusState private var sidebarFocused: Bool
     @FocusState private var voiceTextFocused: Bool
     @AppStorage("kelvin.voice.selected.v2") private var preferredVoice = "system"
     @AppStorage("kelvin.voice.language.v2") private var speechLanguage = KelvinVoiceLanguage.russian.rawValue
@@ -259,11 +261,13 @@ struct KelvinView: View {
     @State private var pairingToken: String?
     @State private var confirmPair = false
     @State private var showMemory = false
-    @State private var showInsights = false
     @State private var showVoice = false
     @State private var confirmRevoke = false
     @State private var drawer = false
-    @GestureState private var drag: CGFloat = 0
+    @State private var selectedThread = "legacy"
+    @State private var threadList: [KelvinThread] = []
+    @State private var showConnection = false
+    @State private var sidebarSearch = ""
     @State private var plugins = false
     @State private var filePicker = false
     @State private var attachedText: String?
@@ -278,7 +282,8 @@ struct KelvinView: View {
     @State private var silenceTask: Task<Void, Never>?
     @State private var voiceStarting = false
     @State private var voiceEnabled = false
-    @State private var refreshing = false
+    @State private var refreshingThread: String?
+    @State private var refreshID = UUID()
     @State private var voicePlaying = false
     @State private var accountID: String?
     @State private var visible = false
@@ -288,12 +293,13 @@ struct KelvinView: View {
     private var owner: Bool { auth.user?.role.lowercased() == "superadmin" }
     private var usable: Bool { owner && !appLock.isLocked && scenePhase == .active && visible && isSelected }
     private var turns: [KelvinTurn] {
-        let remote = history?.turns ?? []
-        guard let localTurn, !remote.contains(where: { $0.id == localTurn.id }) else { return remote }
+        let remote = (history?.turns ?? []).filter { ($0.threadId ?? "legacy") == selectedThread }
+        guard let localTurn, localTurn.threadId == selectedThread, !remote.contains(where: { $0.id == localTurn.id }) else { return remote }
         return remote + [localTurn]
     }
     private var pending: Bool { turns.contains { ["queued", "running", "sending"].contains($0.status) } }
-    private var voiceState: KelvinVoiceState { speech.recording ? .listening : speech.audioOutputActive ? .speaking : (speech.speaking || voiceRequest != nil || pending) ? .thinking : .idle }
+    private var voiceTurn: KelvinTurn? { turns.first { $0.id == voiceRequest } }
+    private var voiceState: KelvinVoiceState { speech.recording ? .listening : speech.audioOutputActive ? .speaking : (speech.speaking || voiceTurn?.status == "running") ? .thinking : .idle }
     private var consentOwner: String { auth.user?.login.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? "" }
     private var cloudConsented: Bool { !consentOwner.isEmpty && cloudConsentOwner == consentOwner }
     private var selectedVoice: String { cloudConsented && KelvinVoiceOption.all.contains(where: { $0.id == preferredVoice }) ? preferredVoice : "system" }
@@ -309,32 +315,8 @@ struct KelvinView: View {
     private var layoutContent: some View {
         Group {
             if owner {
-                GeometryReader { geometry in
-                    let width = min(300, geometry.size.width * 0.78)
-                    let offset = min(width, max(0, (drawer ? width : 0) + drag))
-                    ZStack(alignment: .leading) {
-                        drawerContent.frame(width: width)
-                            .allowsHitTesting(drawer).accessibilityHidden(!drawer)
-                        chatSurface
-                            .background(Color(uiColor: .systemBackground))
-                            .overlay {
-                                if drawer || offset > 0 {
-                                    Color.black.opacity(0.12 * Double(offset / max(width, 1)))
-                                        .contentShape(Rectangle()).onTapGesture { setDrawer(false) }
-                                        .gesture(drawerGesture(width: width))
-                                }
-                            }
-                            .clipShape(RoundedRectangle(cornerRadius: 24 * offset / max(width, 1)))
-                            .offset(x: offset)
-                            .accessibilityHidden(drawer)
-                        if !drawer {
-                            Color.clear.frame(width: 18).contentShape(Rectangle())
-                                .gesture(drawerGesture(width: width))
-                                .accessibilityHidden(true)
-                        }
-                    }.clipped()
-                }
-                .background(Color(uiColor: .secondarySystemBackground))
+                KelvinDrawerShell(isOpen: drawer, onRequest: setDrawer, sidebar: drawerContent, content: chatSurface, gestureEnabled: !showVoice && !plugins && usable)
+                    .background(Color(uiColor: .systemBackground).ignoresSafeArea(.container))
             } else {
                 ContentUnavailableView("Kelvin", systemImage: "lock", description: Text("Только для владельца бизнеса."))
             }
@@ -346,17 +328,17 @@ struct KelvinView: View {
             guard let raw = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt, AVAudioSession.InterruptionType(rawValue: raw) == .began else { return }
             micMuted = true; voicePlaying = false; pauseListening(); speech.stop()
         }
-        .onChange(of: usable) { _, active in if !active { suspendVoice(); showVoice = false; showMemory = false; showInsights = false; showVoiceSettings = false; plugins = false; pairingToken = nil } }
+        .onChange(of: usable) { _, active in if !active { setDrawer(false); suspendVoice(); showVoice = false; showMemory = false; showVoiceSettings = false; showConnection = false; plugins = false; pairingToken = nil } }
         .onChange(of: auth.user?.login, initial: true) { _, login in
             if accountID != login {
-                sendTask?.cancel(); suspendVoice(); showVoice = false; showMemory = false; showInsights = false; showVoiceSettings = false; voiceProvider = nil; history = nil; draft = ""; localTurn = nil; initialized = false; connectionError = nil; error = nil; requestID = UUID().uuidString; lastSubmittedText = ""; externalChatGPT = false; animateAnswers = []; attachedText = nil; attachedName = nil; accountID = login
+                sendTask?.cancel(); suspendVoice(); showVoice = false; showVoiceSettings = false; voiceProvider = nil; history = nil; threadList = []; selectedThread = login.flatMap { UserDefaults.standard.string(forKey: "kelvin.activeThread.v3." + $0.lowercased()) } ?? "legacy"; drawer = false; draft = ""; localTurn = nil; initialized = false; connectionError = nil; error = nil; requestID = UUID().uuidString; lastSubmittedText = ""; externalChatGPT = false; animateAnswers = []; attachedText = nil; attachedName = nil; accountID = login
             }
         }
-        .task(id: usable) {
+        .task(id: usable ? selectedThread : "inactive") {
             guard usable else { return }
             while !Task.isCancelled {
                 await refresh()
-                do { try await Task.sleep(for: .seconds(pending ? 2 : 5)) } catch { break }
+                do { try await Task.sleep(for: .seconds(pending && history?.online == true ? 2 : 5)) } catch { break }
             }
         }
     }
@@ -372,16 +354,16 @@ struct KelvinView: View {
         } message: { Text("Вставь запрос и выбери режим исследования самостоятельно. Автоматический запуск на Mac и получение результата пока не подключены.") }
         .alert("Kelvin", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) { Button("OK") { notice = nil } } message: { Text(notice ?? "") }
         .sheet(isPresented: Binding(get: { pairingToken != nil }, set: { if !$0 { pairingToken = nil } })) { pairingScreen }
+        .sheet(isPresented: $showConnection) { connectionScreen }
         .sheet(isPresented: $showMemory) { NavigationStack { KelvinMemoryView() } }
-        .sheet(isPresented: $showInsights) { NavigationStack { KelvinInsightsView() } }
         .sheet(isPresented: $showVoiceSettings, onDismiss: closeVoiceSettings) { voiceSettings }
         .overlay {
             if showVoice && usable {
-                voiceScreen.transition(.opacity.combined(with: .scale(scale: 0.98))).zIndex(2)
+                voiceScreen.transition(.opacity).zIndex(2)
             }
         }
-        .animation(motion, value: showVoice)
-        .toolbar(showVoice ? .hidden : .visible, for: .tabBar)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: showVoice)
+        .toolbar(owner ? .hidden : .visible, for: .tabBar)
         .onChange(of: showVoice) { _, open in if !open { suspendVoice(); voiceDraft = ""; voiceTextFocused = false; showVoiceSettings = false } }
         .fileImporter(isPresented: $filePicker, allowedContentTypes: [.plainText, .json, .commaSeparatedText], allowsMultipleSelection: false) { result in
             do {
@@ -399,87 +381,157 @@ struct KelvinView: View {
     }
 
     private func setDrawer(_ open: Bool) {
-        if open { focused = false }
-        withAnimation(motion) { drawer = open }
+        if open { focused = false } else { sidebarFocused = false }
+        drawer = open
     }
-    private func drawerGesture(width: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: 12).updating($drag) { value, state, transaction in
-            guard abs(value.translation.width) > abs(value.translation.height) else { return }
-            transaction.animation = nil; state = value.translation.width
-        }.onEnded { value in
-            guard abs(value.translation.width) > abs(value.translation.height) else { return }
-            let projected = (drawer ? width : 0) + value.predictedEndTranslation.width
-            setDrawer(projected > width * 0.5)
+    private func selectThread(_ id: String) {
+        guard !submitting else { return }
+        if id != selectedThread {
+            suspendVoice(); selectedThread = id; draft = "";
+            if let login = auth.user?.login { UserDefaults.standard.set(id, forKey: "kelvin.activeThread.v3." + login.lowercased()) }
+            attachedName = nil; attachedText = nil
+            lastSubmittedText = ""; requestID = UUID().uuidString; localTurn = nil; animateAnswers = []
+            follow = true; jumpTo = nil; error = nil; initialized = false
         }
+        setDrawer(false)
+    }
+    private func newThread() { selectThread(UUID().uuidString) }
+    private var connectionTitle: String {
+        if connectionError != nil { return "Связь с сервером не подтверждена" }
+        guard let history else { return "Проверяю подключение…" }
+        if history.online { return "MacBook на связи" }
+        return history.paired ? "MacBook не в сети" : "MacBook не подключён"
     }
     private var drawerContent: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack { KelvinWordmark(width: 100); Spacer(); Button { setDrawer(false) } label: { Image(systemName: "xmark").frame(width: 44, height: 44) }.accessibilityLabel("Закрыть меню") }
-            Button { setDrawer(false); openVoiceSettings() } label: { Label("Голос и язык", systemImage: "waveform") }
-            Button { setDrawer(false); showMemory = true } label: { Label("Память", systemImage: "brain") }
-            Button { setDrawer(false); showInsights = true } label: { Label("Исследования и доклады", systemImage: "chart.bar.xaxis") }
-            Button { setDrawer(false); confirmPair = true } label: { Label("Подключить MacBook", systemImage: "laptopcomputer") }
-            Button { setDrawer(false); confirmRevoke = true } label: { Label("Отключить MacBook", systemImage: "lock") }
-            Divider()
-            Text("Общая история").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack { KelvinWordmark(width: 104); Spacer(); Button { sidebarFocused = true } label: { Image(systemName: "magnifyingglass").font(.system(size: 21)).frame(width: 44, height: 44) }.businessChatGlassSurface(in: Circle(), interactive: true).accessibilityLabel("Поиск чатов") }
+                .padding(.horizontal, 20).padding(.vertical, 6)
+            TextField("Поиск чатов", text: $sidebarSearch).focused($sidebarFocused).font(.subheadline).padding(11).background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14)).padding(.horizontal, 20).padding(.bottom, 6)
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 5) {
-                    ForEach(Array(turns.reversed())) { turn in
-                        Button { jumpTo = turn.id; follow = false; setDrawer(false) } label: {
-                            Text(turn.prompt).lineLimit(2).font(.subheadline).frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 9)
-                        }.buttonStyle(.plain)
+                LazyVStack(alignment: .leading, spacing: 4) {
+                    drawerRow("Обзор iumrah", "square.grid.2x2") { goToBusiness(.overview) }
+                    drawerRow("Поездки", "suitcase.rolling") { goToBusiness(.bookings) }
+                    drawerRow("Чаты клиентов", "message") { goToBusiness(.chats) }
+                    drawerRow("Аккаунт", "person.crop.circle") { goToBusiness(.account) }
+                    drawerRow("Голос и язык", "waveform") { setDrawer(false); openVoiceSettings() }
+                    drawerRow("Память", "brain") { setDrawer(false); showMemory = true }
+                    drawerRow(connectionTitle, "laptopcomputer") { setDrawer(false); showConnection = true }
+                    Divider().padding(.vertical, 14)
+                    Text("Чаты").font(.headline).padding(.horizontal, 12).padding(.bottom, 5)
+                    ForEach(threadList.filter { sidebarSearch.isEmpty || $0.title.localizedCaseInsensitiveContains(sidebarSearch) }) { thread in
+                        Button { selectThread(thread.id) } label: {
+                            Text(thread.title).font(.body).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 12).padding(.vertical, 13)
+                                .background(thread.id == selectedThread ? Color(uiColor: .secondarySystemBackground) : .clear, in: RoundedRectangle(cornerRadius: 14))
+                        }.buttonStyle(.plain).disabled(submitting)
                     }
+                    if threadList.isEmpty { Text("Новые диалоги появятся здесь").font(.subheadline).foregroundStyle(.secondary).padding(12) }
+                }.padding(.horizontal, 10)
+            }.scrollIndicators(.hidden).scrollDismissesKeyboard(.interactively)
+            Divider()
+            Button { newThread() } label: { Label("Чат", systemImage: "square.and.pencil").font(.body.weight(.semibold)).padding(.horizontal, 20).padding(.vertical, 12).foregroundStyle(Color(uiColor: .systemBackground)).background(Color.primary, in: Capsule()) }.disabled(submitting).padding(16)
+        }.buttonStyle(.plain).frame(maxHeight: .infinity).background(Color(uiColor: .systemBackground).ignoresSafeArea(.container))
+    }
+    private func goToBusiness(_ section: BusinessWorkspaceSection) {
+        setDrawer(false); focused = false; sidebarFocused = false
+        navigation.navigate(to: section)
+    }
+    private func drawerRow(_ title: String, _ icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) { HStack(spacing: 14) { Image(systemName: icon).font(.system(size: 20)).frame(width: 28); Text(title).font(.body).lineLimit(1); Spacer(minLength: 0) }.padding(.horizontal, 12).padding(.vertical, 10).contentShape(Rectangle()) }.buttonStyle(.plain)
+    }
+    private var connectionScreen: some View {
+        NavigationStack {
+            List {
+                Section("Статус") {
+                    Label(connectionTitle, systemImage: history?.online == true ? "checkmark.circle" : "exclamationmark.circle")
+                    if let last = history?.lastSeen, last > 0 { Text("Последний сигнал: \(Date(timeIntervalSince1970: Double(last) / 1000).formatted(date: .abbreviated, time: .standard))").font(.footnote).foregroundStyle(.secondary) }
+                    Button("Проверить связь") { Task { await refresh() } }
                 }
-            }.scrollIndicators(.hidden)
-            Text("MacBook · Telegram · Kelvin").font(.caption2).foregroundStyle(.secondary)
-        }.padding(20).frame(maxHeight: .infinity).background(Color(uiColor: .secondarySystemBackground))
+                Section("Настройка") {
+                    Text("Mac должен быть включён. На нём должен работать Kelvin Desktop Bridge с действующим ключом. Создание нового ключа отзывает старый.").font(.subheadline)
+                    Button(history?.paired == true ? "Переподключить MacBook" : "Подключить MacBook") { showConnection = false; confirmPair = true }
+                    if history?.paired == true { Button("Отключить MacBook", role: .destructive) { showConnection = false; confirmRevoke = true } }
+                }
+            }.navigationTitle("MacBook").navigationBarTitleDisplayMode(.inline).toolbar { ToolbarItem(placement: .confirmationAction) { Button("Готово") { showConnection = false } } }.task { await refresh() }
+        }
     }
     private var chatSurface: some View {
-        VStack(spacing: 0) {
-            header
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 22) {
-                        if turns.isEmpty { intro.containerRelativeFrame(.vertical) { length, _ in max(260, length - 26) } }
+        // Scroll content extends behind both control surfaces. Insets reserve
+        // readable space while the system alone manages keyboard/safe areas.
+        ScrollViewReader { proxy in
+            ScrollView {
+                if turns.isEmpty {
+                    intro.frame(minHeight: 290).frame(maxWidth: .infinity)
+                } else {
+                    LazyVStack(alignment: .leading, spacing: 24) {
                         ForEach(turns) { turn in bubble(turn).id(turn.id) }
                         Color.clear.frame(height: 1).id("kelvin-bottom")
                             .background(GeometryReader { p in Color.clear.preference(key: KelvinBottomKey.self, value: p.frame(in: .named("kelvin-scroll")).maxY) })
-                    }.frame(maxWidth: 700).padding(.horizontal, 18).padding(.vertical, 12).frame(maxWidth: .infinity)
+                    }.frame(maxWidth: 700).padding(.horizontal, 20).padding(.vertical, 12).frame(maxWidth: .infinity)
                 }
-                .coordinateSpace(name: "kelvin-scroll")
-                .scrollDismissesKeyboard(.interactively)
-                .defaultScrollAnchor(.bottom)
-                .overlay(alignment: .bottom) {
-                    if !follow { Button { follow = true; withAnimation(motion) { proxy.scrollTo("kelvin-bottom", anchor: .bottom) } } label: { Image(systemName: "arrow.down").frame(width: 40, height: 40).background(.regularMaterial, in: Circle()).shadow(radius: 3) }.accessibilityLabel("К последнему сообщению").padding(.bottom, 8) }
-                }
-                .background(GeometryReader { p in Color.clear.preference(key: KelvinViewportKey.self, value: p.size.height) })
-                .modifier(KelvinScrollTracking(follow: $follow))
-                .simultaneousGesture(DragGesture(minimumDistance: 12).onChanged { value in
-                    if value.translation.height > 12 { follow = false }
-                })
-                .onPreferenceChange(KelvinBottomKey.self) { _ in
-                    if follow { proxy.scrollTo("kelvin-bottom", anchor: .bottom) }
-                }
-                .onChange(of: turns.last?.id, initial: true) { _, _ in if follow { proxy.scrollTo("kelvin-bottom", anchor: .bottom) } }
-                .onChange(of: turns.last?.status) { _, _ in if follow { withAnimation(motion) { proxy.scrollTo("kelvin-bottom", anchor: .bottom) } } }
-                .onChange(of: jumpTo) { _, id in if let id { withAnimation(motion) { proxy.scrollTo(id, anchor: id == "kelvin-bottom" ? .bottom : .top) }; jumpTo = nil } }
-                .onChange(of: focused) { _, value in if value && follow { withAnimation(motion) { proxy.scrollTo("kelvin-bottom", anchor: .bottom) } } }
             }
-            if let error = error ?? connectionError ?? speech.error { Text(error).font(.caption).foregroundStyle(.secondary).padding(.horizontal, 16).padding(.vertical, 5) }
+            .coordinateSpace(name: "kelvin-scroll")
+            .scrollDismissesKeyboard(.interactively)
+            .scrollIndicators(.hidden)
+            .modifier(KelvinChatAnchor(empty: turns.isEmpty))
+            .background(GeometryReader { p in Color.clear.preference(key: KelvinViewportKey.self, value: p.size.height) })
+            .modifier(KelvinScrollTracking(follow: $follow))
+            .overlay(alignment: .bottom) {
+                if !follow && !turns.isEmpty {
+                    Button { follow = true; withAnimation(motion) { proxy.scrollTo("kelvin-bottom", anchor: .bottom) } } label: {
+                        Image(systemName: "arrow.down").font(.system(size: 17, weight: .medium)).frame(width: 42, height: 42)
+                    }.buttonStyle(.plain).businessChatGlassSurface(in: Circle(), interactive: true)
+                        .accessibilityLabel("К последнему сообщению").padding(.bottom, 10)
+                }
+            }
+            .onChange(of: selectedThread, initial: true) { _, _ in if !turns.isEmpty { proxy.scrollTo("kelvin-bottom", anchor: .bottom) } }
+            .onChange(of: turns.last?.id) { _, _ in if follow { proxy.scrollTo("kelvin-bottom", anchor: .bottom) } }
+            .onChange(of: turns.last?.status) { _, _ in if follow { proxy.scrollTo("kelvin-bottom", anchor: .bottom) } }
+            .onChange(of: jumpTo) { _, id in if let id { withAnimation(motion) { proxy.scrollTo(id, anchor: .bottom) }; jumpTo = nil } }
+            .modifier(KelvinChromeBar(edge: .top, bar: header))
+            .modifier(KelvinChromeBar(edge: .bottom, bar: bottomChrome))
+        }.frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+    private var bottomChrome: some View {
+        VStack(spacing: 3) {
+            if let issue = error ?? speech.error {
+                Button { notice = issue } label: {
+                    Label(issue, systemImage: "exclamationmark.circle").font(.caption).lineLimit(1).foregroundStyle(.secondary)
+                }.buttonStyle(.plain).padding(.horizontal, 16).accessibilityLabel(issue)
+            }
             composer
         }
     }
     private var header: some View {
-        HStack {
-            Button { setDrawer(!drawer) } label: { Image(systemName: "line.3.horizontal.decrease").font(.system(size: 21, weight: .medium)).frame(width: 44, height: 44).background(.regularMaterial, in: Circle()) }.accessibilityLabel("История и меню Kelvin")
-            Spacer()
-            VStack(spacing: 4) {
-                KelvinWordmark(width: 88)
-                Text(connectionError != nil ? "Связь не подтверждена" : history == nil ? "Подключение…" : history?.online == true ? "MacBook на связи" : history?.paired == true ? "MacBook не отвечает" : "Подключи MacBook").font(.caption2).foregroundStyle(.secondary)
+        ZStack {
+            HStack(spacing: 10) {
+            Button { setDrawer(!drawer) } label: {
+                Image(systemName: "line.3.horizontal.decrease").font(.system(size: 22, weight: .medium)).frame(width: 46, height: 46)
+            }.buttonStyle(.plain).businessChatGlassSurface(in: Circle(), interactive: true).accessibilityLabel("История и меню Kelvin")
+            Spacer(minLength: 0)
+            BusinessChatGlassContainer(spacing: 6) {
+                HStack(spacing: 8) {
+                    Button { newThread() } label: {
+                        Image(systemName: "square.and.pencil").font(.system(size: 21)).frame(width: 34, height: 44)
+                    }.buttonStyle(.plain).disabled(submitting).accessibilityLabel("Новый чат")
+                    Menu {
+                        Button { goToBusiness(.overview) } label: { Label("Обзор iumrah", systemImage: "square.grid.2x2") }
+                        Button { goToBusiness(.bookings) } label: { Label("Поездки", systemImage: "suitcase.rolling") }
+                        Button { goToBusiness(.chats) } label: { Label("Чаты клиентов", systemImage: "message") }
+                        Button { goToBusiness(.account) } label: { Label("Аккаунт", systemImage: "person.crop.circle") }
+                        Divider()
+                        Button { openVoiceSettings() } label: { Label("Голос и язык", systemImage: "waveform") }
+                    } label: { Image(systemName: "ellipsis").font(.system(size: 21, weight: .semibold)).frame(width: 34, height: 44) }
+                        .accessibilityLabel("Разделы iumrah Business")
+                }.padding(.horizontal, 7).businessChatGlassSurface(in: Capsule(), interactive: true)
             }
-            Spacer()
-            Button { drawer = false; focused = true; follow = true; jumpTo = "kelvin-bottom" } label: { Image(systemName: "square.and.pencil").font(.system(size: 20)).frame(width: 44, height: 44).background(.regularMaterial, in: Circle()) }.accessibilityLabel("Написать сообщение в общей истории")
-        }.buttonStyle(.plain).padding(.horizontal, 16).padding(.vertical, 8).background(.regularMaterial)
+            }
+            Button { showConnection = true } label: {
+                VStack(spacing: 4) {
+                    KelvinWordmark(width: 94)
+                    Text(history?.online == true ? "На связи" : connectionError != nil ? "Нет связи" : history == nil ? "Подключение…" : history?.paired == true ? "Mac не в сети" : "Mac не подключён").font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }.buttonStyle(.plain).accessibilityLabel("Kelvin, \(connectionTitle)")
+        }.padding(.horizontal, 16).padding(.vertical, 7)
     }
     private var intro: some View {
         VStack(spacing: 10) {
@@ -501,7 +553,7 @@ struct KelvinView: View {
             if let answer = turn.answer {
                 VStack(alignment: .leading, spacing: 10) {
                     if turn.status == "failed" { Label("Не удалось выполнить", systemImage: "exclamationmark.circle").font(.caption).foregroundStyle(.secondary) }
-                    KelvinAnswerText(answer: answer, animated: animateAnswers.contains(turn.id) && follow)
+                    KelvinAnswerText(answer: answer, animated: animateAnswers.contains(turn.id)) { animateAnswers.remove(turn.id) }
                     if turn.status == "done" {
                         HStack(spacing: 20) {
                             Button { UIPasteboard.general.string = answer } label: { Image(systemName: "doc.on.doc") }.accessibilityLabel("Скопировать ответ")
@@ -511,7 +563,14 @@ struct KelvinView: View {
                 }.frame(maxWidth: .infinity, alignment: .leading)
             } else if turn.status == "running" {
                 HStack(spacing: 5) { KelvinVoiceOrb(state: .thinking, height: 42, maximumWidth: 42); Text("Kelvin думает…").font(.subheadline).foregroundStyle(.secondary) }
-            } else { Label(turn.status == "sending" ? "Отправляется…" : "В очереди на MacBook", systemImage: "clock").font(.caption).foregroundStyle(.secondary) }
+            } else if turn.status == "cancelled" {
+                Label("Отменено", systemImage: "xmark.circle").font(.caption).foregroundStyle(.secondary)
+            } else {
+                HStack {
+                    Label(turn.status == "sending" ? "Отправляется…" : (history?.online == true ? "В очереди" : "Ожидает подключения MacBook"), systemImage: "clock")
+                    if turn.status == "queued" { Spacer(); Button("Отменить") { Task { do { try await APIClient.shared.kelvinCancel(id: turn.id); await refresh() } catch { self.error = error.localizedDescription } } }.buttonStyle(.plain).foregroundStyle(.primary) }
+                }.font(.caption).foregroundStyle(.secondary)
+            }
         }
     }
     private var composedPrompt: String {
@@ -527,7 +586,7 @@ struct KelvinView: View {
                 }
             }
             HStack(alignment: .bottom, spacing: 10) {
-                Button { focused = false; plugins = true } label: { Image(systemName: "plus").font(.system(size: 22)).frame(width: 42, height: 42).background(.regularMaterial, in: Circle()) }.accessibilityLabel("Плагины и вложения")
+                Button { plugins = true } label: { Image(systemName: "plus").font(.system(size: 22)).frame(width: 42, height: 42) }.accessibilityLabel("Плагины и вложения")
                     .popover(isPresented: $plugins, arrowEdge: .bottom) { pluginMenu.presentationCompactAdaptation(.popover) }
                 TextField("Спроси Kelvin…", text: $draft, axis: .vertical).focused($focused).lineLimit(1...6).font(.body).padding(.vertical, 10).accessibilityLabel("Сообщение")
                 if trimmed.isEmpty && attachedText == nil {
@@ -536,7 +595,7 @@ struct KelvinView: View {
                     Button { if externalChatGPT { confirmExternal = true } else { submitDraft() } } label: { Image(systemName: "arrow.up").font(.system(size: 20, weight: .semibold)).frame(width: 42, height: 42).foregroundStyle(Color(uiColor: .systemBackground)).background(Color.primary, in: Circle()) }.accessibilityLabel("Отправить сообщение").disabled(submitting || composedPrompt.utf16.count > 12_000)
                 }
             }
-        }.buttonStyle(.plain).padding(8).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 29)).overlay { RoundedRectangle(cornerRadius: 29).strokeBorder(Color.primary.opacity(0.08), lineWidth: 1) }.padding(.horizontal, 12).padding(.vertical, 7)
+        }.buttonStyle(.plain).padding(8).businessChatGlassSurface(in: RoundedRectangle(cornerRadius: 29, style: .continuous)).padding(.horizontal, 12).padding(.vertical, 7)
     }
     private var pluginMenu: some View {
         ScrollView {
@@ -547,7 +606,7 @@ struct KelvinView: View {
                 Divider().padding(.vertical, 4)
                 plugin("ChatGPT", "sparkles", "Ручная передача запроса") { externalChatGPT = true }
                 plugin("Claude", "asterisk", "Текущий движок через Mac") { externalChatGPT = false }
-                plugin("MacBook", "laptopcomputer", history?.online == true ? "На связи" : "Подключение") { if history?.paired == true { notice = history?.online == true ? "Запросы Kelvin выполняются на подключённом MacBook." : "MacBook не отвечает. Запросы сохраняются в очереди." } else { confirmPair = true } }
+                plugin("MacBook", "laptopcomputer", history?.online == true ? "На связи" : "Подключение") { showConnection = true }
                 plugin("Telegram", "paperplane", "Общая история") { notice = "Обычные сообщения Telegram и Kelvin используют общую очередь. Доставка отдельного результата из приложения требует поддержки Mac-агента." }
             }.padding(12)
         }.frame(width: 285, height: 400)
@@ -560,7 +619,7 @@ struct KelvinView: View {
     private var pairingScreen: some View {
         VStack(alignment: .leading, spacing: 20) {
             Text("Подключение Mac").font(.title2.bold())
-            Text("Скопируй ключ только на свой Mac. Не отправляй его в чат. Запусти скрипт link-iumrah.sh согласно инструкции Kelvin.")
+            Text("Введи ключ только на своём Mac. В Terminal выполни: cd ~/Kelvin && bash founder_jarvis/macos/link-iumrah.sh. Не отправляй ключ в чат.")
             if let token = pairingToken { Text(token).font(.system(.caption, design: .monospaced)).privacySensitive().textSelection(.enabled); Button("Скопировать ключ") { UIPasteboard.general.setItems([["public.utf8-plain-text": token]], options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(120)]) }.buttonStyle(.borderedProminent) }
             Button("Готово") { pairingToken = nil }
         }.padding(24).presentationDetents([.medium, .large])
@@ -568,27 +627,31 @@ struct KelvinView: View {
     private var voiceScreen: some View {
         VStack(spacing: 14) {
             HStack {
-                Button { showVoice = false } label: { Image(systemName: "chevron.down").frame(width: 44, height: 44).background(.regularMaterial, in: Circle()) }.accessibilityLabel("Вернуться в чат")
+                Button { showVoice = false } label: { Image(systemName: "chevron.down").frame(width: 44, height: 44) }.buttonStyle(.plain).businessChatGlassSurface(in: Circle(), interactive: true).accessibilityLabel("Вернуться в чат")
                 Spacer(); KelvinWordmark(width: 90); Spacer()
-                Button { openVoiceSettings() } label: { Image(systemName: "slider.horizontal.3").frame(width: 44, height: 44).background(.regularMaterial, in: Circle()) }.accessibilityLabel("Настройки голоса")
+                Button { openVoiceSettings() } label: { Image(systemName: "slider.horizontal.3").frame(width: 44, height: 44) }.buttonStyle(.plain).businessChatGlassSurface(in: Circle(), interactive: true).accessibilityLabel("Настройки голоса")
             }.padding(.horizontal, 22)
-            Spacer(minLength: 0)
-            KelvinMeteredOrb(state: voiceState, meter: speech.meter, height: voiceTextFocused ? 105 : 245)
-            Text(voiceLabel).font(.title2.weight(.medium)).contentTransition(.opacity)
-            if !voiceTextFocused {
-                ScrollView { Text(!speech.transcript.isEmpty && voiceRequest == nil ? speech.transcript : voiceName).foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: .infinity) }.frame(maxHeight: 65)
-            }
-            if let issue = speech.error ?? error { Text(issue).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center).padding(.horizontal) }
-            Spacer(minLength: 0)
-            if voiceRequest != nil {
-                Button("Не ждать голосовой ответ") { voiceRequest = nil; voicePlaying = false; if !micMuted && continuous { startListening() } }.font(.subheadline).buttonStyle(.bordered).tint(.primary)
-                Text("Задача продолжится в общей истории.").font(.caption2).foregroundStyle(.secondary)
-            } else if !voiceTextFocused && (speech.speaking || speech.recording || (!speech.transcript.isEmpty && !micMuted)) {
-                Button(speech.speaking ? "Прервать ответ" : "Отправить голос") {
-                    if speech.speaking { interruptSpeech() } else { sendVoice() }
-                }.font(.subheadline.weight(.medium)).buttonStyle(.bordered).tint(.primary)
-            } else if !micMuted && voiceRequest == nil && !voiceStarting && !voiceTextFocused {
-                Button("Начать говорить") { startListening() }.font(.subheadline.weight(.medium)).buttonStyle(.bordered).tint(.primary)
+            GeometryReader { available in
+                ScrollView {
+                    VStack(spacing: 12) {
+                        KelvinMeteredOrb(state: voiceState, meter: speech.meter, height: voiceTextFocused ? 84 : min(245, max(100, available.size.height * 0.65)))
+                        Text(voiceLabel).font(.title2.weight(.medium)).contentTransition(.opacity)
+                        if !voiceTextFocused {
+                            ScrollView { Text(!speech.transcript.isEmpty && voiceRequest == nil ? speech.transcript : voiceName).foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: .infinity) }.frame(maxHeight: 65)
+                        }
+                        if let issue = speech.error ?? error { Text(issue).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center).padding(.horizontal).lineLimit(3) }
+                        if voiceRequest != nil {
+                            Button("Не ждать голосовой ответ") { voiceRequest = nil; voicePlaying = false; if !micMuted && continuous { startListening() } }.font(.subheadline).buttonStyle(.bordered).tint(.primary)
+                            Text("Задача продолжится в этом чате.").font(.caption2).foregroundStyle(.secondary)
+                        } else if !voiceTextFocused && (speech.speaking || speech.recording || (!speech.transcript.isEmpty && !micMuted)) {
+                            Button(speech.speaking ? "Прервать ответ" : "Отправить голос") {
+                                if speech.speaking { interruptSpeech() } else { sendVoice() }
+                            }.font(.subheadline.weight(.medium)).buttonStyle(.bordered).tint(.primary)
+                        } else if !micMuted && voiceRequest == nil && !voiceStarting && !voiceTextFocused && history?.online == true {
+                            Button("Начать говорить") { startListening() }.font(.subheadline.weight(.medium)).buttonStyle(.bordered).tint(.primary)
+                        }
+                    }.frame(maxWidth: .infinity).frame(minHeight: available.size.height)
+                }.scrollDismissesKeyboard(.interactively).scrollIndicators(.hidden)
             }
             HStack(alignment: .bottom, spacing: 8) {
                 HStack(spacing: 7) {
@@ -596,11 +659,11 @@ struct KelvinView: View {
                     if !voiceDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         Button { sendVoiceText() } label: { Image(systemName: "arrow.up").frame(width: 34, height: 34).foregroundStyle(Color(uiColor: .systemBackground)).background(Color.primary, in: Circle()) }.disabled(voiceRequest != nil || submitting || voiceDraft.utf16.count > 12_000).accessibilityLabel("Отправить текст голосовому ассистенту")
                     }
-                }.padding(.horizontal, 12).padding(.vertical, 3).background(.regularMaterial, in: Capsule())
-                Button { toggleMute() } label: { Image(systemName: micMuted ? "mic.slash.fill" : "mic.fill").font(.system(size: 19)).frame(width: 46, height: 46).background(.regularMaterial, in: Circle()) }.accessibilityLabel(micMuted ? "Включить микрофон" : "Выключить микрофон")
+                }.padding(.horizontal, 12).padding(.vertical, 3).businessChatGlassSurface(in: Capsule())
+                Button { toggleMute() } label: { Image(systemName: micMuted ? "mic.slash.fill" : "mic.fill").font(.system(size: 19)).frame(width: 46, height: 46) }.businessChatGlassSurface(in: Circle(), interactive: true).accessibilityLabel(micMuted ? "Включить микрофон" : "Выключить микрофон")
                 Button { suspendVoice(); showVoice = false } label: { Image(systemName: "xmark").font(.system(size: 18, weight: .semibold)).frame(width: 46, height: 46).foregroundStyle(Color(uiColor: .systemBackground)).background(Color.primary, in: Circle()) }.accessibilityLabel("Завершить разговор")
             }.buttonStyle(.plain).padding(.horizontal, 14)
-            Text("Голосовой разговор · по очереди").font(.caption2).foregroundStyle(.secondary).padding(.bottom, 12)
+            if !voiceTextFocused { Text("Голосовой разговор · по очереди").font(.caption2).foregroundStyle(.secondary).padding(.bottom, 8) }
         }.padding(.top, 12).frame(maxWidth: .infinity, maxHeight: .infinity).background(Color(uiColor: .systemBackground))
             .onAppear { voicePlaying = false; speech.stop(); speech.clearTranscript(); voiceEnabled = true; if !micMuted { startListening() } }
             .onChange(of: voiceTextFocused) { _, active in
@@ -632,7 +695,8 @@ struct KelvinView: View {
     private var voiceLabel: String {
         if speech.audioOutputActive { return "Я отвечаю." }
         if speech.speaking { return "Готовлю голос…" }
-        if voiceRequest != nil { return "Kelvin думает…" }
+        if voiceRequest != nil { return voiceTurn?.status == "running" ? "Kelvin думает…" : "Ожидаю MacBook…" }
+        if history?.online != true { return "MacBook не в сети" }
         if micMuted { return "Микрофон выключен" }
         if speech.recording { return "Я слушаю." }
         if voiceStarting { return "Подключаю микрофон…" }
@@ -715,6 +779,7 @@ struct KelvinView: View {
     }
     private func startListening() {
         guard usable, showVoice, !micMuted, !showVoiceSettings, !voiceTextFocused, !voiceStarting, !speech.recording, !speech.speaking, voiceRequest == nil, !submitting else { return }
+        guard history?.online == true else { error = "Подключи MacBook для голосового разговора."; return }
         voiceStarting = true; voiceEnabled = true
         let id = UUID(); voiceStartID = id
         voiceStartTask = Task { @MainActor in
@@ -730,6 +795,7 @@ struct KelvinView: View {
     }
     private func sendVoice() {
         guard usable, showVoice, voiceEnabled, !micMuted, voiceRequest == nil, !submitting else { return }
+        guard history?.online == true else { pauseListening(); error = "MacBook не в сети. Подключи его, чтобы продолжить разговор."; return }
         let text = speech.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { pauseListening(); return }
         enqueueVoice(text)
@@ -737,6 +803,7 @@ struct KelvinView: View {
     private func sendVoiceText() {
         let text = voiceDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard usable, showVoice, voiceEnabled, voiceRequest == nil, !submitting, !text.isEmpty, text.utf16.count <= 12_000 else { return }
+        guard history?.online == true else { error = "MacBook не в сети. Текст сохранён."; return }
         voiceDraft = ""; enqueueVoice(text); voiceTextFocused = false
     }
     private func enqueueVoice(_ text: String) {
@@ -748,53 +815,49 @@ struct KelvinView: View {
         guard usable, !submitting else { return }
         let text = composedPrompt; guard !text.isEmpty, text.utf16.count <= 12_000 else { return }
         if text != lastSubmittedText { requestID = UUID().uuidString; lastSubmittedText = text }
-        follow = true; focused = false; let id = requestID
+        follow = true; let id = requestID
         sendTask = Task { await send(text: text, id: id, voice: false) }
     }
     private func refresh() async {
-        guard !refreshing else { return }
-        refreshing = true; defer { refreshing = false }
+        let thread = selectedThread
+        guard refreshingThread != thread else { return }
+        let id = UUID(); refreshID = id; refreshingThread = thread
+        defer { if refreshID == id { refreshingThread = nil } }
         let login = auth.user?.login
         do {
-            let value = try await APIClient.shared.kelvinHistory()
-            guard usable, login == auth.user?.login, !Task.isCancelled else { return }
+            let value = try await APIClient.shared.kelvinHistory(thread: thread)
+            guard usable, login == auth.user?.login, thread == selectedThread, !Task.isCancelled else { return }
+            if let list = value.threads, threadList != list { threadList = list }
             if initialized {
                 animateAnswers.formIntersection(Set(value.turns.map(\.id)))
                 let previous = Dictionary(uniqueKeysWithValues: (history?.turns ?? []).map { ($0.id, $0.status) })
                 for turn in value.turns where turn.status == "done" && previous[turn.id] != nil && previous[turn.id] != "done" { animateAnswers.insert(turn.id) }
             }
             initialized = true; connectionError = nil
-            if history?.turns != value.turns || history?.online != value.online || history?.paired != value.paired { history = value }
+            if history?.turns != value.turns || history?.online != value.online || history?.paired != value.paired || history?.threadId != value.threadId || (showConnection && history?.lastSeen != value.lastSeen) { history = value }
             if let localTurn, value.turns.contains(where: { $0.id == localTurn.id }) { self.localTurn = nil }
-            if !showVoiceSettings, let id = voiceRequest, !submitting {
-                // A voice turn can leave the 60-item history window. Fetch it by its exact owner-scoped ID.
-                let turn: KelvinTurn
-                if let recent = value.turns.first(where: { $0.id == id }) { turn = recent }
-                else { turn = try await APIClient.shared.kelvinTurn(id: id) }
-                // The lookup can suspend; never play a result after cancel, account switch or lock.
-                guard usable, login == auth.user?.login, !Task.isCancelled,
-                      voiceRequest == id, !showVoiceSettings else { return }
-                if ["done", "failed"].contains(turn.status) {
-                    voiceRequest = nil
-                    if showVoice && !showVoiceSettings && voiceEnabled && turn.status == "done", let answer = turn.answer { voicePlaying = true; speak(answer) }
-                    else if turn.status == "failed" { error = turn.answer ?? "Не удалось выполнить голосовой запрос." }
-                }
+            if !showVoiceSettings, let id = voiceRequest, let turn = value.turns.first(where: { $0.id == id }), ["done", "failed", "cancelled"].contains(turn.status) {
+                voiceRequest = nil
+                if showVoice && !showVoiceSettings && voiceEnabled && turn.status == "done", let answer = turn.answer { voicePlaying = true; speak(answer) }
+                else if turn.status == "failed" { error = turn.answer ?? "Не удалось выполнить голосовой запрос." }
+            } else if voiceRequest != nil && !value.online {
+                voiceRequest = nil; error = "MacBook потерял связь. Запрос остался в истории."
             }
-        } catch is CancellationError {} catch { if usable && login == auth.user?.login && !Task.isCancelled { self.connectionError = error.localizedDescription } }
+        } catch is CancellationError {} catch { if usable && login == auth.user?.login && thread == selectedThread && !Task.isCancelled { self.connectionError = error.localizedDescription } }
     }
     private func pair() async { do { let token = try await APIClient.shared.kelvinPair(); if usable { pairingToken = token }; await refresh() } catch { self.error = error.localizedDescription } }
     private func send(text: String, id: String, voice: Bool) async {
         guard usable, !submitting else { return }
-        let login = auth.user?.login; submitting = true; error = nil
+        guard history?.threads != nil else { error = "Сначала обнови backend Kelvin и проверь связь."; if voice { voiceRequest = nil }; return }
+        let login = auth.user?.login; let thread = selectedThread; submitting = true; error = nil
         let now = Int64(Date().timeIntervalSince1970 * 1000)
-        withAnimation(motion) { localTurn = KelvinTurn(id: id, source: "app", prompt: text, answer: nil, status: "sending", createdAt: now, updatedAt: now) }
-        jumpTo = "kelvin-bottom"
+        localTurn = KelvinTurn(id: id, threadId: thread, source: "app", prompt: text, answer: nil, status: "sending", createdAt: now, updatedAt: now)
         defer { submitting = false }
         do {
-            try await APIClient.shared.kelvinSend(id: id, text: text, voice: voice)
+            try await APIClient.shared.kelvinSend(id: id, text: text, voice: voice, thread: thread)
             guard login == auth.user?.login, owner, !Task.isCancelled else { return }
             if !voice && composedPrompt == text { draft = ""; attachedText = nil; attachedName = nil; lastSubmittedText = ""; requestID = UUID().uuidString }
-            localTurn = KelvinTurn(id: id, source: "app", prompt: text, answer: nil, status: "queued", createdAt: now, updatedAt: now)
+            localTurn = KelvinTurn(id: id, threadId: thread, source: "app", prompt: text, answer: nil, status: "queued", createdAt: now, updatedAt: now)
             await refresh()
         } catch {
             guard login == auth.user?.login, !Task.isCancelled else { return }
@@ -812,12 +875,62 @@ private struct KelvinMeteredOrb: View {
 
 private struct KelvinBottomKey: PreferenceKey { static var defaultValue: CGFloat = .greatestFiniteMagnitude; static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() } }
 private struct KelvinViewportKey: PreferenceKey { static var defaultValue: CGFloat = 0; static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() } }
+/// Native scroll-edge effects on iOS 26; do not double-paint a faux glass gradient.
+private struct KelvinChromeBar<Bar: View>: ViewModifier {
+    let edge: VerticalEdge
+    let bar: Bar
+    @ViewBuilder func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content.safeAreaBar(edge: edge, spacing: 0) { bar }
+        } else {
+            content.safeAreaInset(edge: edge, spacing: 0) {
+                bar.background {
+                    LinearGradient(colors: [Color(uiColor: .systemBackground), Color(uiColor: .systemBackground).opacity(0.78), .clear], startPoint: edge == .top ? .top : .bottom, endPoint: edge == .top ? .bottom : .top)
+                        .ignoresSafeArea(.container, edges: edge == .top ? .top : .bottom).allowsHitTesting(false)
+                }
+            }
+        }
+    }
+}
+
+private struct KelvinChatAnchor: ViewModifier {
+    let empty: Bool
+    @ViewBuilder func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.defaultScrollAnchor(.bottom, for: .initialOffset)
+                .defaultScrollAnchor(nil, for: .sizeChanges)
+                .defaultScrollAnchor(empty ? .center : .top, for: .alignment)
+        } else {
+            content.defaultScrollAnchor(empty ? .center : .bottom)
+        }
+    }
+}
+
 private struct KelvinScrollTracking: ViewModifier {
     @Binding var follow: Bool
     @State private var height: CGFloat = 0
-    func body(content: Content) -> some View {
-        content.onPreferenceChange(KelvinViewportKey.self) { height = $0 }
-            .onPreferenceChange(KelvinBottomKey.self) { bottom in if height > 0 && bottom.isFinite && bottom <= height + 50 { follow = true } }
+    @State private var userScrolling = false
+    @State private var nearBottom = true
+    @ViewBuilder func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.onScrollGeometryChange(for: Bool.self) { g in
+                g.contentOffset.y + g.containerSize.height >= g.contentSize.height + g.contentInsets.bottom - 52
+            } action: { _, near in
+                nearBottom = near
+                if near { follow = true }
+                else if userScrolling { follow = false }
+            }
+            .onScrollPhaseChange { _, phase in
+                userScrolling = phase == .interacting || phase == .tracking || phase == .decelerating
+                if userScrolling && !nearBottom { follow = false }
+            }
+        } else {
+            content.onPreferenceChange(KelvinViewportKey.self) { height = $0 }
+                .onPreferenceChange(KelvinBottomKey.self) { bottom in if !follow && height > 0 && bottom.isFinite && abs(bottom - height) <= 50 { follow = true } }
+                .simultaneousGesture(DragGesture(minimumDistance: 14).onChanged { value in
+                    if value.translation.height > 14 && abs(value.translation.height) > abs(value.translation.width) * 1.35 { follow = false }
+                })
+        }
     }
 }
 
@@ -826,129 +939,40 @@ private struct KelvinScrollTracking: ViewModifier {
 private struct KelvinAnswerText: View {
     let answer: String
     let animated: Bool
+    let onComplete: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var shown: String?
-    init(answer: String, animated: Bool) { self.answer = answer; self.animated = animated; _shown = State(initialValue: animated ? "" : answer) }
+    init(answer: String, animated: Bool, onComplete: @escaping () -> Void) { self.answer = answer; self.animated = animated; self.onComplete = onComplete; _shown = State(initialValue: animated ? "" : answer) }
     var body: some View {
-        Text(shown ?? answer).font(.body).lineSpacing(4).textSelection(.enabled)
+        Text(answer).font(.body).lineSpacing(4).hidden().accessibilityHidden(true)
+            .overlay(alignment: .topLeading) {
+                Text(shown ?? answer).font(.body).lineSpacing(4).textSelection(.enabled)
+            }
             .task(id: answer) {
-                guard animated && !reduceMotion else { shown = answer; return }
-                let chars = Array(answer); let chunk = max(5, chars.count / 55)
+                guard animated && !reduceMotion else { shown = answer; if animated { onComplete() }; return }
+                let chars = Array(answer); let chunk = max(8, chars.count / 28)
                 var end = 0; shown = ""
                 while end < chars.count {
                     guard !Task.isCancelled else { return }
                     end = min(chars.count, end + chunk); shown = String(chars.prefix(end))
-                    do { try await Task.sleep(for: .milliseconds(20)) } catch { return }
+                    do { try await Task.sleep(for: .milliseconds(35)) } catch { return }
                 }
+                onComplete()
             }
             .onChange(of: animated) { _, active in if !active { shown = answer } }
+            .onDisappear { if animated { onComplete() } }
     }
 }
 
 private struct KelvinMemoryView: View {
     @Environment(\.dismiss) private var dismiss
-    @State private var records: [KelvinMemoryRecord] = []
-    @State private var next: String?
+    @State private var notes: [KelvinNote] = []
     @State private var text = ""
-    @State private var kind = "personal"
-    @State private var editing: KelvinMemoryRecord?
-    @State private var deletion: KelvinMemoryRecord?
-    @State private var busy = false
     @State private var error: String?
-    @State private var saveID = UUID().uuidString
-    private let kinds = ["personal", "business", "episodic", "decision", "task", "research"]
-    private func name(_ value: String) -> String {
-        switch value { case "personal": "Личное"; case "business": "Бизнес"; case "episodic": "Событие"; case "decision": "Решение"; case "task": "Задача"; case "research": "Исследование"; default: value }
-    }
-    var body: some View {
-        List {
-            Section(editing == nil ? "Новая запись" : "Исправление записи") {
-                Picker("Тип", selection: $kind) { ForEach(kinds,id: \.self) { Text(name($0)).tag($0) } }
-                TextField("Что нужно запомнить?", text: $text, axis: .vertical).lineLimit(2...6)
-                Button(editing == nil ? "Запомнить" : "Сохранить исправление") { Task { await save() } }
-                    .disabled(busy || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || text.utf8.count > 2000)
-                if editing != nil { Button("Отмена", role: .cancel) { resetEditor() } }
-            }
-            Section("Общая память") {
-                ForEach(records) { record in
-                    VStack(alignment: .leading,spacing: 6) {
-                        HStack { Text(name(record.kind)).font(.caption.weight(.semibold)); Spacer(); Text(record.trust == "candidate" ? "На проверке" : "v\(record.version)").font(.caption).foregroundStyle(.secondary) }
-                        Text(record.content).textSelection(.enabled)
-                        Text(Date(timeIntervalSince1970: Double(record.updated_at)/1000), style: .date).font(.caption2).foregroundStyle(.secondary)
-                        HStack {
-                            Button("Исправить") { editing = record; kind = record.kind; text = record.content }.buttonStyle(.borderless)
-                            if record.trust == "candidate" { Button("Подтвердить") { Task { await confirm(record) } }.buttonStyle(.borderless) }
-                        }.font(.caption).disabled(busy)
-                    }.swipeActions { Button("Удалить",role:.destructive) { deletion = record }.disabled(busy) }
-                }
-                if next != nil { Button("Загрузить ещё") { Task { await load(append: true) } }.disabled(busy) }
-            }
-            if let error { Text(error).font(.caption).foregroundStyle(.secondary) }
-        }
-        .navigationTitle("Память Kelvin")
-        .businessNavigationSurface()
-        .toolbar { ToolbarItem(placement:.confirmationAction) { Button("Готово") { dismiss() } } }
-        .refreshable { await load() }.task { await load() }
-        .confirmationDialog("Исключить запись из памяти? История чата останется видимой, но прежние сообщения не будут поданы модели.", isPresented: Binding(get: { deletion != nil }, set: { if !$0 { deletion = nil } }), titleVisibility: .visible) {
-            Button("Удалить", role: .destructive) { if let record = deletion { deletion = nil; Task { await remove(record) } } }
-        }
-    }
-    private func resetEditor() { editing = nil; text = ""; kind = "personal"; saveID = UUID().uuidString }
-    private func load(append: Bool = false) async {
-        guard !busy else { return }; busy = true; defer { busy = false }
-        do { let page = try await APIClient.shared.kelvinRecords(after: append ? (next ?? "") : ""); if append { let ids = Set(records.map(\.id)); records += page.records.filter { !ids.contains($0.id) } } else { records = page.records }; next = page.next; error = nil } catch { self.error = error.localizedDescription }
-    }
-    private func save() async {
-        guard !busy else { return }; busy = true
-        do { if let editing { try await APIClient.shared.kelvinCorrectRecord(editing,kind:kind,content:text) } else { try await APIClient.shared.kelvinSaveRecord(id:saveID,kind:kind,content:text) }; resetEditor(); busy = false; await load() } catch { busy = false; self.error = error.localizedDescription }
-    }
-    private func confirm(_ record: KelvinMemoryRecord) async {
-        guard !busy else { return }; busy = true
-        do { try await APIClient.shared.kelvinConfirmRecord(record); busy = false; await load() } catch { busy = false; self.error = error.localizedDescription }
-    }
-    private func remove(_ record: KelvinMemoryRecord) async {
-        guard !busy else { return }; busy = true
-        do { try await APIClient.shared.kelvinDeleteRecord(record); if editing?.id == record.id { resetEditor() }; busy = false; await load() } catch { busy = false; self.error = error.localizedDescription }
-    }
-}
-
-private struct KelvinInsightsView: View {
-    @Environment(\.dismiss) private var dismiss
-    @State private var items: [KelvinInsight] = []
-    @State private var loaded = false
-    @State private var error: String?
-    private func title(_ kind: String) -> String {
-        switch kind {
-        case "morning": return "Утренний брифинг"
-        case "evening": return "Вечерний обзор"
-        case "important", "critical": return "Важное событие"
-        default: return "Исследование"
-        }
-    }
-    var body: some View {
-        Group {
-            if let error { ContentUnavailableView("Не удалось загрузить", systemImage: "exclamationmark.circle", description: Text(error)) }
-            else if !loaded { ProgressView() }
-            else if items.isEmpty { ContentUnavailableView("Пока нет исследований", systemImage: "doc.text.magnifyingglass") }
-            else {
-                List(items) { item in
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text(title(item.kind)).font(.headline)
-                        Text(Date(timeIntervalSince1970: Double(item.createdAt) / 1000), style: .date).font(.caption).foregroundStyle(.secondary)
-                        Text(item.text).font(.body).textSelection(.enabled)
-                    }.padding(.vertical, 8)
-                }
-            }
-        }
-        .navigationTitle("Исследования и доклады")
-        .businessNavigationSurface()
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Готово") { dismiss() } } }
-        .task { await refresh() }
-        .refreshable { await refresh() }
-    }
-    @MainActor private func refresh() async {
-        do { items = try await APIClient.shared.kelvinInsights(); loaded = true; error = nil }
-        catch { self.error = error.localizedDescription }
-    }
+    var body: some View { List {
+        Section("Общая память") { TextField("Что нужно запомнить?",text: $text,axis: .vertical); Button("Запомнить") { Task { do { try await APIClient.shared.kelvinRemember(id: UUID().uuidString,text: text); text = ""; await load() } catch { self.error = error.localizedDescription } } }.disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }
+        Section("Заметки") { ForEach(notes) { note in Text(note.content).swipeActions { Button("Удалить",role:.destructive) { Task { do { try await APIClient.shared.kelvinForget(id:note.id); await load() } catch { self.error = error.localizedDescription } } } } } }
+        if let error { Text(error).foregroundStyle(.secondary) }
+    }.navigationTitle("Память Kelvin").businessNavigationSurface().toolbar { ToolbarItem(placement:.confirmationAction) { Button("Готово") { dismiss() } } }.task { await load() } }
+    private func load() async { do { notes = try await APIClient.shared.kelvinNotes() } catch { self.error = error.localizedDescription } }
 }

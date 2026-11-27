@@ -2,6 +2,7 @@ import Foundation
 
 struct KelvinTurn: Codable, Identifiable, Equatable {
     let id: String
+    let threadId: String?
     let source: String
     let prompt: String
     let answer: String?
@@ -9,14 +10,17 @@ struct KelvinTurn: Codable, Identifiable, Equatable {
     let createdAt: Int64
     let updatedAt: Int64
 }
+struct KelvinThread: Decodable, Identifiable, Equatable { let id: String; let title: String; let updatedAt: Int64 }
 struct KelvinHistory: Decodable {
     let ok: Bool
     let paired: Bool
     let online: Bool
     let turns: [KelvinTurn]
+    let threads: [KelvinThread]?
+    let threadId: String?
+    let lastSeen: Int64?
 }
 struct KelvinNote: Decodable, Identifiable { let id: String; let content: String }
-private struct KelvinTurnResponse: Decodable { let turn: KelvinTurn }
 private struct KelvinPair: Decodable { let token: String }
 private struct KelvinAck: Decodable { let ok: Bool }
 private struct KelvinNotes: Decodable { let notes: [KelvinNote] }
@@ -36,8 +40,12 @@ extension APIClient {
         guard let http = response as? HTTPURLResponse, http.value(forHTTPHeaderField: "Content-Type")?.hasPrefix("audio/wav") == true, data.count >= 44, data.count <= 15_000_000 else { throw APIError.invalidResponse }
         return data
     }
-    private func kelvinRequest<T: Decodable>(_ path: String, method: String = "GET", body: [String: Any]? = nil, as type: T.Type) async throws -> T {
-        var request = URLRequest(url: AppConfig.unifiedBackendURL.appending(path: "/api/admin/hotels/kelvin/\(path)"))
+    private func kelvinRequest<T: Decodable>(_ path: String, method: String = "GET", body: [String: Any]? = nil, as type: T.Type, thread: String? = nil) async throws -> T {
+        let base = AppConfig.unifiedBackendURL.appending(path: "/api/admin/hotels/kelvin/\(path)")
+        guard var components = URLComponents(url: base, resolvingAgainstBaseURL: false) else { throw APIError.invalidResponse }
+        if let thread { components.queryItems = [URLQueryItem(name: "thread", value: thread)] }
+        guard let url = components.url else { throw APIError.invalidResponse }
+        var request = URLRequest(url: url)
         request.httpMethod = method
         request.timeoutInterval = 25
         if let body {
@@ -48,61 +56,14 @@ extension APIClient {
         try validate(response, data: data)
         return try decoder.decode(T.self, from: data)
     }
-    func kelvinHistory() async throws -> KelvinHistory { try await kelvinRequest("history", as: KelvinHistory.self) }
-    func kelvinSend(id: String, text: String, voice: Bool = false) async throws {
-        _ = try await kelvinRequest("message", method: "POST", body: ["id": id, "prompt": text, "voice": voice], as: KelvinAck.self)
+    func kelvinHistory(thread: String = "legacy") async throws -> KelvinHistory { try await kelvinRequest("history", as: KelvinHistory.self, thread: thread) }
+    func kelvinSend(id: String, text: String, voice: Bool = false, thread: String = "legacy") async throws {
+        _ = try await kelvinRequest("message", method: "POST", body: ["id": id, "prompt": text, "voice": voice, "threadId": thread], as: KelvinAck.self)
     }
-    func kelvinTurn(id: String) async throws -> KelvinTurn {
-        try await kelvinRequest("turn", method: "POST", body: ["id": id], as: KelvinTurnResponse.self).turn
-    }
+    func kelvinCancel(id: String) async throws { _ = try await kelvinRequest("cancel", method: "POST", body: ["id": id], as: KelvinAck.self) }
     func kelvinPair() async throws -> String { try await kelvinRequest("pair", method: "POST", as: KelvinPair.self).token }
     func kelvinRevoke() async throws { _ = try await kelvinRequest("revoke", method: "POST", as: KelvinAck.self) }
     func kelvinNotes() async throws -> [KelvinNote] { try await kelvinRequest("memory", as: KelvinNotes.self).notes }
     func kelvinRemember(id: String, text: String) async throws { _ = try await kelvinRequest("remember", method: "POST", body: ["id":id,"content":text], as: KelvinAck.self) }
     func kelvinForget(id: String) async throws { _ = try await kelvinRequest("forget", method: "POST", body: ["id":id], as: KelvinAck.self) }
-}
-
-// Block 02: canonical typed memory; authentication remains the existing owner session.
-struct KelvinMemoryRecord: Decodable, Identifiable {
-    let id: String
-    let kind: String
-    let content: String
-    let trust: String
-    let source: String
-    let updated_at: Int64
-    let version: Int
-}
-struct KelvinMemoryPage: Decodable {
-    let records: [KelvinMemoryRecord]
-    let next: String?
-}
-extension APIClient {
-    func kelvinRecords(after: String = "") async throws -> KelvinMemoryPage {
-        try await kelvinRequest("records", method: "POST", body: ["action":"list","after":after], as: KelvinMemoryPage.self)
-    }
-    func kelvinSaveRecord(id: String, kind: String, content: String) async throws {
-        _ = try await kelvinRequest("records", method: "POST", body: ["action":"save","id":id,"kind":kind,"content":content], as: KelvinAck.self)
-    }
-    func kelvinCorrectRecord(_ record: KelvinMemoryRecord, kind: String, content: String) async throws {
-        _ = try await kelvinRequest("records", method: "POST", body: ["action":"correct","id":record.id,"version":record.version,"kind":kind,"content":content], as: KelvinAck.self)
-    }
-    func kelvinDeleteRecord(_ record: KelvinMemoryRecord) async throws {
-        _ = try await kelvinRequest("records", method: "POST", body: ["action":"delete","id":record.id,"version":record.version], as: KelvinAck.self)
-    }
-    func kelvinConfirmRecord(_ record: KelvinMemoryRecord) async throws {
-        _ = try await kelvinRequest("records", method: "POST", body: ["action":"confirm","id":record.id,"version":record.version], as: KelvinAck.self)
-    }
-}
-
-struct KelvinInsight: Decodable, Identifiable {
-    let id: String
-    let kind: String
-    let text: String
-    let createdAt: Int64
-}
-private struct KelvinInsights: Decodable { let insights: [KelvinInsight] }
-extension APIClient {
-    func kelvinInsights() async throws -> [KelvinInsight] {
-        try await kelvinRequest("insights", as: KelvinInsights.self).insights
-    }
 }

@@ -1,0 +1,55 @@
+{
+  "base": "Native Voice V2.1; includes UI Repair V3 code",
+  "files": [
+    {
+      "path": "Sources/Views/KelvinView.swift",
+      "bytes": 70962,
+      "sha256": "f92458522590c5e14d98bda132276a53a4a71dffe06a39c9640339ea5feff20c"
+    },
+    {
+      "path": "Sources/Views/KelvinDrawerShell.swift",
+      "bytes": 11180,
+      "sha256": "f224063a1aa540a22c24c23596e61bdfc6b8496fc118215e0fe1798c75f9ec11"
+    },
+    {
+      "path": "Sources/Views/KelvinDrawerPhysics.swift",
+      "bytes": 1100,
+      "sha256": "0afde85e3be0b6ab6cea5d9a02091d39e271f631d65cd0f5dda3be114f176930"
+    },
+    {
+      "path": "Sources/Networking/APIClient+Kelvin.swift",
+      "bytes": 4250,
+      "sha256": "eb4a50788c1f13e51f1320018062cdb607f6842e21db38c0224f3f4cf8e1447b"
+    },
+    {
+      "path": "Backend/HotelsWorker/src/kelvin.js",
+      "bytes": 14386,
+      "sha256": "b29849fa8400b31250abe70750907396ef0f497ca922412a074877a7b2be1dfa"
+    },
+    {
+      "path": "Backend/IumrahBackend/tests/kelvin.test.mjs",
+      "bytes": 8743,
+      "sha256": "2ee89a5b183ff00ccf5a302cdd8832d1335dea254193212479ea1ac1ff3a143b"
+    },
+    {
+      "path": "Tests/Architecture/test_kelvin_threads.py",
+      "bytes": 1912,
+      "sha256": "695550701a611001fc288e8def8866825ee8080892e583bfda0c7b5f756c94aa"
+    },
+    {
+      "path": "Tests/Architecture/test_kelvin_motion.py",
+      "bytes": 2289,
+      "sha256": "dde28bafef844932a77c4e953de16aee78f4608f522f724a64646f525aab0e14"
+    },
+    {
+      "path": "Tests/KelvinDrawerPhysicsTests.swift",
+      "bytes": 2119,
+      "sha256": "b993aeece9e7a431e93a1846ab57c0700195a10a1737eaa38e6513a63e4a35ea"
+    },
+    {
+      "path": "KELVIN_NATIVE_MOTION_V4.md",
+      "bytes": 3608,
+      "sha256": "0e30d3a5005bdd962ccdfb230f856de3247ca893390bc2d8a450e8b15d607177"
+    }
+  ]
+}
