@@ -1,0 +1,10 @@
+# iumrah Business — isolated native configurator
+
+Base: lattice-mobile-main 3.zip + kepler-ios-main 9.zip (27 November 2026).
+Apply ONLY to the original Business baseline. Do not apply over either earlier Journey Flow or Native Configurator Clone patch: the existing ZIP updater cannot delete stale files. Revert those patches first if installed.
+
+- Isolated static Swift module ClientConfigurator contains the client journey UI, JourneyStore, hotel/flight/transfer/guide selection and required shared declarations and resources. Client root, onboarding, wallet, account and customer checkout screens are not mounted or shipped as complete screens. Original staff manual editor remains available for existing drafts.
+- Home retains original masthead/search/carousel components; host menu and notification routing adapted to staff workspace. Trip summary delegates staff financial editor and submission to existing Business code. Four shared asset names are namespaced to avoid collisions.
+- Internal cost editor starts with PUBLIC estimate, not supplier cost. Staff confirmation required. Independent line overrides aggregate to existing staff API cost groups. Flight pricing uses existing per-traveler contract (cent rounding may differ from consumer totals); commission uses existing staff adjustable percentage rather than the consumer two-fee formula. Drafts retain the grouped cost breakdown, and save locally; actual submission is separate. Reopening uses existing Business draft editor.
+- Unsupported staff API cases (Haramain, over 6 people/rooms, incompatible hotel room groups) cannot be submitted as a full staff package without backend contract extension. No backend or workflow files are changed. Separate web repo was not supplied.
+- Verified: Swift syntax parsing, six Foundation model test groups, target source paths against original archive, ZIP structure. No Xcode/iOS SDK here: compiler type checking/linking, live API integration and pixel-by-pixel device screenshots remain unverified. Run a verification build before TestFlight.

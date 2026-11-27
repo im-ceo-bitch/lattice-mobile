@@ -30,10 +30,61 @@ struct UmrahPackageDraft: Codable, Equatable {
         var nights: Int { UmrahPackageDraft.stayCalendar.dateComponents([.day], from: checkIn, to: checkOut).day ?? 0 }
     }
     var travelers = 2
+    // Preserve the actual customer party instead of silently converting children to adults.
+    var clientAdults: Int? = nil
+    var clientChildren: Int? = nil
+    var clientInfants: Int? = nil
+    var includesClientESIM: Bool? = nil
+    var includesClientGuide: Bool? = nil
+    var includesClientVisa: Bool? = nil
+    var clientComponentPrices: [String: String]? = nil
+    static let clientTransferCodes = ["transfers", "vip_transfer_upgrade"]
+    static let clientZiyaratCodes = ["ziyarat_makkah", "ziyarat_madinah"]
+    static let clientCoreCodes = Set(["flight_roundtrip", "flight_outbound", "flight_inbound", "makkah_hotel", "madinah_hotel", "visa", "accompaniment"] + clientTransferCodes + clientZiyaratCodes)
+    mutating func setClientComponentPrice(_ code: String, _ value: String) {
+        var prices = clientComponentPrices ?? [:]
+        prices[code] = value
+        clientComponentPrices = prices
+        func group(_ keys: [String]) -> String {
+            let amounts = keys.compactMap { Self.amount(prices[$0] ?? "") }
+            guard amounts.count == keys.count, amounts.allSatisfy({ $0 <= 250000 }) else { return "" }
+            let total = amounts.reduce(0) { $0 + ($1 * 100).rounded() } / 100
+            guard total <= 250000 else { return "" }
+            return String(format: "%.2f", locale: Locale(identifier: "en_US_POSIX"), total)
+        }
+        if Self.clientTransferCodes.contains(code) { transferPrice = group(Self.clientTransferCodes.filter { prices[$0] != nil }) }
+        else if Self.clientZiyaratCodes.contains(code) { ziyaratPrice = group(Self.clientZiyaratCodes.filter { prices[$0] != nil }) }
+        else if !Self.clientCoreCodes.contains(code) { otherPrice = group(prices.keys.filter { !Self.clientCoreCodes.contains($0) }.sorted()) }
+    }
+    var clientUnsupported: [String]? = nil
+    private var hasClientParty: Bool {
+        guard let clientAdults else { return false }
+        return clientAdults + (clientChildren ?? 0) + (clientInfants ?? 0) == travelers
+    }
+    var bookingAdults: Int { hasClientParty ? (clientAdults ?? travelers) : travelers }
+    var bookingChildren: Int { hasClientParty ? (clientChildren ?? 0) : 0 }
+    var bookingInfants: Int { hasClientParty ? (clientInfants ?? 0) : 0 }
     var comfort = "Standard"
     var outbound: Flight? = nil
     var inbound: Flight? = nil
     var flightPrice = ""
+    // Optional per-direction editor amounts. The server still receives the one
+    // canonical per-pilgrim fare, so a round-trip fare is never counted twice.
+    var outboundPrice: String? = nil
+    var inboundPrice: String? = nil
+    var splitFlightPricing: Bool { outboundPrice != nil || inboundPrice != nil }
+    mutating func setCombinedFlightPrice(_ raw: String) {
+        outboundPrice = nil; inboundPrice = nil; flightPrice = raw
+    }
+    mutating func beginSplitFlightPricing() {
+        // Do not fabricate a split of a supplier round-trip tariff.
+        outboundPrice = ""; inboundPrice = ""; flightPrice = ""
+    }
+    mutating func setLegPrice(_ raw: String, outbound: Bool) {
+        if outbound { outboundPrice = raw } else { inboundPrice = raw }
+        guard let a = Self.amount(outboundPrice ?? ""), let b = Self.amount(inboundPrice ?? ""), a + b > 0, (a + b).isFinite, a + b <= 250000 else { flightPrice = ""; return }
+        flightPrice = String(format: "%.2f", locale: Locale(identifier: "en_US_POSIX"), a + b)
+    }
     var makkah = Stay()
     var includeMedina = true
     var medina = Stay(meals: "Завтрак и ужин")
@@ -55,6 +106,8 @@ struct UmrahPackageDraft: Codable, Equatable {
     var commission: String? = nil
     var visaPrice: String? = nil
     var guidePrice: String? = nil
+    var preferredGuideID: String? = nil
+    var preferredGuideName: String? = nil
     var otherPrice: String? = nil
     var requestSecret: String? = nil
     var receipt: BusinessManualBookingReceipt? = nil
@@ -100,7 +153,7 @@ struct UmrahPackageDraft: Codable, Equatable {
         if outKey != backKey, selectedFareKinds?["out"] == "one_way", selectedFareKinds?["back"] == "one_way" { return out + back }
         return nil
     }
-    var parameterIssue: String? { (1...6).contains(travelers) ? nil : "Укажите от 1 до 6 паломников." }
+    var parameterIssue: String? { if let issue = clientUnsupported?.first { return issue }; return (1...6).contains(travelers) ? nil : "Укажите от 1 до 6 паломников." }
     func stayIssue(_ stay: Stay) -> String? {
         guard !stay.id.isEmpty, !stay.room.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               (1...6).contains(stay.rooms), stay.nights > 0 else { return "Выберите отель, номер и даты проживания." }
@@ -249,9 +302,31 @@ final class UmrahDraftStore: ObservableObject {
             savedDrafts = values; storageError = nil; return true
         } catch { storageError = "Не удалось сохранить архив: \(error.localizedDescription)"; return false }
     }
+    /// Save an independent reusable local snapshot without replacing the active draft.
+    func installIndependentSnapshot(_ snapshot: UmrahPackageDraft) -> Bool {
+        guard storageError == nil, draft.requestSecret == nil, draft.receipt == nil, draft.offerReceipt == nil else {
+            storageError = storageError ?? "В текущем черновике есть незавершённое оформление. Откройте его в разделе черновиков."
+            return false
+        }
+        if draft != snapshot, draft.outbound != nil || draft.inbound != nil || !draft.makkah.id.isEmpty || !draft.clientName.isEmpty {
+            guard saveIndependentSnapshot(draft) else { return false }
+        }
+        draft = snapshot; save(); return storageError == nil
+    }
+    func saveIndependentSnapshot(_ snapshot: UmrahPackageDraft) -> Bool {
+        guard snapshot.requestSecret == nil, snapshot.receipt == nil, snapshot.offerReceipt == nil else { return false }
+        return writeArchive([BusinessSavedUmrahDraft(draft: snapshot)] + savedDrafts.filter { $0.draft != snapshot })
+    }
+    func savePackageSnapshot() -> Bool {
+        guard draft.requestSecret == nil, draft.receipt == nil, draft.offerReceipt == nil else { return false }
+        let entries = savedDrafts.filter { $0.draft != draft }
+        guard writeArchive([BusinessSavedUmrahDraft(draft: draft)] + entries) else { return false }
+        save()
+        return storageError == nil
+    }
     func archiveAndStartNew() -> Bool {
         guard draft.requestSecret == nil, draft.receipt == nil, draft.offerReceipt == nil else { return false }
-        guard writeArchive([BusinessSavedUmrahDraft(draft: draft)] + savedDrafts) else { return false }
+        guard writeArchive([BusinessSavedUmrahDraft(draft: draft)] + savedDrafts.filter { $0.draft != draft }) else { return false }
         draft = UmrahPackageDraft(); save(); return storageError == nil
     }
     func openSaved(_ entry: BusinessSavedUmrahDraft) -> Bool {

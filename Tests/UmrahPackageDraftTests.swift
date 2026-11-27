@@ -89,3 +89,53 @@ expect(!BusinessConfiguratorPricePreview(draft: previewDraft, stage: 4).isComple
 previewDraft.flightPrice = ""; previewDraft.makkah.price = ""; previewDraft.medina.price = ""
 expect(BusinessConfiguratorPricePreview(draft: previewDraft, stage: 1).amount == nil, "Invalidated prices removed from preview")
 print("Configurator design price preview checks passed")
+
+
+var flexible = decoded
+let existingHotel = flexible.makkah.id
+let existingFlight = flexible.outbound?.id
+flexible.beginSplitFlightPricing()
+expect(flexible.saleTotal == nil, "Incomplete split cannot be sold")
+flexible.setLegPrice("200.25", outbound: true)
+expect(flexible.flightPrice.isEmpty, "A single leg does not complete split")
+flexible.setLegPrice("300.25", outbound: false)
+expect(flexible.flightPrice == "500.50" && flexible.total == decoded.total, "Split fare maps to canonical combined amount exactly once")
+flexible.makkah.price = "450"
+expect(flexible.makkah.id == existingHotel && flexible.outbound?.id == existingFlight, "Editing a price preserves selected components")
+expect(flexible.total == (decoded.total ?? 0) + 50, "Hotel override recalculates the package")
+flexible.preferredGuideID = "guide-1"; flexible.preferredGuideName = "Guide"
+let flexibleDecoded = try JSONDecoder().decode(UmrahPackageDraft.self, from: JSONEncoder().encode(flexible))
+expect(flexibleDecoded == flexible, "Per-leg pricing and preferred guide persist")
+flexible.setCombinedFlightPrice("500")
+expect(!flexible.splitFlightPricing && flexible.flightPrice == "500", "Combined fare clears old split")
+flexible.beginSplitFlightPricing(); flexible.setLegPrice("nan", outbound: true); flexible.setLegPrice("300", outbound: false)
+expect(flexible.flightPrice.isEmpty && flexible.saleTotal == nil, "Invalid split blocked")
+print("Journey flexible price checks passed")
+
+
+var family = decoded
+family.travelers = 4; family.clientAdults = 2; family.clientChildren = 1; family.clientInfants = 1
+expect(family.bookingAdults == 2 && family.bookingChildren == 1 && family.bookingInfants == 1, "Actual passenger types retained")
+family.travelers = 2
+expect(family.bookingAdults == 2 && family.bookingChildren == 0 && family.bookingInfants == 0, "Changing count cannot reuse stale passenger breakdown")
+family.clientUnsupported = ["Unsupported rail contract"]
+expect(family.builderIssue(at: 0) != nil, "Unsupported selection cannot be submitted")
+let familyRoundtrip = try JSONDecoder().decode(UmrahPackageDraft.self, from: JSONEncoder().encode(family))
+expect(familyRoundtrip == family, "Clone metadata persists")
+print("Client bridge draft checks passed")
+
+var grouped = decoded
+grouped.clientComponentPrices = ["transfers":"300", "vip_transfer_upgrade":"100", "ziyarat_makkah":"30", "ziyarat_madinah":"40", "esim":"20", "meals":"50"]
+grouped.setClientComponentPrice("vip_transfer_upgrade", "120.50")
+expect(grouped.transferPrice == "420.50", "VIP change preserves base transfer")
+grouped.setClientComponentPrice("ziyarat_makkah", "35")
+expect(grouped.ziyaratPrice == "75.00", "Ziyarat cities retain independent amounts")
+grouped.setClientComponentPrice("esim", "0")
+expect(grouped.otherPrice == "50.00", "Free eSIM preserves meals price")
+grouped.setClientComponentPrice("meals", "bad")
+expect(grouped.costSubtotal == nil, "Invalid component prevents quote")
+grouped.setClientComponentPrice("meals", "42.25")
+expect(grouped.otherPrice == "42.25", "Correcting individual component restores total")
+let groupedRoundtrip = try JSONDecoder().decode(UmrahPackageDraft.self, from: JSONEncoder().encode(grouped))
+expect(groupedRoundtrip == grouped, "Component breakdown survives storage")
+print("Individual component price checks passed")

@@ -30,21 +30,24 @@ extension APIClient {
         func hotel(_ stay: UmrahPackageDraft.Stay, city: String) -> [String: Any] { ["id":stay.id,"name":stay.name,"city":city,"stars":stay.stars ?? 3,"checkIn":day(stay.checkIn),"checkOut":day(stay.checkOut),"imageUrl":stay.imageURL ?? ""] }
         var services = ["flight","makkahHotel","transfer"]
         if draft.includeMedina { services.append("madinahHotel") }
+        if draft.includesClientESIM == true { services.append("esim") }
         if draft.ziyaratMakkah { services.append("ziyaratMakkah") }
         if draft.includeMedina && draft.ziyaratMedina { services.append("ziyaratMadinah") }
-        if amount(draft.visaPrice)>0 { services.append("visa") }; if amount(draft.guidePrice)>0 { services.append("accompaniment") }
+        if draft.includesClientVisa == true || amount(draft.visaPrice)>0 { services.append("visa") }; if draft.includesClientGuide == true || amount(draft.guidePrice)>0 { services.append("accompaniment") }
         if draft.makkah.meals != "Без питания" || (draft.includeMedina && draft.medina.meals != "Без питания") { services.append("meals") }
         let medinaID: Any = draft.includeMedina ? draft.medina.id as Any : NSNull()
         let medinaHotel: Any = draft.includeMedina ? hotel(draft.medina, city: "madinah") as Any : NSNull()
         let nights = draft.makkah.nights + (draft.includeMedina ? draft.medina.nights : 0)
+        var customization: [String: Any] = ["accompaniment":draft.includesClientGuide == true || amount(draft.guidePrice)>0,"guideMeetingPoint":"airport","ziyaratMakkah":draft.ziyaratMakkah,"ziyaratMadinah":draft.includeMedina && draft.ziyaratMedina,"meals":services.contains("meals"),"esim":draft.includesClientESIM == true]
+        if let id = draft.preferredGuideID, !id.isEmpty, draft.includesClientGuide == true || amount(draft.guidePrice)>0 { customization["preferredGuideID"] = id }
         let booking: [String: Any] = [
             "planId":plan,"totalUsd":total,"perPilgrimUsd":(total*100/Double(draft.travelers)).rounded()/100,
-            "input":["from":first.origin,"originCode":first.origin,"arrivalAirportCode":last.destination,"startDate":day(arrival),"endDate":day(departure),"flexibleDays":0,"hotelPreference":String(min(5,max(1,draft.makkah.stars ?? 3))),"includeMadinah":draft.includeMedina,"travelers":["adults":draft.travelers,"children":0,"infants":0,"rooms":draft.makkah.rooms]],
+            "input":["from":first.origin,"originCode":first.origin,"arrivalAirportCode":last.destination,"startDate":day(arrival),"endDate":day(departure),"flexibleDays":0,"hotelPreference":String(min(5,max(1,draft.makkah.stars ?? 3))),"includeMadinah":draft.includeMedina,"travelers":["adults":draft.bookingAdults,"children":draft.bookingChildren,"infants":draft.bookingInfants,"rooms":draft.makkah.rooms]],
             "route":["originCode":first.origin,"outboundDestination":last.destination,"returnOrigin":back.origin],
             "stay":["totalDays":nights+1,"totalNights":nights,"makkahCheckIn":day(draft.makkah.checkIn),"makkahCheckOut":day(draft.makkah.checkOut),"makkahNights":draft.makkah.nights,"madinahCheckIn":draft.includeMedina ? day(draft.medina.checkIn) as Any : NSNull(),"madinahCheckOut":draft.includeMedina ? day(draft.medina.checkOut) as Any : NSNull(),"madinahNights":draft.includeMedina ? draft.medina.nights : 0],
             "selection":["flightId":flightID,"makkahHotelId":draft.makkah.id,"madinahHotelId":medinaID],
             "selectionDetails":["pricingMode":"estimate","flight":flight,"makkahHotel":hotel(draft.makkah,city:"makkah"),"madinahHotel":medinaHotel],
-            "customization":["accompaniment":amount(draft.guidePrice)>0,"guideMeetingPoint":"airport","ziyaratMakkah":draft.ziyaratMakkah,"ziyaratMadinah":draft.includeMedina && draft.ziyaratMedina,"meals":services.contains("meals"),"esim":false],
+            "customization":customization,
             "includedServices":services,"hotelNames":["makkah":draft.makkah.name,"madinah":draft.includeMedina ? draft.medina.name : ""],"flight":first.airline + " " + first.flightNumber + " / " + back.airline + " " + back.flightNumber,
             "pilgrimProfile":["firstName":draft.clientName,"lastName":draft.lastName ?? "","phone":draft.phone,"telegram":draft.telegram]
         ]

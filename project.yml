@@ -27,6 +27,11 @@ targets:
         buildPhase: resources
       - path: Resources/EndpointConfig.json
         buildPhase: resources
+      - path: ClientConfigurator/Sources/Core/Components/IumrahWorldDotsShaders.metal
+        buildPhase: sources
+    dependencies:
+      - target: IumrahClientConfigurator
+        embed: false
 
     settings:
       base:
@@ -67,3 +72,25 @@ targets:
 
     scheme:
       testTargets: []
+
+  IumrahClientConfigurator:
+    type: library.static
+    platform: iOS
+    sources:
+      - path: ClientConfigurator/Sources
+        excludes:
+          - Core/Components/IumrahWorldDotsShaders.metal
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.iumrah.root.clientconfigurator
+        PRODUCT_MODULE_NAME: IumrahClientConfigurator
+        DEFINES_MODULE: YES
+        CODE_SIGNING_ALLOWED: NO
+        CODE_SIGNING_REQUIRED: NO
+        TARGETED_DEVICE_FAMILY: "1,2"
+        "TARGETED_DEVICE_FAMILY[sdk=macosx*]": "6"
+        SUPPORTS_MACCATALYST: YES
+        DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER: NO
+        SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
+        "MACOSX_DEPLOYMENT_TARGET[sdk=macosx*]": "14.0"
+        SKIP_INSTALL: YES

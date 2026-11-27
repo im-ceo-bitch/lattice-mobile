@@ -137,7 +137,7 @@ private struct BusinessCompactTabView: View {
                 NavigationStack { BookingsView() }
                     .tag(BusinessWorkspaceSection.bookings)
                     .tabItem { Label("Поездки", systemImage: "suitcase.rolling.fill") }
-                NavigationStack { UmrahBuilderView(owner: auth.user?.login ?? "", embedded: true) }
+                NavigationStack { BusinessNativeConfiguratorView(owner: auth.user?.login ?? "") }
                     .tag(BusinessWorkspaceSection.create)
                     .tabItem { Label("Создать", systemImage: "plus.circle") }
                 NavigationStack { ChatsView() }
@@ -241,7 +241,7 @@ private struct BusinessWorkspaceView: View {
     private func workspaceDestination(_ section: BusinessWorkspaceSection) -> some View {
         switch section {
         case .overview: OverviewView()
-        case .create: UmrahBuilderView(owner: auth.user?.login ?? "", embedded: true)
+        case .create: BusinessNativeConfiguratorView(owner: auth.user?.login ?? "")
         case .account: BusinessAccountHome()
         case .bookings: BookingsView()
         case .chats: ChatsView()

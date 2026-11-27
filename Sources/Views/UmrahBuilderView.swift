@@ -21,8 +21,9 @@ struct UmrahBuilderView: View {
     @State private var deletingDraft: BusinessSavedUmrahDraft?
     @State private var confirmDeleteDraft = false
     @State private var finishAsOffer: Bool
-    init(owner: String, editingOffer: BusinessOffer? = nil, initial: UmrahPackageDraft? = nil, preferOffer: Bool = false, embedded: Bool = false, pushed: Bool = false) {
+    init(owner: String, editingOffer: BusinessOffer? = nil, initial: UmrahPackageDraft? = nil, preferOffer: Bool = false, embedded: Bool = false, pushed: Bool = false, startAtCheckout: Bool = false) {
         self.embedded = embedded; self.pushed = pushed
+        if startAtCheckout { _studioHome = State(initialValue: false); _presentation = State(initialValue: false) }
         self.editingOffer = editingOffer
         _finishAsOffer = State(initialValue: preferOffer || editingOffer != nil)
         _store = StateObject(wrappedValue: UmrahDraftStore(owner: editingOffer.map { owner + ":" + $0.id + ":" + String($0.revision) } ?? owner, initial: initial))
@@ -374,7 +375,7 @@ struct UmrahBuilderView: View {
                     Text("Количество человек").font(.subheadline)
                     Spacer()
                     Stepper(value: Binding(get: { store.draft.travelers }, set: { value in
-                        if value != store.draft.travelers { store.draft.travelers = value; store.draft.makkah.price = ""; store.draft.medina.price = ""; store.draft.flightPrice = "" }
+                        if value != store.draft.travelers { store.draft.travelers = value; store.draft.makkah.price = ""; store.draft.medina.price = ""; store.draft.setCombinedFlightPrice("") }
                     }), in: 1...6) { Text("\(store.draft.travelers)").font(.title2.bold()).monospacedDigit() }.fixedSize()
                 }
             }
@@ -400,7 +401,7 @@ struct UmrahBuilderView: View {
                 Picker("Город Узбекистана", selection: Binding(get: { store.draft.builderOrigin ?? store.draft.outbound?.legs.first?.origin ?? "Все" }, set: { value in
                     store.draft.builderOrigin = value
                     if value != "Все", let existing = store.draft.outbound?.legs.first?.origin, existing != value {
-                        store.draft.outbound = nil; store.draft.inbound = nil; store.draft.flightPrice = ""; store.draft.flightFares = nil; store.draft.selectedFareKeys = nil; store.draft.selectedFareKinds = nil; store.draft.builderFlightPhase = 0
+                        store.draft.outbound = nil; store.draft.inbound = nil; store.draft.setCombinedFlightPrice(""); store.draft.flightFares = nil; store.draft.selectedFareKeys = nil; store.draft.selectedFareKinds = nil; store.draft.builderFlightPhase = 0
                         store.draft.makkah.price = ""; store.draft.medina.price = ""
                     }
                 })) { ForEach(["Все", "TAS", "FEG", "NMA", "AZN", "SKD", "BHK", "KSQ", "TMJ", "UGC"], id: \.self) { Text(UmrahAirportLabel.city($0)).tag($0) } }
@@ -669,7 +670,7 @@ struct UmrahBuilderView: View {
                 Button(conciergeReady ? "Заявка отмечена готовой" : "Отметить заявку: предложение готово") { Task { do { try await APIClient.shared.changeConciergeRequest(id: requestID, status: "READY"); error = nil; conciergeReady = true } catch { self.error = error.localizedDescription } } }.buttonStyle(BusinessActionStyle(primary: false)).disabled(conciergeReady)
             }
             NavigationLink("Управление предложением") { BusinessOfferDetailView(id: offer.id) }.buttonStyle(BusinessActionStyle(primary: false))
-            if editingOffer == nil && store.draft.conciergeID == nil { Button("Дублировать пакет") { comparison = nil; var copy = store.draft; copy.requestSecret = nil; copy.offerReceipt = nil; copy.receipt = nil; copy.submissionMode = nil; copy.clientName = ""; copy.lastName = nil; copy.phone = ""; copy.email = nil; copy.telegram = ""; copy.notes = ""; copy.sendEmail = false; copy.flightPrice = ""; copy.flightFares = nil; copy.selectedFareKeys = nil; copy.selectedFareKinds = nil; copy.makkah.price = ""; copy.medina.price = ""; store.draft = copy; studioHome = true; store.save() }.buttonStyle(BusinessActionStyle(primary: false)) }
+            if editingOffer == nil && store.draft.conciergeID == nil { Button("Дублировать пакет") { comparison = nil; var copy = store.draft; copy.requestSecret = nil; copy.offerReceipt = nil; copy.receipt = nil; copy.submissionMode = nil; copy.clientName = ""; copy.lastName = nil; copy.phone = ""; copy.email = nil; copy.telegram = ""; copy.notes = ""; copy.sendEmail = false; copy.setCombinedFlightPrice(""); copy.flightFares = nil; copy.selectedFareKeys = nil; copy.selectedFareKinds = nil; copy.makkah.price = ""; copy.medina.price = ""; store.draft = copy; studioHome = true; store.save() }.buttonStyle(BusinessActionStyle(primary: false)) }
             Button(editingOffer == nil && store.draft.conciergeID == nil ? "Создать новую умру" : "Готово") {
                 if editingOffer != nil || store.draft.conciergeID != nil { dismiss() } else { comparison = nil; store.draft = UmrahPackageDraft(); go(0); studioHome = true; store.save() }
             }
@@ -849,12 +850,12 @@ private struct UmrahFlightStep: View {
             if let back = draft.inbound { UmrahFlightCard(title: "Обратно", flight: back) }
             UmrahPanel(title: "Перелёт на человека · USD") {
                 if let suggested = draft.suggestedFlightPrice {
-                    Button { draft.flightPrice = String(format: "%.2f", suggested) } label: {
+                    Button { draft.setCombinedFlightPrice(String(format: "%.2f", suggested)) } label: {
                         HStack { VStack(alignment: .leading) { Text("Использовать тариф из базы").font(.headline); Text(suggested, format: .currency(code: "USD")).font(.subheadline) }; Spacer(); Image(systemName: "arrow.down.circle").foregroundStyle(BusinessDesign.ink) }
                     }.buttonStyle(.plain)
                     Text("Сохранённый тариф — ориентир, подтвердите актуальную цену.").font(.caption).foregroundStyle(.secondary)
                 } else { Text("Нет подтверждённого общего тарифа. Введите сумму за оба направления вручную.").font(.caption).foregroundStyle(.secondary) }
-                UmrahMoneyField(title: "Туда и обратно · на человека", text: $draft.flightPrice)
+                UmrahMoneyField(title: "Туда и обратно · на человека", text: Binding(get: { draft.flightPrice }, set: { draft.setCombinedFlightPrice($0) }))
                 if let fare = UmrahPackageDraft.amount(draft.flightPrice), fare > 0 { HStack { Text("За \(draft.travelers) чел."); Spacer(); Text(fare * Double(draft.travelers), format: .currency(code: "USD")).font(.title2.bold()) } }
             }
         }
@@ -963,7 +964,7 @@ private struct UmrahFlightStep: View {
             if let origin = flight.legs.first?.origin { draft.builderOrigin = origin; self.origin = origin }
             if previous?.legs != flight.legs, let arrival = draft.arrival { draft.pickup = arrival }
         } else { draft.inbound = flight }
-        if previous?.id != flight.id || previous?.legs != flight.legs || draft.inbound == nil || oldSuggestion != draft.suggestedFlightPrice { draft.flightPrice = "" }
+        if previous?.id != flight.id || previous?.legs != flight.legs || draft.inbound == nil || oldSuggestion != draft.suggestedFlightPrice { draft.setCombinedFlightPrice("") }
         if oldArrival != draft.arrival || oldDeparture != draft.departure { draft.makkah.price = ""; draft.medina.price = "" }
         draft.builderFlightPhase = direction == 0 ? 1 : 2
     }
@@ -1065,7 +1066,7 @@ private struct UmrahFlightCard: View {
     }
 }
 
-private struct UmrahMoneyField: View {
+struct UmrahMoneyField: View {
     let title: String
     @Binding var text: String
     var body: some View {
