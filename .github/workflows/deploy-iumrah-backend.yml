@@ -28,6 +28,7 @@ jobs:
       IUMRAH_ENABLE_ROUTE_CUTOVER: '0'
       IUMRAH_ENABLE_SCHEDULED_JOBS: '1'
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      KELVIN_GEMINI_API_KEY: ${{ secrets.KELVIN_GEMINI_API_KEY }}
       BOT_INGEST_TOKEN: ${{ secrets.FLIGHT_HUB_BOT_TOKEN }}
       ADMIN_TOKEN: ${{ secrets.FLIGHT_HUB_ADMIN_TOKEN }}
       IGNAV_INGEST_TOKEN: ${{ secrets.FLIGHT_HUB_IGNAV_TOKEN }}
@@ -66,7 +67,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for key in GEMINI_API_KEY BOT_INGEST_TOKEN ADMIN_TOKEN IGNAV_INGEST_TOKEN \
+          for key in GEMINI_API_KEY KELVIN_GEMINI_API_KEY BOT_INGEST_TOKEN ADMIN_TOKEN IGNAV_INGEST_TOKEN \
             AERODATABOX_INGEST_TOKEN AERODATABOX_RAPIDAPI_KEY APNS_KEY_ID \
             APNS_PRIVATE_KEY ESIM_ACCESS_CODE ESIM_ACCESS_SECRET; do
             if [[ -n "${!key:-}" ]]; then
